@@ -1,0 +1,23 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "radix-nova",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/styles.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "menuColor": "default",
+  "menuAccent": "subtle",
+  "aliases": {
+    "components": "@loomcast/ui/components",
+    "ui": "@loomcast/ui/components",
+    "utils": "@loomcast/ui/lib/cn",
+    "lib": "@loomcast/ui/lib",
+    "hooks": "@loomcast/ui/hooks"
+  }
+}
