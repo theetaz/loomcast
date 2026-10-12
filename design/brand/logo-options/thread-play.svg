@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Loomcast">
+ <rect width="32" height="32" rx="8" fill="#4a52d1"/>
+ <path d="M10 11.5V21.4c0 1.8 1.7 2.8 3.2 2L23.4 17.7c1.5-.8 1.5-2.9 0-3.7L14.6 9.1" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M4.6 6.6C8 6.6 10 8.5 10 11.5" fill="none" stroke="#f08a5d" stroke-width="3.2" stroke-linecap="round"/>
+</svg>
