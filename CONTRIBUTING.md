@@ -42,7 +42,7 @@ Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/
 | `chore` | Maintenance that does not change behaviour |
 | `revert` | Reverting an earlier commit |
 
-**Scopes** in this repository: `web`, `api`, `ui`, `bridge`, `studio`, `brand`, `infra`, `deps`, `docs`, `repo`.
+**Scopes** in this repository: `web`, `api`, `ui`, `bridge`, `agent`, `mcp`, `db`, `auth`, `contracts`, `kb`, `pipeline`, `scheduler`, `publisher`, `channels`, `studio`, `brand`, `infra`, `ci`, `deps`, `docs`, `repo`, `e2e`. The list is defined in `commitlint.config.mjs`, and a commit with any other scope is rejected.
 
 **Subject line**
 - Imperative mood ("add", not "added" or "adds").
@@ -81,6 +81,8 @@ Refs: #12
 
 - Each pull request covers one logical change and targets `main`.
 - The title follows the commit-message format, for example `feat(web): add script editor`. It becomes the squash-commit subject.
+- CI checks the pull request title and every commit in the pull request with commitlint (`.github/workflows/commits.yml`). Both checks use the same rules as the local commit hook.
+- Commits and pull requests must not contain co-author trailers, sign-off trailers, or references to the tools used to produce the change.
 - The description uses the repository template (`.github/pull_request_template.md`):
   - summary;
   - changes;
@@ -94,14 +96,29 @@ Refs: #12
 
 - Data of any kind: local databases, backups, rendered videos and audio, model weights.
 - Secrets and local configuration: `.env*`, keys, credentials.
-- Configuration and instruction files for AI agents and editor assistants, for example `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.cursor/`, `.github/copilot-instructions.md`. The full list is in `.gitignore`.
+- Configuration and instruction files for AI agents and editor assistants. The full list is in `.gitignore`.
 - Studio output (`studio/video-projects/`, `studio/renders/`).
 
 ## 5. Before opening a pull request
 
 ```bash
 pnpm install
-pnpm -r lint
-pnpm -r test
+pnpm lint && pnpm typecheck && pnpm test && pnpm build
 git status --porcelain   # nothing unintended staged
 ```
+
+## 6. Local stack
+
+Local services run from `docker-compose.yml` (Compose project `loomcast`).
+
+```bash
+cp .env.example .env     # placeholders only; fill in the keys you need
+pnpm stack:up            # starts the services and waits until they are healthy
+pnpm stack:down
+```
+
+- Postgres 17 listens on `127.0.0.1:55434` with user and database `loomcast`. The `pgcrypto` and `pg_trgm` extensions are created on first start.
+- SeaweedFS provides the S3 API on `127.0.0.1:59000`. It stands in for Cloudflare R2 locally.
+- The `s3-init` service creates the private `loomcast-media` bucket if it is missing, lists buckets and exits. It is safe to re-run with `docker compose run --rm s3-init`.
+- The S3 credentials in `infra/seaweedfs/s3.json` are for local development only. They match the values in `.env.example`.
+- Tests create their own databases through `TEST_DATABASE_ADMIN_URL`.
