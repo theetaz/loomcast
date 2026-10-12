@@ -1,0 +1,26 @@
+{
+  "name": "@loomcast/studio",
+  "version": "2.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Loomcast video studio: HyperFrames/Remotion workspace driven by the project motion skills.",
+  "scripts": {
+    "transcribe": "node scripts/transcribe-elevenlabs.mjs",
+    "validate-beats": "node scripts/validate-beat-sync.mjs",
+    "preflight": "node scripts/preflight.mjs",
+    "setup": "node scripts/setup.mjs",
+    "new-video": "node scripts/new-video.mjs",
+    "demo": "node scripts/new-video.mjs demo",
+    "catalog": "node scripts/style-library/build-registry.mjs",
+    "test:media": "node scripts/smoke-media.mjs",
+    "preflight:all": "node scripts/preflight-all.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "hyperframes": "0.7.109",
+    "gsap": "3.14.2",
+    "playwright": "^1.59.1"
+  }
+}
