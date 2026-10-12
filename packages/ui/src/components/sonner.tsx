@@ -1,3 +1,4 @@
+import { useTheme } from "@loomcast/ui/lib/theme";
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -8,12 +9,15 @@ import {
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 /**
- * Surface, shadow and timing come from theme.css: 400ms in and 200ms out with
- * `ease`, fade only under reduced motion.
+ * Toasts follow the Loomcast theme preference. Surface, shadow and timing come
+ * from theme.css: 400ms in and 200ms out with `ease`, fade only under reduced motion.
  */
 function Toaster({ ...props }: ToasterProps) {
+  const { resolvedTheme } = useTheme();
+
   return (
     <Sonner
+      theme={resolvedTheme}
       position="bottom-right"
       gap={8}
       className="toaster group"
