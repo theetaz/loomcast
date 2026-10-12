@@ -26,7 +26,12 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
 | `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens; `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
+| `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
+| `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
+| `src/jobs/concurrency.ts` | Concurrency classes and the credits shape |
+| `src/jobs/durable-events.ts` | Durable job event kinds and the `data` schema of each |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
+| `src/util/ulid.ts`, `src/util/utf8.ts` | ULID message ids and UTF-8 byte length, without platform APIs beyond Web Crypto |
 
 ## REST routes
 
@@ -45,6 +50,41 @@ type Reply = RouteResponse<"messages.post">; // { message, job }
 - `auth: "session"` routes use the cookie session; unsafe methods also pass the CSRF guard. `auth: "none"` routes are public and rate-limited.
 - Error responses always have the body `ApiError`: `{error: {code, message, details?}}`.
 - Small collections return `{items}`. Messages are cursor-paginated: `?cursor=&limit=` returns `{items, nextCursor}`, where `nextCursor` is `null` on the last page.
+
+## Live events
+
+`GET /api/stream` sends one `LiveEvent` per server-sent event, as JSON in `data`. Every event is `{type, payload}`:
+
+| `type` | `payload` |
+|---|---|
+| `conversation.message.created` | `{message}` |
+| `conversation.message.delta` | `{conversationId, jobId, text}` (ephemeral streaming text) |
+| `job.updated` | `{job}` (a `JobSummary`) |
+| `job.activity` | `{jobId, kind, summary}` |
+| `device.status` | `{deviceId, online, lastSeenAt}` |
+| `project.created`, `project.updated` | `{project}` |
+| `resync` | `{}`: the client missed events and should refetch |
+
+`parseLiveEvent(data)` returns `null` for unknown types, so an older web build ignores newer events.
+
+## Bridge protocol
+
+The studio agent connects to `/bridge/v1` over WebSocket. Every frame is a JSON envelope `{v: 1, id, type, ts, ref?, payload}`, where `id` is a ULID.
+
+```ts
+import { encode, parseServerMessage } from "@loomcast/contracts";
+
+socket.send(encode({ type: "job.accept", payload: { jobId } }));
+
+const parsed = parseServerMessage(frame);
+if (!parsed.ok) socket.close(parsed.closeCode, parsed.reason);
+else if (parsed.message.type === "job.assign") run(parsed.message.payload.job);
+```
+
+- `encode` adds `v`, `id` and `ts`, validates the message and throws `BridgeEncodeError` if it is invalid or over 1 MiB, so a sender never triggers a close on the other side.
+- The parse helpers never throw. A failure carries a `reason` (`too_large`, `invalid_json`, `unsupported_version` or `invalid_message`) and the matching close code: 4426 for an unsupported version, 4400 otherwise.
+- `job.assign` carries the payload as a plain object, and `job.complete` the result. Each side validates them against the job registry, so a bad payload is answered with `job.reject` or a failed job rather than a closed socket.
+- `BRIDGE_TIMINGS` holds the shared intervals: server ping 20 s, job heartbeat 15 s, delta batching 100 ms, accept timeout 30 s, a 10-minute lease that doubles as the disconnect grace period, and the reconnect backoff (1 s to 60 s, reset after 60 s connected).
 
 ## Limits and formats
 
