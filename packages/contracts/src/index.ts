@@ -5,6 +5,8 @@ export * from "./enums";
 export * from "./events";
 export * from "./jobs/concurrency";
 export * from "./jobs/durable-events";
+export * from "./jobs/registry";
+export * from "./mcp/project-tools";
 export * from "./util/slug";
 export * from "./util/ulid";
 export * from "./util/utf8";
