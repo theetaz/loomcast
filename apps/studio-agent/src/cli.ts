@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -10,12 +10,22 @@ import { createHandlers } from "./jobs";
 import { createLogger, isLogLevel, LOG_LEVELS } from "./logger";
 import { pairDevice } from "./pair";
 import { resolveAgentPaths } from "./paths";
+import {
+  currentServiceEnvironment,
+  installService,
+  type ServiceEnvironment,
+  servicePaths,
+  serviceStatus,
+  uninstallService,
+} from "./service";
 
 /** Where a command writes its output; replaced in tests. */
 export interface CliIo {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
   readonly env: NodeJS.ProcessEnv;
+  /** Replaces the launchd environment in tests. */
+  readonly service?: ServiceEnvironment;
 }
 
 const USAGE = `Usage: studio-agent <command> [options]
@@ -26,6 +36,8 @@ Commands:
   run [--log-level <level>]
                          Connect to the server and run jobs until stopped
   status                 Show the configuration (the device token is redacted)
+  service install|uninstall|status
+                         Manage the launchd agent that keeps \`run\` going in the background
 
 Options:
   -h, --help             Show this help
@@ -37,6 +49,7 @@ type Command = (args: readonly string[], io: CliIo) => Promise<number>;
 const commands: Readonly<Record<string, Command>> = {
   pair: pairCommand,
   run: runCommand,
+  service: serviceCommand,
   status: statusCommand,
 };
 
@@ -86,8 +99,14 @@ async function pairCommand(args: readonly string[], io: CliIo): Promise<number> 
   io.stdout(
     `Paired with ${config.serverUrl} as device ${config.deviceId}.\n` +
       `The device token is stored in ${paths.configFile}.\n` +
-      "Start the agent with `studio-agent run`, or restart the service if it is installed.\n",
+      "Start the agent with `studio-agent run`.\n",
   );
+  const service = io.service ?? currentServiceEnvironment(io.env);
+  if (existsSync(servicePaths(service.homeDir).plist)) {
+    io.stdout(
+      "The launchd service is installed; run `studio-agent service install` to restart it.\n",
+    );
+  }
   return 0;
 }
 
@@ -128,6 +147,65 @@ async function runCommand(args: readonly string[], io: CliIo): Promise<number> {
   // Every stop reason is final: restarting cannot fix a revoked token or a superseded connection,
   // so the exit is clean and launchd does not restart the agent.
   return 0;
+}
+
+const SERVICE_USAGE = "Usage: studio-agent service install|uninstall|status\n";
+
+async function serviceCommand(args: readonly string[], io: CliIo): Promise<number> {
+  const { positionals } = parseArgs({
+    args: [...args],
+    options: {},
+    allowPositionals: true,
+    strict: true,
+  });
+  const [action, ...extra] = positionals;
+  const service = io.service ?? currentServiceEnvironment(io.env);
+  if (extra.length > 0) {
+    io.stderr(SERVICE_USAGE);
+    return 1;
+  }
+  switch (action) {
+    case "install": {
+      if (loadConfig(resolveAgentPaths(io.env)) === null) {
+        io.stderr("Pair this Mac before installing the service (`studio-agent pair`).\n");
+        return 1;
+      }
+      const paths = await installService(service);
+      io.stdout(
+        `Installed and started the studio agent service.\nPlist: ${paths.plist}\nLog: ${paths.logFile}\n`,
+      );
+      return 0;
+    }
+    case "uninstall": {
+      const removed = await uninstallService(service);
+      io.stdout(
+        removed
+          ? "Stopped and removed the studio agent service.\n"
+          : "The service is not installed.\n",
+      );
+      return 0;
+    }
+    case "status": {
+      const status = await serviceStatus(service);
+      io.stdout(
+        `Plist: ${status.paths.plist} (${status.installed ? "installed" : "not installed"})\n`,
+      );
+      io.stdout(`Log: ${status.paths.logFile}\n`);
+      if (!status.loaded) {
+        io.stdout("Service: not loaded\n");
+        return 0;
+      }
+      io.stdout(`Service: loaded, state ${status.state ?? "unknown"}`);
+      io.stdout(status.pid === undefined ? "\n" : `, pid ${status.pid}\n`);
+      if (status.lastExitCode !== undefined) {
+        io.stdout(`Last exit code: ${status.lastExitCode}\n`);
+      }
+      return 0;
+    }
+    default:
+      io.stderr(SERVICE_USAGE);
+      return 1;
+  }
 }
 
 async function statusCommand(args: readonly string[], io: CliIo): Promise<number> {
