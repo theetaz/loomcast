@@ -1,0 +1,76 @@
+/*
+ * Loomcast design tokens.
+ *
+ * Copied from design/brand/loomcast-brand.html, which stays the source of truth:
+ * `.lc-light` lives on :root and `.lc-dark` on `.dark`. Every name carries the
+ * `lc-` prefix so the raw tokens never collide with the shadcn variables that
+ * theme.css derives from them (both systems define `--accent` and `--border`).
+ * test/tokens.test.ts fails when this file drifts from the brand kit.
+ */
+
+:root {
+  --lc-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --lc-ease-io: cubic-bezier(0.77, 0, 0.175, 1);
+  --lc-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --lc-bg: #fbfaf8;
+  --lc-side: #f4f3f0;
+  --lc-surface: #fff;
+  --lc-surface-2: #f6f5f2;
+  --lc-surface-3: #eeede9;
+  --lc-border: #e9e7e2;
+  --lc-border-strong: #dad7d0;
+  --lc-divider: #f0eeea;
+  --lc-text: #1d1c1a;
+  --lc-text-2: #57544e;
+  --lc-text-3: #6b6760;
+  --lc-text-4: #8c8880;
+  --lc-accent: #4a52d1;
+  --lc-on-accent: #fff;
+  --lc-ember: #c2552a;
+  --lc-green: #25754b;
+  --lc-amber: #8f5e0e;
+  --lc-red: #b23c30;
+  --lc-blue: #3570c4;
+  --lc-violet: #7652c2;
+  --lc-gray: #8a867e;
+  --lc-shadow-card: 0 1px 2px rgba(28, 25, 20, 0.04), 0 0 0 1px var(--lc-border);
+  --lc-shadow-pop:
+    0 12px 32px -8px rgba(28, 25, 20, 0.16), 0 2px 6px -2px rgba(28, 25, 20, 0.06),
+    0 0 0 1px var(--lc-border);
+  color-scheme: light;
+}
+
+.dark {
+  --lc-bg: #1a1a19;
+  --lc-side: #151514;
+  --lc-surface: #1f1f1e;
+  --lc-surface-2: #262625;
+  --lc-surface-3: #2e2e2c;
+  --lc-border: #2c2b29;
+  --lc-border-strong: #3a3936;
+  --lc-divider: #252523;
+  --lc-text: #eceae5;
+  --lc-text-2: #b5b2ab;
+  --lc-text-3: #9a968f;
+  --lc-text-4: #6f6c66;
+  --lc-accent: #9ba3f6;
+  --lc-on-accent: #12131c;
+  --lc-ember: #ec8a5e;
+  --lc-green: #5cba86;
+  --lc-amber: #d8a443;
+  --lc-red: #e57d70;
+  --lc-blue: #72a5ea;
+  --lc-violet: #a98deb;
+  --lc-gray: #8f8b84;
+  --lc-shadow-card: 0 0 0 1px var(--lc-border);
+  --lc-shadow-pop: 0 16px 40px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--lc-border-strong);
+  color-scheme: dark;
+}
+
+/* Shared by both modes. Declared on `.dark` too so a dark subtree mixes its own accent. */
+:root,
+.dark {
+  --lc-accent-soft: color-mix(in srgb, var(--lc-accent) 11%, transparent);
+  --lc-accent-line: color-mix(in srgb, var(--lc-accent) 40%, transparent);
+}

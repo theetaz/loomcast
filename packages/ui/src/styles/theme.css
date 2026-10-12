@@ -1,0 +1,345 @@
+/*
+ * Loomcast theme for Tailwind v4 and shadcn/ui.
+ *
+ * Maps the raw brand tokens (tokens.css) onto the shadcn variable contract,
+ * exposes them as utilities, and sets the motion rules from the brand kit:
+ * custom ease-out curves, short durations, hover only on fine pointers, and
+ * fades without movement under reduced motion.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Hover styles only where a real pointer can hover; taps never leave them stuck. */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+/* Radix state variants used by the shadcn components (from shadcn/tailwind.css). */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+/*
+ * shadcn variables. Declared on `.dark` as well as :root so a dark subtree
+ * resolves them against its own tokens.
+ */
+:root,
+.dark {
+  --background: var(--lc-bg);
+  --foreground: var(--lc-text);
+  --card: var(--lc-surface);
+  --card-foreground: var(--lc-text);
+  --popover: var(--lc-surface);
+  --popover-foreground: var(--lc-text);
+  --primary: var(--lc-accent);
+  --primary-foreground: var(--lc-on-accent);
+  --secondary: var(--lc-surface-2);
+  --secondary-foreground: var(--lc-text);
+  --muted: var(--lc-surface-2);
+  --muted-foreground: var(--lc-text-3);
+  --accent: var(--lc-surface-3);
+  --accent-foreground: var(--lc-text);
+  --destructive: var(--lc-red);
+  --border: var(--lc-border);
+  --input: var(--lc-border-strong);
+  --ring: var(--lc-accent-line);
+  --radius: 10px;
+
+  --sidebar: var(--lc-side);
+  --sidebar-foreground: var(--lc-text-2);
+  --sidebar-primary: var(--lc-accent);
+  --sidebar-primary-foreground: var(--lc-on-accent);
+  --sidebar-accent: color-mix(in srgb, var(--lc-text) 5%, transparent);
+  --sidebar-accent-foreground: var(--lc-text);
+  --sidebar-border: var(--lc-border);
+  --sidebar-ring: var(--lc-accent-line);
+}
+
+/*
+ * Motion durations from the brand kit's motion table. Colour changes use the
+ * 150ms `ease` of the kit's component samples.
+ */
+:root {
+  --lc-duration-press: 140ms;
+  --lc-duration-menu-in: 160ms;
+  --lc-duration-menu-out: 100ms;
+  --lc-duration-tabs: 220ms;
+  --lc-duration-toast-in: 400ms;
+  --lc-duration-toast-out: 200ms;
+  --lc-duration-color: 150ms;
+}
+
+/* Plain values, emitted as variables so the Sonner overrides below can use them. */
+@theme {
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+
+  /* Type scale (size/weight). `control` is the 12.5px the kit uses for buttons and menu items. */
+  --text-display: 23px;
+  --text-display--line-height: 1.25;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 600;
+  --text-title: 19px;
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 600;
+  --text-heading: 14.5px;
+  --text-heading--line-height: 1.4;
+  --text-heading--letter-spacing: -0.01em;
+  --text-heading--font-weight: 600;
+  --text-body: 13.5px;
+  --text-body--line-height: 1.5;
+  --text-body--font-weight: 400;
+  --text-control: 12.5px;
+  --text-control--line-height: 1.4;
+  --text-small: 12px;
+  --text-small--line-height: 1.45;
+  --text-small--font-weight: 400;
+  --text-mono: 11.5px;
+  --text-mono--line-height: 1.45;
+  --text-mono--font-weight: 400;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-text-2: var(--lc-text-2);
+  --color-text-4: var(--lc-text-4);
+  --color-divider: var(--lc-divider);
+  --color-accent-soft: var(--lc-accent-soft);
+  --color-ember: var(--lc-ember);
+  --color-status-green: var(--lc-green);
+  --color-status-amber: var(--lc-amber);
+  --color-status-red: var(--lc-red);
+  --color-status-blue: var(--lc-blue);
+  --color-status-violet: var(--lc-violet);
+  --color-status-gray: var(--lc-gray);
+
+  --shadow-card: var(--lc-shadow-card);
+  --shadow-pop: var(--lc-shadow-pop);
+  --shadow-focus: 0 0 0 1px var(--lc-accent), 0 0 0 4px var(--lc-accent-soft);
+
+  /* `ease-out` and `ease-in-out` become the brand curves; nothing uses ease-in. */
+  --ease-out: var(--lc-ease);
+  --ease-in-out: var(--lc-ease-io);
+  --ease-sheet: var(--lc-ease-sheet);
+
+  --transition-duration-press: var(--lc-duration-press);
+  --transition-duration-menu-in: var(--lc-duration-menu-in);
+  --transition-duration-menu-out: var(--lc-duration-menu-out);
+  --transition-duration-tabs: var(--lc-duration-tabs);
+  --transition-duration-toast-in: var(--lc-duration-toast-in);
+  --transition-duration-toast-out: var(--lc-duration-toast-out);
+
+  --default-transition-duration: var(--lc-duration-color);
+  --default-transition-timing-function: ease;
+
+  /* tw-animate-css: default to the menu timings and the brand ease-out curve. */
+  --animate-in: enter var(--tw-animation-duration, var(--tw-duration, var(--lc-duration-menu-in)))
+    var(--tw-ease, var(--lc-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+  --animate-out: exit var(--tw-animation-duration, var(--tw-duration, var(--lc-duration-menu-out)))
+    var(--tw-ease, var(--lc-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-body text-foreground;
+  }
+}
+
+/* Press feedback: scale to 0.97 on :active. Colours keep the gentler 150ms ease. */
+@utility pressable {
+  transition-property: transform, color, background-color, box-shadow, opacity;
+  transition-duration:
+    var(--lc-duration-press), var(--lc-duration-color), var(--lc-duration-color),
+    var(--lc-duration-color), var(--lc-duration-color);
+  transition-timing-function: var(--lc-ease), ease, ease, ease, ease;
+
+  &:active:not(:disabled, [aria-disabled="true"]) {
+    transform: scale(0.97);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:active:not(:disabled, [aria-disabled="true"]) {
+      transform: none;
+    }
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * Sonner injects its own unlayered styles, so these overrides are unlayered and
+ * scoped under the toaster to win on specificity. Toasts enter in 400ms and
+ * leave in 200ms with `ease`, as in the brand kit.
+ */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition-property: transform, opacity, height, box-shadow;
+  transition-duration:
+    var(--lc-duration-toast-in), var(--lc-duration-toast-in), var(--lc-duration-toast-in),
+    var(--lc-duration-toast-out);
+  transition-timing-function: ease;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-removed="true"] {
+  transition-duration: var(--lc-duration-toast-out);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--lc-shadow-pop);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] {
+  margin-top: 1px;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--muted-foreground);
+  font-size: var(--text-small);
+}
+
+/*
+ * Reduced motion keeps fades and removes movement. tw-animate keyframes keep
+ * their opacity but lose scale, slide and rotation: this block is unlayered,
+ * so it wins over the layered utilities that set those values. Toasts still
+ * fade but jump to their stacked position.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    --tw-enter-scale: 1;
+    --tw-exit-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+    --tw-enter-rotate: 0;
+    --tw-exit-rotate: 0;
+  }
+
+  /* Sonner removes every transition under reduced motion with !important; keep the fade. */
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast] > * {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat Sonner's own !important rule. */
+    transition: opacity var(--lc-duration-toast-in) ease !important;
+  }
+
+  [data-sonner-toaster] [data-sonner-toast][data-removed="true"] {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat Sonner's own !important rule. */
+    transition-duration: var(--lc-duration-toast-out) !important;
+  }
+}
