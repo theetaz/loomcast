@@ -9,6 +9,9 @@ coverage/
 .turbo/
 .vite/
 *.tsbuildinfo
+**/routeTree.gen.ts
+playwright-report/
+test-results/
 *.log
 npm-debug.log*
 pnpm-debug.log*
