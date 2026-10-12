@@ -1,0 +1,73 @@
+name: loomcast
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: loomcast
+      POSTGRES_PASSWORD: loomcast
+      POSTGRES_DB: loomcast
+    ports:
+      - "127.0.0.1:55434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loomcast -d loomcast"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Local stand-in for Cloudflare R2: S3 API served by SeaweedFS (master, volume, filer and S3 in one process).
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    mem_limit: 256m
+    command:
+      - server
+      - -dir=/data
+      - -ip.bind=0.0.0.0
+      - -filer
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "127.0.0.1:59000:8333"
+    volumes:
+      - seaweedfs-data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:8333/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # One-shot: creates the private loomcast-media bucket if it is missing, then lists buckets. Safe to re-run.
+  s3-init:
+    image: amazon/aws-cli:2.31.0
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        aws configure set default.s3.addressing_style path
+        if aws s3api head-bucket --bucket loomcast-media >/dev/null 2>&1; then
+          echo "bucket loomcast-media already exists"
+        else
+          aws s3api create-bucket --bucket loomcast-media
+        fi
+        aws s3 ls
+    environment:
+      AWS_ENDPOINT_URL: http://s3:8333
+      AWS_ACCESS_KEY_ID: loomcast-dev-access
+      AWS_SECRET_ACCESS_KEY: loomcast-dev-secret
+      AWS_DEFAULT_REGION: us-east-1
+    depends_on:
+      s3:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  postgres-data:
+  seaweedfs-data:

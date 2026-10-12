@@ -20,7 +20,7 @@ The platform is used by a few people, so there is no public sign-up. Accounts ar
 | Studio | Renders videos with HyperFrames / Remotion and pushes results through the bridge | Local workstation |
 | Object storage | Finished videos, served publicly for platform ingestion | Cloudflare R2 |
 
-Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs with Docker Compose, and MinIO stands in for R2.
+Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs with Docker Compose, and SeaweedFS stands in for Cloudflare R2.
 
 ## Repository layout
 
@@ -28,7 +28,11 @@ Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs wit
 |---|---|
 | `design/brand/` | Brand kit: logo mark and glyph, colour tokens, type, motion rules, and an interactive preview (`loomcast-brand.html`) |
 | `studio/` | Video studio workspace: render helper scripts, a style library of motion-graphic reference cards, and style templates |
-| `apps/`, `packages/` | Web app, API and shared packages (added as the monorepo is built out) |
+| `apps/api` | API: auth, scripts, render queue, scheduler, publisher, MCP endpoint and bridge to the studio |
+| `apps/web` | React and Vite web app built on shadcn/ui with the Loomcast theme |
+| `apps/studio-agent` | Local producer agent that drives the studio and pushes renders through the bridge |
+| `packages/*` | Shared packages used by the apps |
+| `tests/e2e` | End-to-end tests |
 
 ## Not versioned
 
@@ -38,13 +42,19 @@ Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs wit
 
 ## Getting started
 
-Requirements: Node.js 22+, pnpm, Docker, ffmpeg and Chrome/Chromium for rendering.
+Requirements: Node.js 22+ (`.node-version` pins 24), pnpm (the version is pinned in `package.json`), Docker, ffmpeg and Chrome/Chromium for rendering.
 
 ```bash
 git clone git@github.com:theetaz/loomcast.git
 cd loomcast
+pnpm install
+cp .env.example .env                 # placeholders; fill only the keys you need
 cp studio/.env.example studio/.env   # fill only the keys you need
+pnpm stack:up                        # local Postgres in Docker
+pnpm dev                             # API and web app
 ```
+
+Other root scripts: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` and `pnpm stack:down`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full list of checks.
 
 Open `design/brand/loomcast-brand.html` in a browser to see the theme and components.
 

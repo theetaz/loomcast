@@ -1,0 +1,37 @@
+{
+  "name": "loomcast",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @loomcast/api --filter @loomcast/web run dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
+    "test:e2e": "pnpm --filter @loomcast/e2e test",
+    "db:generate": "pnpm --filter @loomcast/db run generate",
+    "db:migrate": "pnpm --filter @loomcast/db run migrate",
+    "db:studio": "pnpm --filter @loomcast/db run studio",
+    "admin:create": "pnpm --filter @loomcast/api run admin:create",
+    "admin:token": "pnpm --filter @loomcast/api run admin:token",
+    "admin:reset-password": "pnpm --filter @loomcast/api run admin:reset-password",
+    "agent": "pnpm --filter @loomcast/studio-agent run cli",
+    "stack:up": "docker compose up -d --wait",
+    "stack:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "@types/node": "catalog:",
+    "commitlint": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "loomcast-dev",
+      "credentials": [
+        {
+          "accessKey": "loomcast-dev-access",
+          "secretKey": "loomcast-dev-secret"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
