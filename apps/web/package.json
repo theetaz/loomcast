@@ -1,0 +1,45 @@
+{
+  "name": "@loomcast/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "build": "vite build",
+    "preview": "vite preview",
+    "routes": "tsr generate",
+    "typecheck": "tsr generate && tsc --noEmit",
+    "test": "tsr generate && vitest run"
+  },
+  "dependencies": {
+    "@loomcast/contracts": "workspace:*",
+    "@loomcast/ui": "workspace:*",
+    "@tanstack/react-query": "^5.104.2",
+    "@tanstack/react-router": "^1.170.42",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "sonner": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/router-cli": "^1.167.41",
+    "@tanstack/router-plugin": "^1.168.43",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "jsdom": "catalog:",
+    "msw": "^3.0.3",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}
