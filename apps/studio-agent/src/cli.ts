@@ -3,8 +3,11 @@ import { realpathSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { startAgent } from "./agent";
 import { AGENT_VERSION, detectPlatform } from "./agent-info";
 import { configIsShared, loadConfig, redactConfig } from "./config";
+import { createHandlers } from "./jobs";
+import { createLogger, isLogLevel, LOG_LEVELS } from "./logger";
 import { pairDevice } from "./pair";
 import { resolveAgentPaths } from "./paths";
 
@@ -20,6 +23,8 @@ const USAGE = `Usage: studio-agent <command> [options]
 Commands:
   pair --server <url> --code <code> [--name <name>]
                          Pair this Mac with a Loomcast server
+  run [--log-level <level>]
+                         Connect to the server and run jobs until stopped
   status                 Show the configuration (the device token is redacted)
 
 Options:
@@ -31,6 +36,7 @@ type Command = (args: readonly string[], io: CliIo) => Promise<number>;
 
 const commands: Readonly<Record<string, Command>> = {
   pair: pairCommand,
+  run: runCommand,
   status: statusCommand,
 };
 
@@ -82,6 +88,45 @@ async function pairCommand(args: readonly string[], io: CliIo): Promise<number> 
       `The device token is stored in ${paths.configFile}.\n` +
       "Start the agent with `studio-agent run`, or restart the service if it is installed.\n",
   );
+  return 0;
+}
+
+/** Log level of `run` when `--log-level` is not given. */
+const LOG_LEVEL_ENV = "LOOMCAST_AGENT_LOG_LEVEL";
+
+async function runCommand(args: readonly string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args: [...args],
+    options: { "log-level": { type: "string" } },
+    strict: true,
+  });
+  const level = values["log-level"] ?? io.env[LOG_LEVEL_ENV] ?? "info";
+  if (!isLogLevel(level)) {
+    io.stderr(`Unknown log level "${level}"; use one of ${LOG_LEVELS.join(", ")}.\n`);
+    return 1;
+  }
+  const paths = resolveAgentPaths(io.env);
+  const config = loadConfig(paths);
+  if (config === null) {
+    io.stderr("This Mac is not paired. Run `studio-agent pair --server <url> --code <code>`.\n");
+    return 1;
+  }
+  const log = createLogger({ level, write: io.stderr });
+  const handlers = await createHandlers({ config, paths, log });
+  const agent = startAgent({ config, paths, handlers, log });
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    log.info("stopping", { signal });
+    void agent.stop();
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  const reason = await agent.done;
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
+  log.info("studio agent stopped", { reason });
+  // Every stop reason is final: restarting cannot fix a revoked token or a superseded connection,
+  // so the exit is clean and launchd does not restart the agent.
   return 0;
 }
 
