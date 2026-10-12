@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# Node / pnpm monorepo
+# ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.turbo/
+.vite/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Video studio output and media (rendered locally, published via R2)
+# ---------------------------------------------------------------------------
+studio/video-projects/
+studio/renders/
+studio/out/
+studio/.cache/
+*.mp4
+*.mov
+*.webm
+*.wav
+*.mp3
+!design/**/*.mp4
+
+# ---------------------------------------------------------------------------
+# Local databases and runtime data
+# ---------------------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+/data/
+/backups/
+
+# ---------------------------------------------------------------------------
+# AI agent and editor-assistant files (local only, never committed)
+# ---------------------------------------------------------------------------
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+.claude/
+.agents/
+.codex/
+.cursor/
+.cursorrules
+.cursorignore
+.windsurf/
+.windsurfrules
+.aider*
+.continue/
+.clinerules
+.cline/
+.roo/
+.roomodes
+.kiro/
+.junie/
+.gemini/
+.amazonq/
+.zed/
+.mcp.json
+mcp.json
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+.github/chatmodes/
+
+# ---------------------------------------------------------------------------
+# Secrets and local configuration
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+
+# ---------------------------------------------------------------------------
+# Operating system and editors
+# ---------------------------------------------------------------------------
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
