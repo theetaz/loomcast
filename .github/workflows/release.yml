@@ -1,0 +1,133 @@
+name: release
+
+# Builds the production images once `ci` has passed on main and pushes them to GHCR:
+#   ghcr.io/theetaz/loomcast:sha-<12 hex>          and :main
+#   ghcr.io/theetaz/loomcast-backup:sha-<12 hex>   and :main
+# Both images of a release carry the same tag, which is what compose.prod.yml expects. The
+# server only ever runs sha- tags; :main is a convenience pointer. The deploy workflow picks up
+# a finished release (see docs/runbooks/deploy.md).
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  # Rebuilds the current main, for example after the GHCR packages were deleted.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Releases go out one at a time and in order, so :main always ends on the newest commit.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Only a push to main of this repository that passed `ci`. A pull request from a fork whose
+    # branch happens to be called main also completes `ci`, but as a pull_request event.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      APP_IMAGE: ghcr.io/theetaz/loomcast
+      BACKUP_IMAGE: ghcr.io/theetaz/loomcast-backup
+      # linux/amd64 unless the repository variable says otherwise (for example linux/arm64 when
+      # the server is an arm64 machine). It must include the server's architecture.
+      PLATFORMS: ${{ vars.RELEASE_PLATFORMS || 'linux/amd64' }}
+    steps:
+      - name: Resolve the commit and tag
+        id: meta
+        env:
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          sha=${RUN_SHA:-$DISPATCH_SHA}
+          if ! [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::unexpected commit id"
+            exit 1
+          fi
+          tag="sha-${sha:0:12}"
+          {
+            echo "sha=$sha"
+            echo "tag=$tag"
+          } >>"$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      - name: Check out the commit that passed ci
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.meta.outputs.sha }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        if: contains(env.PLATFORMS, 'arm')
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the app image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/app.Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            LOOMCAST_GIT_SHA=${{ steps.meta.outputs.sha }}
+          tags: |
+            ${{ env.APP_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.APP_IMAGE }}:main
+          labels: |
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+          provenance: mode=max
+          sbom: true
+          push: true
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Build and push the backup image
+        uses: docker/build-push-action@v7
+        with:
+          context: infra/backup
+          platforms: ${{ env.PLATFORMS }}
+          tags: |
+            ${{ env.BACKUP_IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.BACKUP_IMAGE }}:main
+          labels: |
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+          provenance: mode=max
+          sbom: true
+          push: true
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,scope=backup,mode=max
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          {
+            echo "### Release $TAG"
+            echo
+            echo "- \`$APP_IMAGE:$TAG\`"
+            echo "- \`$BACKUP_IMAGE:$TAG\`"
+          } >>"$GITHUB_STEP_SUMMARY"

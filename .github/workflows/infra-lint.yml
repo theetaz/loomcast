@@ -1,0 +1,63 @@
+name: infra-lint
+
+# Lints the shell scripts and workflows, and runs the deploy script's tests, whenever a pull
+# request touches them. The linters run from pinned images, so their results do not depend on
+# what the runner has installed.
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  SHELLCHECK_IMAGE: koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run shellcheck on every tracked shell script under infra and .github
+        shell: bash
+        run: |
+          mapfile -t scripts < <(git ls-files 'infra/*.sh' '.github/*.sh')
+          printf '%s\n' "${scripts[@]}"
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt "$SHELLCHECK_IMAGE" "${scripts[@]}"
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint (with shellcheck on run steps)
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$ACTIONLINT_IMAGE" -color
+
+  deploy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Test the deploy script with fake docker and curl
+        run: bash infra/deploy/test/deploy.test.sh
