@@ -15,6 +15,7 @@ import { useTitle } from "@/lib/use-title";
 import { itemCards } from "./cards/registry";
 import { useItemDecisions } from "./decisions";
 import { editBlockedReason } from "./EditNotices";
+import { ItemChat } from "./ItemChat";
 import { ItemHeader } from "./ItemHeader";
 import { JobBanner, LastErrorBanner } from "./JobBanner";
 import {
@@ -259,6 +260,7 @@ function ItemView({
               onSearchChange((previous) => ({ ...previous, tab: "script", compare: id }))
             }
           />
+          <ItemChat item={item} />
         </aside>
       </div>
       {decisions.dialogs}
