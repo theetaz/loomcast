@@ -52,7 +52,8 @@ router is mounted. `createApp` already registers every module, so a module never
 
 - `auth`: the guards below.
 - `sessions`, `tokens`: the session and token services. `tokens.create`, `tokens.verify(raw, kind)`
-  and `tokens.revoke` cover MCP and device tokens.
+  and `tokens.revoke` cover MCP and device tokens. Job tokens (`lc_job_…`) are minted only by the
+  job dispatcher with `tokens.mintJobToken` and revoked with `tokens.revokeForJob`.
 - `jobs`: `jobs.enqueue(tx, input)` and `jobs.get(id)`.
 - `presence.connectedDevices()`: an empty set until the bridge module replaces it.
 - `lifecycle.onClose(hook)`: close sockets, streams and timers during shutdown.
