@@ -59,10 +59,17 @@ async function openDialog(trigger: Locator, name: string): Promise<Locator> {
   return dialog;
 }
 
-async function openProject(): Promise<void> {
+/** Opens the project's Chat tab, where the conversation panel lives. */
+async function openProjectChat(): Promise<void> {
   await workspaceLink(/^Projects/).click();
   await page.getByRole("link", { name: new RegExp(projectName) }).click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  await page
+    .getByRole("tablist", { name: "Project sections" })
+    .getByRole("tab", { name: "Chat" })
+    .click();
+  await expect(page).toHaveURL(/\/projects\/[^/]+\/chat/);
+  await expect(page.getByRole("textbox", { name: "Message the studio agent" })).toBeVisible();
 }
 
 async function sendMessage(text: string): Promise<void> {
@@ -127,7 +134,7 @@ test("creates a project and lists it", async () => {
 });
 
 test("queues a message while no studio agent is paired", async () => {
-  await openProject();
+  await openProjectChat();
   await sendMessage("Draft a hook about bridges");
 
   await expect(page.getByText("Draft a hook about bridges")).toBeVisible();
@@ -174,7 +181,7 @@ test("pairs a fake studio agent that streams the queued reply", async () => {
   expect(agent.turns[0]?.text).toBe("Draft a hook about bridges");
   expect(agent.turns[0]?.producerSessionId).toBeUndefined();
 
-  await openProject();
+  await openProjectChat();
   await expect(page.getByText(/^Running/)).toBeVisible();
   streamGate.open();
   await expect(page.getByText("Bridges carry more than traffic")).toBeVisible();
@@ -216,7 +223,7 @@ test("shows the studio agent offline when it stops and runs the queued job when 
   await agent.close();
   await expect(row.getByText("Offline")).toBeVisible();
 
-  await openProject();
+  await openProjectChat();
   await sendMessage("Sent while the studio was away");
   await expect(page.getByText("Waiting for studio agent (offline)")).toBeVisible();
 
