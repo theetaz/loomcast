@@ -1,4 +1,15 @@
-import type { Device, LiveEvent, Me, Project } from "@loomcast/contracts";
+import {
+  type AccessToken,
+  type Device,
+  type LiveEvent,
+  type Me,
+  PAIRING_CODE_ALPHABET,
+  PAIRING_CODE_TTL_MS,
+  type PairingCode,
+  type Project,
+  TOKEN_PREFIXES,
+  TOKEN_SECRET_LENGTH,
+} from "@loomcast/contracts";
 
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
 export interface MockDb {
@@ -7,6 +18,15 @@ export interface MockDb {
   signedIn: boolean;
   projects: Project[];
   devices: Device[];
+  /** Access tokens as listed; secrets are never kept. */
+  tokens: AccessToken[];
+  /** Pairing codes handed out, newest last. */
+  pairingCodes: PairingCode[];
+  /**
+   * Mock mode only: a studio agent "pairs" this long after a code is created,
+   * so the pairing dialog can be seen closing. Tests leave it unset.
+   */
+  autoPairAfterMs?: number;
   /** Live stream clients; the mock API publishes to them like the real bus. */
   listeners: Set<(event: LiveEvent) => void>;
   /** Called when a login or logout changes the session. */
@@ -31,6 +51,8 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     signedIn: false,
     projects: [],
     devices: [],
+    tokens: [],
+    pairingCodes: [],
     ...seed,
     listeners: new Set(),
   };
@@ -72,9 +94,77 @@ export function mockProject(overrides: Partial<Project> & Pick<Project, "name" |
   };
 }
 
+function randomFrom(alphabet: string, length: number): string {
+  return Array.from(
+    { length },
+    () => alphabet[Math.floor(Math.random() * alphabet.length)] ?? alphabet[0],
+  ).join("");
+}
+
+/** A fresh `XXXX-XXXX` code, valid for ten minutes like the real one. */
+export function mockPairingCode(now = Date.now()): PairingCode {
+  return {
+    code: `${randomFrom(PAIRING_CODE_ALPHABET, 4)}-${randomFrom(PAIRING_CODE_ALPHABET, 4)}`,
+    expiresAt: new Date(now + PAIRING_CODE_TTL_MS).toISOString(),
+  };
+}
+
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** A secret shaped like a real MCP token. */
+export function mockTokenSecret(): string {
+  return `${TOKEN_PREFIXES.mcp}${randomFrom(BASE62, TOKEN_SECRET_LENGTH)}`;
+}
+
+/** The listed part of a token: its first characters, as the API stores them. */
+export function tokenPrefix(secret: string): string {
+  return secret.slice(0, TOKEN_PREFIXES.mcp.length + 4);
+}
+
+export function mockToken(
+  overrides: Partial<AccessToken> & Pick<AccessToken, "name" | "scopes">,
+): AccessToken {
+  return {
+    id: mockId(),
+    kind: "mcp",
+    prefix: tokenPrefix(mockTokenSecret()),
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null,
+    ...overrides,
+  };
+}
+
+/**
+ * What the server does when a studio agent pairs and connects: the device is
+ * added and a `device.status` event says it is online.
+ */
+export function pairMockDevice(db: MockDb, overrides: Partial<Device> = {}): Device {
+  const at = new Date().toISOString();
+  const device: Device = {
+    id: mockId(),
+    name: "Studio MacBook Pro",
+    platform: "darwin-arm64",
+    agentVersion: "0.1.0",
+    online: true,
+    lastSeenAt: at,
+    createdAt: at,
+    revokedAt: null,
+    ...overrides,
+  };
+  db.devices.push(device);
+  publish(db, {
+    type: "device.status",
+    payload: { deviceId: device.id, online: device.online, lastSeenAt: device.lastSeenAt },
+  });
+  return device;
+}
+
 /** Demo content for `pnpm --filter @loomcast/web dev:mock`. */
 export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
   return {
+    autoPairAfterMs: 30_000,
     projects: [
       mockProject({
         name: "Rust in 60 seconds",
@@ -116,6 +206,29 @@ export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
         createdAt: minutesAgo(9 * 24 * 60, now),
         revokedAt: null,
       },
+      {
+        id: mockId(),
+        name: "Old iMac",
+        platform: "darwin-x64",
+        agentVersion: "0.0.9",
+        online: false,
+        lastSeenAt: minutesAgo(3 * 24 * 60, now),
+        createdAt: minutesAgo(30 * 24 * 60, now),
+        revokedAt: null,
+      },
+    ],
+    tokens: [
+      mockToken({
+        name: "Editor on my laptop",
+        scopes: ["mcp:read", "mcp:write"],
+        createdAt: minutesAgo(6 * 24 * 60, now),
+        lastUsedAt: minutesAgo(25, now),
+      }),
+      mockToken({
+        name: "Research notebook",
+        scopes: ["mcp:read"],
+        createdAt: minutesAgo(2 * 24 * 60, now),
+      }),
     ],
   };
 }

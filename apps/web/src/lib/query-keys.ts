@@ -7,6 +7,7 @@ export const queryKeys = {
     detail: (idOrSlug: string) => ["projects", "detail", idOrSlug] as const,
   },
   devices: ["devices"] as const,
+  tokens: ["tokens"] as const,
   jobs: {
     detail: (id: string) => ["jobs", id] as const,
   },

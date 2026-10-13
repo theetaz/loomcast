@@ -1,6 +1,8 @@
 import {
   type ApiError,
   CreateProjectSchema,
+  CreateTokenRequestSchema,
+  type CreateTokenResponse,
   LIVE_STREAM_PATH,
   type LiveEvent,
   LoginRequestSchema,
@@ -9,7 +11,17 @@ import {
   slugify,
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
-import { type MockDb, mockProject, publish, setSignedIn } from "./db";
+import {
+  type MockDb,
+  mockPairingCode,
+  mockProject,
+  mockToken,
+  mockTokenSecret,
+  pairMockDevice,
+  publish,
+  setSignedIn,
+  tokenPrefix,
+} from "./db";
 
 /** Hono paths (`:id`) and MSW paths share the same syntax. */
 const path = (name: keyof typeof routes) => `*${routes[name].path}`;
@@ -87,6 +99,67 @@ export function createHandlers(db: MockDb) {
     http.get(path("devices.list"), () =>
       db.signedIn ? HttpResponse.json({ items: db.devices }) : unauthorized(),
     ),
+
+    http.post(path("devices.createPairingCode"), () => {
+      if (!db.signedIn) return unauthorized();
+      const pairing = mockPairingCode();
+      db.pairingCodes.push(pairing);
+      if (db.autoPairAfterMs !== undefined) {
+        setTimeout(() => {
+          if (db.pairingCodes.at(-1)?.code === pairing.code) pairMockDevice(db);
+        }, db.autoPairAfterMs);
+      }
+      return HttpResponse.json(pairing, { status: 201 });
+    }),
+
+    http.delete(path("devices.revoke"), ({ params }) => {
+      if (!db.signedIn) return unauthorized();
+      const device = db.devices.find((item) => item.id === params.id && item.revokedAt === null);
+      if (!device) return apiError(404, "not_found", "No device has that id.");
+      device.revokedAt = new Date().toISOString();
+      if (device.online) {
+        device.online = false;
+        publish(db, {
+          type: "device.status",
+          payload: { deviceId: device.id, online: false, lastSeenAt: device.lastSeenAt },
+        });
+      }
+      return new HttpResponse(null, { status: 204 });
+    }),
+
+    http.get(path("tokens.list"), () =>
+      db.signedIn ? HttpResponse.json({ items: db.tokens }) : unauthorized(),
+    ),
+
+    http.post(path("tokens.create"), async ({ request }) => {
+      if (!db.signedIn) return unauthorized();
+      const parsed = CreateTokenRequestSchema.safeParse(await request.json());
+      if (!parsed.success) {
+        return apiError(400, "validation_failed", "Check the token name and scopes.");
+      }
+      const { name, scopes, expiresAt } = parsed.data;
+      if (scopes.includes("mcp:admin") && db.user.role !== "owner") {
+        return apiError(403, "forbidden", "Only the owner can create admin tokens.");
+      }
+      const secret = mockTokenSecret();
+      const token = mockToken({
+        name,
+        scopes,
+        prefix: tokenPrefix(secret),
+        expiresAt: expiresAt ?? null,
+      });
+      db.tokens.unshift(token);
+      const body: CreateTokenResponse = { token, secret };
+      return HttpResponse.json(body, { status: 201 });
+    }),
+
+    http.delete(path("tokens.revoke"), ({ params }) => {
+      if (!db.signedIn) return unauthorized();
+      const token = db.tokens.find((item) => item.id === params.id && item.revokedAt === null);
+      if (!token) return apiError(404, "not_found", "No token has that id.");
+      token.revokedAt = new Date().toISOString();
+      return new HttpResponse(null, { status: 204 });
+    }),
   ];
 }
 

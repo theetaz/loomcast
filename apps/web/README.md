@@ -89,8 +89,10 @@ useLiveReconnect(() => void refetchMessages());
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
   for labels that need data (see `_app/projects/$projectId.tsx`).
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
-- `ConversationPanel`, `settings/devices` and `settings/tokens` are placeholders for the
-  conversation and settings work that follows.
+- `ConversationPanel` is a placeholder for the conversation work that follows.
+- Settings: `settings/devices` pairs studio agents with single-use codes and shows live
+  online status; `settings/tokens` manages access tokens and shows each secret exactly once,
+  never keeping it in the query cache.
 - Theme: light, dark or system from the user menu, stored by `@loomcast/ui/lib/theme` and
   applied before first paint by `/theme-init.js`. Theme changes never animate.
 - Motion stays inside the `@loomcast/ui` components: press feedback, dialog, menu and sheet
