@@ -12,6 +12,7 @@ import { and, eq, inArray, lt, notInArray } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
 import { afterCommit, type Transaction, transaction } from "../../lib/db";
+import { createProducerChatHooks } from "./handlers/producer-chat";
 import type { JobHooks } from "./hooks";
 import { toJobSummary } from "./service";
 import { type JobAction, nextStatus, statusesAllowing } from "./transitions";
@@ -43,8 +44,12 @@ export interface LifecycleDeps {
   db: Database;
   bus: EventBus;
   clock: Clock;
-  /** Per-type side effects. */
+  /** Per-type side effects. Defaults to the built-in hooks (`producer.chat`). */
   hooks?: JobHooks;
+}
+
+export function defaultJobHooks(deps: { bus: EventBus }): JobHooks {
+  return { "producer.chat": createProducerChatHooks(deps) };
 }
 
 export type AcceptOutcome =
@@ -128,7 +133,7 @@ export interface JobLifecycle {
 
 export function createJobLifecycle(deps: LifecycleDeps): JobLifecycle {
   const { db, bus, clock } = deps;
-  const hooks = deps.hooks ?? {};
+  const hooks = deps.hooks ?? defaultJobHooks(deps);
 
   const leaseUntil = (leaseMs: number) => new Date(clock.now().getTime() + leaseMs);
 
