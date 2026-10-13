@@ -2,18 +2,26 @@ import { cn } from "@loomcast/ui/lib/cn";
 import type * as React from "react";
 
 /**
- * Status colours from the brand prototype: gray waits, amber is being written,
- * violet is being produced, blue is queued for later, green is done and red failed.
+ * Status colours from the brand prototype: gray waits, amber is being written or waits for a
+ * person, violet is being produced, blue is queued for later, green is done and red failed.
  */
 export type StatusTone = "gray" | "amber" | "violet" | "blue" | "green" | "red";
 
+/**
+ * A content item's pipeline state. Mirrors `PIPELINE_STATES` in `@loomcast/contracts`; the web
+ * app's tests check that the two lists stay the same.
+ */
 export type PipelineStatus =
   | "idea"
-  | "drafting"
-  | "rendering"
+  | "script"
+  | "storyboard"
+  | "voice"
+  | "render"
+  | "review"
+  | "approved"
   | "scheduled"
   | "published"
-  | "failed";
+  | "archived";
 
 export type JobStatus = "queued" | "dispatched" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -24,11 +32,15 @@ type StatusEntry = { label: string; tone: StatusTone };
 export const STATUS_STYLES = {
   pipeline: {
     idea: { label: "Idea", tone: "gray" },
-    drafting: { label: "Drafting", tone: "amber" },
-    rendering: { label: "Rendering", tone: "violet" },
+    script: { label: "Script", tone: "amber" },
+    storyboard: { label: "Storyboard", tone: "amber" },
+    voice: { label: "Voice", tone: "violet" },
+    render: { label: "Render", tone: "violet" },
+    review: { label: "In review", tone: "amber" },
+    approved: { label: "Approved", tone: "green" },
     scheduled: { label: "Scheduled", tone: "blue" },
     published: { label: "Published", tone: "green" },
-    failed: { label: "Failed", tone: "red" },
+    archived: { label: "Archived", tone: "gray" },
   },
   job: {
     queued: { label: "Queued", tone: "gray" },
