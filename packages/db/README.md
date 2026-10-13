@@ -5,7 +5,7 @@ harness for Loomcast. The package is consumed as TypeScript source.
 
 | Import | Contents |
 |---|---|
-| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `KB_FIXTURES`, `seedKb` |
+| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `KB_FIXTURES`, `seedKb` |
 | `@loomcast/db/schema` | Tables, pg enums and row types only |
 | `@loomcast/db/testing` | `setupTemplate` and `createTestDb` for vitest |
 
@@ -59,7 +59,16 @@ to use a value added by a transaction that has not committed yet, and the migrat
 pending migration in **one** transaction. So keep the `ADD VALUE` statements in a migration of
 their own, and never use a new value (in a default, a check, an index predicate or an update)
 in any migration that may run in the same batch. Compare as text instead, as
-`api_tokens_job_id_ck` does with `kind::text = 'job'`.
+`api_tokens_job_id_ck` does with `kind::text = 'job'`. Index predicates are the exception: they
+must be immutable and an enum-to-text cast is not, so a partial index can only compare an enum
+whose type the same migration creates (as `assets_project_id_kind_sha256_uq` does), never a value
+added by `ADD VALUE`.
+
+**Hand-edited statements.** drizzle-kit cannot mark a foreign key `DEFERRABLE`, and it emits
+foreign keys before the unique indexes that composite keys reference. Migrations `0005` to `0007`
+are edited by hand to create the indexes first and to append `DEFERRABLE INITIALLY DEFERRED` to
+the current-version keys. The snapshots do not record deferrability, so a later migration that
+drops and recreates one of these keys must add the clause again.
 
 **Extensions and functions.** `pg_trgm` and the `lc_tags_text(text[])` function are created by
 `0002_add_kb_tables`, written by hand above the generated statements; drizzle-kit does not track
@@ -75,6 +84,42 @@ Other scripts: `pnpm db:studio` opens drizzle-kit studio on `DATABASE_URL`, and
 fills its knowledge base with the 30 entries in `src/fixtures/kb.ts`. The seed never creates
 users; create the owner with `pnpm admin:create` first. Rerunning it skips entries that are
 already there (dedupe keys `seed:<key>`).
+
+## Versioned records
+
+Formats, content items and skills keep their content in immutable version rows
+(`format_versions`, `content_versions`, `skill_versions`) numbered from 1 per parent, and the
+parent always points at its current version (`current_version_id` is never null).
+
+- **Current-version keys.** `formats_current_version_fk`, `content_items_current_version_fk` and
+  `skills_current_version_fk` reference `(parent_id, id)` of the version table, so the current
+  version must belong to the parent. They are `DEFERRABLE INITIALLY DEFERRED`: generate both ids
+  in the application, insert the parent and its version 1 in one transaction (parent first,
+  because the version's own `item_id`/`format_id`/`skill_id` key is immediate), and the check
+  runs at commit. A missing version fails the commit with `23503`.
+- **Numbering.** Inside the transaction that writes a version, call `nextVersionNo(tx, itemId)`
+  (or `nextFormatVersionNo`, `nextSkillVersion`). It locks the parent row with `SELECT ... FOR
+  UPDATE`, then reads the highest number in a second statement, and returns the next number, or
+  null when the parent does not exist. Keep the default READ COMMITTED isolation. The lock is held
+  until the transaction ends, so compare `current_version_id` with the client's base version after
+  calling it.
+- **Same parent.** `content_versions.parent_version_id` and `reviews.version_id` must be versions
+  of the same item (composite keys `content_versions_parent_version_fk` and `reviews_version_fk`),
+  and a series' format must belong to the series' project (`series_format_fk`).
+- **Idempotent job results.** `content_versions_job_id_uq` allows one version per job. Store a job
+  result with ``onConflictDoNothing({ target: contentVersions.jobId, where: sql`job_id is not null` })``,
+  or treat `23505` on that constraint as "already stored".
+- **Assets.** `assets_project_id_kind_sha256_uq` keeps one pending or ready asset per project, kind
+  and SHA-256 (lowercase hex, `assets_sha256_ck`); failed assets are left out so an upload can be
+  retried. Insert-or-skip with `target: [projectId, kind, sha256]` and
+  ``where: sql`status <> 'failed'` ``. `meta` holds `{ probe?, alignment? }` (`AssetMeta`). Assets a
+  version points at cannot be deleted.
+- **Skills.** `skill_versions_skill_id_checksum_uq` refuses a version whose files a skill already
+  has, including an earlier version's; answer with that version. Names follow `SKILL_NAME_RE`
+  (`skills_name_ck`).
+- **Jobs.** `jobs.project_id` stays required, because the contracts' `JobSummary.projectId` is
+  required and job tokens are bound to their job's project. Queue a project-less job such as
+  `skills.sync` under the project it was started from.
 
 ## Knowledge-base search
 
