@@ -891,6 +891,66 @@ describe("producer.chat", () => {
   });
 });
 
+describe("conversation turns through the messages route", () => {
+  it("answers a posted message and pins the next turn to the same device and session", async () => {
+    const server = await start();
+    const user = await insertUser(testDb.db);
+    const { cookie } = await login(server.app, user.email);
+    const device = await pairDevice(testDb.db, fixtures.userId);
+    const conversationId = await createConversation(testDb.db, fixtures);
+    const sessionId = `session-${randomUUID()}`;
+    const agent = await connect(server, device);
+    await agent.hello();
+
+    const posted = await send(server.app, "POST", `/api/conversations/${conversationId}/messages`, {
+      cookie,
+      body: { text: "Pitch me a short about bridges", clientMessageId: randomUUID() },
+    });
+    expect(posted.status).toBe(201);
+    const first = (await posted.json()) as { job: { id: string } };
+    const assign = await agent.next("job.assign");
+    expect(assign.payload.job.id).toBe(first.job.id);
+    expect(assign.payload.job.payload).not.toHaveProperty("producerSessionId");
+    agent.accept(first.job.id);
+    agent.send({
+      type: "job.event",
+      payload: { jobId: first.job.id, seq: 1, kind: "assistant.message", data: { text: "Sure." } },
+    });
+    agent.send({
+      type: "job.complete",
+      payload: {
+        jobId: first.job.id,
+        result: { sdkSessionId: sessionId, finalText: "Sure.", numTurns: 1, durationMs: 10 },
+      },
+    });
+    agent.send({ type: "credits", payload: { producer: 1, render: 1 } });
+    await waitForJob(first.job.id, (row) => row.status === "succeeded");
+
+    const listed = await send(server.app, "GET", `/api/conversations/${conversationId}/messages`, {
+      cookie,
+    });
+    const page = (await listed.json()) as { items: { role: string; content: { text: string } }[] };
+    expect(page.items.map((item) => [item.role, item.content.text])).toEqual(
+      expect.arrayContaining([
+        ["user", "Pitch me a short about bridges"],
+        ["assistant", "Sure."],
+      ]),
+    );
+
+    const again = await send(server.app, "POST", `/api/conversations/${conversationId}/messages`, {
+      cookie,
+      body: { text: "Make it shorter", clientMessageId: randomUUID() },
+    });
+    const second = (await again.json()) as { job: { id: string } };
+    expect(await jobRow(second.job.id)).toMatchObject({ deviceAffinity: device.deviceId });
+    const next = await agent.next("job.assign");
+    expect(next.payload.job).toMatchObject({
+      id: second.job.id,
+      payload: { producerSessionId: sessionId },
+    });
+  });
+});
+
 describe("cancel", () => {
   async function signIn(server: BridgeServer) {
     const user = await insertUser(testDb.db);
