@@ -6,15 +6,20 @@ import {
 } from "@loomcast/contracts";
 import { type Context, Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
-import { HttpError } from "../../lib/errors";
-import { clientIp, readJson } from "../../lib/http";
+import { HttpError, notFound } from "../../lib/errors";
+import { clientIp, idParam, readJson } from "../../lib/http";
 import { consume, createRateLimiter } from "../../lib/rate-limit";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { createDevicesService } from "./service";
 
 export { generatePairingCode, hashPairingCode } from "./codes";
-export { createDevicesService, type DevicesService, PairingRefusedError } from "./service";
+export {
+  createDevicesService,
+  type DevicesService,
+  PairingRefusedError,
+  toDevice,
+} from "./service";
 
 const MINUTE_MS = 60_000;
 
@@ -28,9 +33,14 @@ export const PAIRING_LIMITS = {
 } as const;
 
 /**
- * Device pairing:
+ * Device pairing, listing and revocation:
  * - `POST /api/devices/pairing-codes` (session): a single-use code, valid for 10 minutes.
  * - `POST /api/bridge/pair` (public): the studio agent exchanges the code for a device token.
+ * - `GET /api/devices` (session): paired devices with their live connection state.
+ * - `DELETE /api/devices/:id` (session): revokes the device and its token.
+ *
+ * Loomcast is one workspace: every signed-in user sees and manages every device, as any device
+ * may run any project's jobs.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { config } = deps;
@@ -68,6 +78,27 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     c.header("Cache-Control", "no-store");
     const body: PairResponse = { deviceId: paired.device.id, token: paired.secret };
     return c.json(body, 201);
+  });
+
+  router.get(routes["devices.list"].path, async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json({ items: await service.list() }, 200);
+  });
+
+  router.delete(routes["devices.revoke"].path, async (c) => {
+    const user = currentUser(c);
+    const id = idParam(c);
+    const result = await service.revoke(id, {
+      userId: user.id,
+      ip: clientIp(c, config.trustProxy),
+    });
+    if (result === null) {
+      throw notFound("Device not found.");
+    }
+    if (result.revoked) {
+      c.get("logger").info({ deviceId: id }, "device revoked");
+    }
+    return c.body(null, 204);
   });
 
   app.route("/", router);

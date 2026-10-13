@@ -1,9 +1,9 @@
-import { PAIRING_CODE_TTL_MS, type PairRequest } from "@loomcast/contracts";
+import { type Device, PAIRING_CODE_TTL_MS, type PairRequest } from "@loomcast/contracts";
 import { type DeviceRow, devices, pairingCodes, users } from "@loomcast/db";
-import { and, eq, gt, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte } from "drizzle-orm";
 import type { ModuleDeps } from "../../deps";
 import { audit } from "../../lib/audit";
-import { isUniqueViolation, transaction } from "../../lib/db";
+import { afterCommit, isUniqueViolation, transaction } from "../../lib/db";
 import { HttpError } from "../../lib/errors";
 import { generatePairingCode, hashPairingCode } from "./codes";
 
@@ -38,6 +38,12 @@ export interface PairedDevice {
   pairedBy: string;
 }
 
+export interface RevokeDeviceResult {
+  device: DeviceRow;
+  /** False when the device was already revoked. */
+  revoked: boolean;
+}
+
 export interface DevicesService {
   createPairingCode(userId: string, context: { ip: string }): Promise<CreatedPairingCode>;
   /**
@@ -46,12 +52,32 @@ export interface DevicesService {
    * `PairingRefusedError` for an unknown, used or expired code.
    */
   pair(input: PairRequest, context: { ip: string }): Promise<PairedDevice>;
+  /** Devices that are not revoked, newest first, with their live connection state. */
+  list(): Promise<Device[]>;
+  /**
+   * Revokes a device and its token, then publishes `device.revoked` (the bridge closes the socket)
+   * and `device.status`. Null when no device has the id.
+   */
+  revoke(id: string, context: { userId: string; ip: string }): Promise<RevokeDeviceResult | null>;
 }
 
-type ServiceDeps = Pick<ModuleDeps, "db" | "clock" | "tokens">;
+export function toDevice(row: DeviceRow, online: boolean): Device {
+  return {
+    id: row.id,
+    name: row.name,
+    platform: row.platform,
+    agentVersion: row.agentVersion,
+    online: online && row.revokedAt === null,
+    lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+  };
+}
+
+type ServiceDeps = Pick<ModuleDeps, "db" | "bus" | "clock" | "tokens" | "presence">;
 
 export function createDevicesService(deps: ServiceDeps): DevicesService {
-  const { db, clock, tokens } = deps;
+  const { db, bus, clock, tokens, presence } = deps;
 
   async function failureReason(codeHash: string): Promise<PairFailureReason> {
     const [row] = await db
@@ -199,6 +225,57 @@ export function createDevicesService(deps: ServiceDeps): DevicesService {
         }
         throw error;
       }
+    },
+
+    async list() {
+      const online = presence.connectedDevices();
+      const rows = await db
+        .select()
+        .from(devices)
+        .where(isNull(devices.revokedAt))
+        .orderBy(desc(devices.createdAt), desc(devices.id));
+      return rows.map((row) => toDevice(row, online.has(row.id)));
+    },
+
+    async revoke(id, context) {
+      return transaction(db, async (tx) => {
+        const now = clock.now();
+        const [revoked] = await tx
+          .update(devices)
+          .set({ revokedAt: now })
+          .where(and(eq(devices.id, id), isNull(devices.revokedAt)))
+          .returning();
+        if (revoked === undefined) {
+          const [existing] = await tx.select().from(devices).where(eq(devices.id, id)).limit(1);
+          return existing === undefined ? null : { device: existing, revoked: false };
+        }
+
+        await tokens.revoke(revoked.tokenId, { kind: "device", executor: tx });
+        await audit(tx, {
+          actorKind: "user",
+          actorId: context.userId,
+          action: "device.revoked",
+          targetType: "device",
+          targetId: revoked.id,
+          data: { name: revoked.name, tokenId: revoked.tokenId },
+          ip: context.ip,
+        });
+        afterCommit(tx, () => {
+          bus.publish({
+            type: "device.revoked",
+            payload: { deviceId: revoked.id, tokenId: revoked.tokenId },
+          });
+          bus.publish({
+            type: "device.status",
+            payload: {
+              deviceId: revoked.id,
+              online: false,
+              lastSeenAt: revoked.lastSeenAt?.toISOString() ?? null,
+            },
+          });
+        });
+        return { device: revoked, revoked: true };
+      });
     },
   };
 }
