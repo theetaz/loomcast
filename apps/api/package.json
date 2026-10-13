@@ -2,7 +2,7 @@
   "name": "@loomcast/api",
   "version": "0.1.0",
   "private": true,
-  "description": "Loomcast API server: REST, auth, tokens, jobs, bridge hub and MCP",
+  "description": "Loomcast API server: REST, auth, tokens, jobs, bridge hub, MCP and the admin CLI",
   "type": "module",
   "engines": {
     "node": ">=22.12"
@@ -12,7 +12,11 @@
     "build": "tsdown",
     "start": "node dist/server.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "admin": "tsx src/cli/admin.ts",
+    "admin:create": "tsx src/cli/admin.ts create",
+    "admin:token": "tsx src/cli/admin.ts token",
+    "admin:reset-password": "tsx src/cli/admin.ts reset-password"
   },
   "dependencies": {
     "@hono/node-server": "catalog:",
