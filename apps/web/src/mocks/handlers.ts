@@ -30,6 +30,7 @@ import { createFormatHandlers } from "./formats";
 import { createKbHandlers } from "./kb";
 import { createReviewQueueHandlers } from "./review-queue";
 import { createSeriesHandlers } from "./series";
+import { createUploadHandlers } from "./uploads";
 import { createUserHandlers } from "./users";
 
 /** Hono paths (`:id`) and MSW paths share the same syntax. */
@@ -205,6 +206,7 @@ export function createHandlers(db: MockDb) {
     ...createFormatHandlers(db),
     ...createSeriesHandlers(db),
     ...createReviewQueueHandlers(db),
+    ...createUploadHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

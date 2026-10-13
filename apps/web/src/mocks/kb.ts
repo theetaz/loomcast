@@ -471,7 +471,12 @@ export function createKbHandlers(db: MockDb) {
         return apiError(409, "conflict", "This entry changed since you loaded it.");
       }
       const decisionFields = [update.decision, update.rationale, update.status];
-      const referenceFields = [update.likedReason, update.author, update.transcript];
+      const referenceFields = [
+        update.likedReason,
+        update.author,
+        update.transcript,
+        update.mediaAssetId,
+      ];
       if (entry.kind !== "decision" && decisionFields.some((value) => value !== undefined)) {
         return apiError(400, "validation_failed", "Only decisions have those fields.");
       }
@@ -496,6 +501,8 @@ export function createKbHandlers(db: MockDb) {
           if (update.likedReason !== undefined) target.reference.likedReason = update.likedReason;
           if (update.author !== undefined) target.reference.author = update.author;
           if (update.transcript !== undefined) target.reference.transcript = update.transcript;
+          if (update.mediaAssetId !== undefined)
+            target.reference.mediaAssetId = update.mediaAssetId;
         }
       });
       return HttpResponse.json(updated);
@@ -520,8 +527,12 @@ export function createKbHandlers(db: MockDb) {
       if (!entry.reference) {
         return apiError(400, "validation_failed", "Only references can be analysed.");
       }
-      if (!entry.reference.transcript) {
-        return apiError(409, "conflict", "Add a transcript before analysing this reference.");
+      if (!entry.reference.transcript && !entry.reference.mediaAssetId) {
+        return apiError(
+          409,
+          "conflict",
+          "Add a transcript or media before analysing this reference.",
+        );
       }
       const job = mockJob({
         projectId: entry.projectId,

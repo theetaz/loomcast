@@ -174,7 +174,7 @@ describe("analysis status", () => {
     });
     expect(analysisState(reference({ transcript: "  " }), undefined)).toMatchObject({
       canAnalyze: false,
-      hint: "Add a transcript to analyze this reference.",
+      hint: "Add a transcript or upload the media to analyze this reference.",
     });
   });
 

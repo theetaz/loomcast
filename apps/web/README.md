@@ -34,8 +34,10 @@ API lives in the page and a reload resets it, so open the link without reloading
 `history.pushState({}, "", link); dispatchEvent(new PopStateEvent("popstate"))` in the console.
 
 The demo projects also have series and content items in every pipeline state
-(`src/mocks/content.ts`). Producing an item walks it through script, storyboard, voice and
-render to review, one version every second or so, with the live events the API sends.
+(`src/mocks/content.ts`); the demo series get formats with their own rules and history
+(`src/mocks/formats.ts`, default rules for any other series), and uploads go to a pretend
+object store (`src/mocks/uploads.ts`). Producing an item walks it through script, storyboard,
+voice and render to review, one version every second or so, with the live events the API sends.
 
 ### Dev proxy
 
@@ -53,7 +55,7 @@ render to review, one version every second or so, with the live events the API s
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `series`, `formats`, `review-queue`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -165,8 +167,6 @@ tab (`/projects/:id/content`), the same view scoped to one project.
 - New idea asks for a title, an optional pitch and series, and, in the library, the project.
 - The command palette searches videos by title and pitch across projects
   (`features/palette/sources/content.ts`, 150 ms debounce, older requests aborted).
-- The review queue (`/review`) is a placeholder until its screen lands; the project's Series tab
-  is one too.
 
 ## Item page
 
@@ -209,6 +209,62 @@ artifact), an earlier version to show (`?version=`) and a version to compare scr
 - Mock mode: versions carry real scripts and storyboards (`src/mocks/artifacts.ts`), voice takes
   play a quiet generated tone, posters are generated SVGs and renders a short clip recorded from a
   canvas in the page. Single production steps (Regenerate, Render) and revisions run too.
+
+## Series and formats
+
+`features/series` is the project's Series tab (`/projects/:id/series`) and each series' page
+(`series/$seriesId`); `features/formats` is the format rules editor (`series/$seriesId/format`).
+
+- The list shows each series' format, status, cadence (with the next slot) and the next video
+  coming up. Archived series fold away behind "Show archived". New series takes a name and one
+  of the project's formats, or creates a format with the default rules and opens it.
+- The series page lists its unpublished videos by target date beside cards from a registry:
+  every file in `features/series/cards/items/` exports one `card: {id, order, Card}` and gets
+  `{series, project, format, projectParam}`. Cadence is 10 and Format 20; a channels card fits
+  at 30. Pause and Archive ask first (pausing archives ideas planned for upcoming slots);
+  Resume doesn't. Switching the series to another format is in the Format card.
+- The editor is a react-hook-form over the contracts' `FormatRulesSchema` (and
+  `FormatNameSchema`), so it accepts and refuses exactly what the API does. Empty optional
+  fields are left out rather than sent as `""` (`normalizeRules`); errors land on the field their
+  path names, including `400 validation_failed` details from the API (`rules.lengthSec.max`).
+  Topics, words to avoid and hashtags are chips: Enter or a comma adds one, pasting several lines
+  adds one per line, and "Paste a list" takes a longer one. Hashtags are stored without `#`.
+- Cadence: day toggles, local times (up to 12), a searchable list of the browser's IANA time
+  zones (`Intl.supportedValuesOf`; offsets are never offered) and the lead time, with the next
+  five slots from `generateSlots` in the series' zone and the viewer's. Publish mode explains
+  approval and automatic publishing.
+- Every save stores a new version on top of the one the edit started from (`baseVersionId`);
+  a `409` offers to load the newer version or save over it. ⌘S or Ctrl+S saves. The version
+  history shows each version's changes from the one before as a JSON diff of the rules.
+- Styles come from a short static list (`formats/styles.ts`) mirroring the studio's style
+  library, since the browser can't read it; recipes come from `skills.list`, with their
+  descriptions as hints.
+
+## Review queue
+
+`features/review-queue` is `/review` (`?project=<id>` narrows it): videos in review from
+`reviews.queue`, the nearest target first, undated ones last, then the longest waiting. Rows
+show the poster (a presigned URL refreshed before it expires), project, series, version, length
+and a deadline badge (red once the date passed, amber within a day, blue within three). `j` and
+`k` (or the arrows, Home and End once a row has focus) move between rows and Enter opens one;
+nothing animates as they move. `content.item.*` events add, re-sort and drop rows.
+
+## Reference media
+
+A reference's Media card (`features/kb/ReferenceMediaUpload.tsx`, logic in `media-upload.ts`)
+uploads the video or audio the user saved (MP4, MOV, MP3, WAV or M4A, up to 1 GiB) under the
+notice "Only upload media you own or have permission to use.":
+
+1. SHA-256 in 8 MiB slices with `hash-wasm` (Web Crypto over the whole file where a CSP blocks
+   WebAssembly);
+2. `assets.createUpload` (kind `reference_media`); `upload: null` means the project already
+   has the file;
+3. an XHR PUT with the signed headers and upload progress (fetch reports none);
+4. `assets.finalize`, PUTting again once on `409 upload_missing`;
+5. `kb.update` with `mediaAssetId`, then `kb.analyze`.
+
+One progress bar covers all steps; Cancel or leaving the page aborts. A reference with media
+can be analyzed without a transcript.
 
 ## Screens and conventions
 

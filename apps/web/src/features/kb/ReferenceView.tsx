@@ -18,6 +18,7 @@ import { analysisState } from "./analysis-status";
 import { DeleteEntryButton, EntryMeta, EntryToolbar, TagChips } from "./EntryChrome";
 import { PLATFORM_META } from "./kinds";
 import { kbKeys } from "./queries";
+import { ReferenceMediaUpload } from "./ReferenceMediaUpload";
 import { TranscriptPane } from "./TranscriptPane";
 
 function isTerminal(status: string | undefined): boolean {
@@ -159,6 +160,8 @@ export function ReferenceView({
           </Button>
         </div>
       </div>
+
+      <ReferenceMediaUpload entry={entry} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <TranscriptPane entry={entry} />
