@@ -1,8 +1,9 @@
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CanUseTool, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { allowedMcpTools, isMcpToolName, MCP_SERVER_NAME, type ProducerJobType } from "./mcp";
 
-/** The only tools a producer session can use (M1). Bash and everything else are denied. */
+/** The built-in tools a producer session can use at most. Bash and everything else are denied. */
 export const PRODUCER_TOOLS = [
   "Read",
   "Glob",
@@ -13,6 +14,21 @@ export const PRODUCER_TOOLS = [
   "WebFetch",
 ] as const;
 export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
+
+/**
+ * The built-in tools of each job type's session. A reference analysis reads an untrusted
+ * transcript, so its session can only read and search inside the project workspace: it can neither
+ * write files nor reach the web, which leaves an injected instruction no way to send data out.
+ */
+export const BUILTIN_TOOLS = {
+  "producer.chat": PRODUCER_TOOLS,
+  "kb.analyze_reference": ["Read", "Glob", "Grep"],
+} as const satisfies Record<ProducerJobType, readonly ProducerTool[]>;
+
+const SESSION_LABELS: Record<ProducerJobType, string> = {
+  "producer.chat": "Loomcast producer session",
+  "kb.analyze_reference": "reference analysis session, which is read-only",
+};
 
 /** Tools whose target path must resolve inside the project workspace. */
 const WRITE_TOOLS: ReadonlySet<string> = new Set<ProducerTool>(["Write", "Edit"]);
@@ -27,40 +43,86 @@ export interface ToolGuardOptions {
    * token. Prompt-injected content must not be able to read a secret and send it out with WebFetch.
    */
   readonly protectedDirs?: readonly string[];
+  /** The job the session runs for; it picks the tools. Defaults to `producer.chat`. */
+  readonly jobType?: ProducerJobType;
+}
+
+/** Where an MCP tool comes from, as the runtime reports it to the permission callback. */
+export interface McpToolOrigin {
+  readonly name: string;
+  readonly source: string;
 }
 
 export function isProducerTool(name: string): name is ProducerTool {
   return (PRODUCER_TOOLS as readonly string[]).includes(name);
 }
 
+/** The built-in tools a job type's session gets. */
+export function builtinToolsFor(jobType: ProducerJobType): readonly ProducerTool[] {
+  return BUILTIN_TOOLS[jobType];
+}
+
+/** The producer tools a job type's session does not get; they are removed from the session. */
+export function deniedBuiltinTools(jobType: ProducerJobType): ProducerTool[] {
+  const allowed: readonly string[] = builtinToolsFor(jobType);
+  return PRODUCER_TOOLS.filter((tool) => !allowed.includes(tool));
+}
+
 /**
  * The `canUseTool` guard of a producer session.
  *
- * - Allows only the producer tools; Bash and every other tool are denied with a reason.
+ * - Allows only the built-in tools of the job type; Bash and every other tool are denied with a
+ *   reason.
+ * - Allows only the platform MCP tools on the job type's allow-list; every other MCP tool and
+ *   every other MCP server is denied.
  * - Write and Edit must target a path that resolves inside the workspace after `realpath`. For a
  *   new file the deepest existing ancestor is resolved, so a symlinked parent cannot escape, and
  *   paths with `..` segments or dangling symlinks are refused outright.
- * - Read, Glob and Grep may not touch the protected directories.
+ * - Read, Glob and Grep may not touch the protected directories. In a reference analysis they may
+ *   not leave the project workspace at all.
  */
 export function createToolGuard(options: ToolGuardOptions): CanUseTool {
-  return async (toolName, input) => checkToolUse(options, toolName, input);
+  return async (toolName, input, context) =>
+    checkToolUse(options, toolName, input, context?.mcpServer);
 }
 
 export async function checkToolUse(
   options: ToolGuardOptions,
   toolName: string,
   input: Record<string, unknown>,
+  mcpServer?: McpToolOrigin,
 ): Promise<PermissionResult> {
-  if (!isProducerTool(toolName)) {
-    return deny(`The ${toolName} tool is not available in a Loomcast producer session.`);
+  const jobType = options.jobType ?? "producer.chat";
+  const label = SESSION_LABELS[jobType];
+  if (isMcpToolName(toolName)) {
+    return checkMcp(jobType, label, toolName, input, mcpServer);
+  }
+  if (!isProducerTool(toolName) || !builtinToolsFor(jobType).includes(toolName)) {
+    return deny(`The ${toolName} tool is not available in a ${label}.`);
   }
   if (WRITE_TOOLS.has(toolName)) {
     return checkWrite(options, toolName, input);
   }
   if (READ_TOOLS.has(toolName)) {
-    return checkRead(options, toolName, input);
+    return jobType === "kb.analyze_reference"
+      ? checkConfinedRead(options, toolName, input)
+      : checkRead(options, toolName, input);
   }
   return allow(input);
+}
+
+function checkMcp(
+  jobType: ProducerJobType,
+  label: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  mcpServer: McpToolOrigin | undefined,
+): PermissionResult {
+  const fromPlatform = mcpServer === undefined || mcpServer.name === MCP_SERVER_NAME;
+  if (fromPlatform && allowedMcpTools(jobType).includes(toolName)) {
+    return allow(input);
+  }
+  return deny(`The ${toolName} MCP tool is not available in a ${label}.`);
 }
 
 async function checkWrite(
@@ -115,6 +177,39 @@ async function checkRead(
     return allow(input);
   } catch {
     return deny(`${tool} could not resolve ${path}.`);
+  }
+}
+
+/**
+ * Read, Glob and Grep of a reference analysis: the path must resolve inside the workspace (no
+ * path means the workspace itself), and Glob and Grep patterns may be neither absolute nor contain
+ * `..` segments.
+ */
+async function checkConfinedRead(
+  options: ToolGuardOptions,
+  tool: string,
+  input: Record<string, unknown>,
+): Promise<PermissionResult> {
+  const outside = `${tool} is allowed only inside the project workspace ${options.workspaceDir}.`;
+  const path = tool === "Read" ? input.file_path : input.path;
+  for (const key of ["pattern", "glob"]) {
+    const pattern = tool === "Read" ? undefined : input[key];
+    if (typeof pattern === "string" && (isAbsolute(pattern) || hasParentSegment(pattern))) {
+      return deny(outside);
+    }
+  }
+  if (path === undefined && tool !== "Read") {
+    return allow(input);
+  }
+  if (!isUsablePath(path) || hasParentSegment(path)) {
+    return deny(outside);
+  }
+  try {
+    const root = await realpath(options.workspaceDir);
+    const target = await resolveReal(resolve(root, path));
+    return target === root || isStrictlyInside(root, target) ? allow(input) : deny(outside);
+  } catch {
+    return deny(outside);
   }
 }
 

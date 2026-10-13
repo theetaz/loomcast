@@ -1,5 +1,6 @@
 import type { JobEventData } from "@loomcast/contracts";
 import { JobFailure } from "../handlers";
+import type { ProducerJobType, ProducerMcpAccess } from "./mcp";
 
 /** The durable event kinds a producer runtime reports while a turn runs. */
 export type ProducerEventKind =
@@ -26,6 +27,12 @@ export interface ProducerRunInput {
   readonly cwd: string;
   /** Aborting it stops the turn. */
   readonly signal: AbortSignal;
+  /** The job the turn runs for; it picks the session's tools. Defaults to `producer.chat`. */
+  readonly jobType?: ProducerJobType;
+  /** The platform's MCP server for this job. Without it the session has no MCP servers. */
+  readonly mcp?: ProducerMcpAccess;
+  /** Appended to the preset system prompt. Defaults to the chat brief. */
+  readonly brief?: string;
   /** Receives durable events in order. */
   readonly onEvent: (event: ProducerEvent) => void;
   /** Receives streamed assistant text, already batched. */

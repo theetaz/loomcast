@@ -1,5 +1,6 @@
 import { type ProducerChatResult, parseJobPayload } from "@loomcast/contracts";
 import { type Handler, type JobContext, JobFailure } from "../handlers";
+import { chatBrief } from "../producer/prompts/chat";
 import {
   PRODUCER_ERROR_CODES,
   ProducerError,
@@ -55,6 +56,10 @@ export function producerChatHandler(options: ProducerChatOptions): Handler<"prod
     ctx.emit("status", { state: "starting" });
     const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
     const resumeId = payload.producerSessionId ?? options.sessions.get(payload.conversationId);
+    const mcp = ctx.credentials.mcp;
+    if (mcp === undefined) {
+      ctx.log.info("no job token for this turn; the session runs without the knowledge base");
+    }
 
     const run = (resume: string | undefined): Promise<ProducerRunResult> =>
       options.runtime.run({
@@ -62,6 +67,9 @@ export function producerChatHandler(options: ProducerChatOptions): Handler<"prod
         resumeId: resume,
         cwd: workspace.dir,
         signal: ctx.signal,
+        jobType: "producer.chat",
+        mcp,
+        brief: chatBrief(payload.projectId),
         onEvent: (event) => emitProducerEvent(ctx, event),
         onDelta: (text) => ctx.stream(text),
       });
