@@ -104,7 +104,12 @@ pnpm --filter @loomcast/studio run runtime probe path/to/file.mp4
 
 # Opt-in five-second smoke render of synthetic content in a temporary directory:
 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 pnpm --filter @loomcast/studio exec tsx runtime/scripts/smoke-render.ts
+pnpm --filter @loomcast/studio test:smoke   # the same render as a test (sets LOOMCAST_SMOKE_RENDER=1)
 ```
+
+`pnpm test` never renders: the smoke test runs only with `LOOMCAST_SMOKE_RENDER=1` and only when
+ffmpeg, ffprobe and an installed render browser are present; otherwise it is skipped with the
+reason.
 
 Use `pnpm … run runtime`, not `pnpm … runtime`, which pnpm reserves for its own command.
 

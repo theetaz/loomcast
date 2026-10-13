@@ -19,7 +19,8 @@
     "preflight:all": "node scripts/preflight-all.mjs",
     "runtime": "tsx runtime/src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:smoke": "LOOMCAST_SMOKE_RENDER=1 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 vitest run runtime/test/smoke.test.ts"
   },
   "engines": {
     "node": ">=22.12"
