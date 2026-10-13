@@ -1,0 +1,11 @@
+# Installed as /home/loomcast-deploy/.ssh/authorized_keys: owner root, mode 0644, in a .ssh
+# directory owned by root with mode 0755, so the deploy user cannot change it.
+#
+# One line per key. Replace <public-key> with the public half of the key pair whose private half
+# is the VPS_SSH_KEY secret of the production environment (docs/runbooks/deploy.md, C3).
+#
+# `restrict` turns off port, agent and X11 forwarding, the pty and ~/.ssh/rc; the other options
+# repeat that explicitly. The forced command ignores whatever the client asked to run: sshd
+# passes it to the deploy script in SSH_ORIGINAL_COMMAND, and the script accepts only
+# `deploy sha-<hex>`, `rollback` and `status`.
+restrict,command="sudo -n /opt/loomcast/bin/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 <public-key> loomcast-deploy

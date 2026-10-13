@@ -1,0 +1,10 @@
+# Installed as /etc/sudoers.d/loomcast-deploy: owner root, mode 0440. Check before installing:
+#   visudo -cf sudoers.example
+#
+# The deploy user may run exactly one command as root: the deploy script, with no arguments
+# (the empty string at the end of the rule forbids any). The requested action travels in
+# SSH_ORIGINAL_COMMAND, the only variable kept through sudo's environment reset for this
+# script, and the script validates it. The deploy user is not in the docker group and has no
+# other sudo rights.
+Defaults!/opt/loomcast/bin/deploy.sh env_keep += "SSH_ORIGINAL_COMMAND"
+loomcast-deploy ALL=(root) NOPASSWD: /opt/loomcast/bin/deploy.sh ""
