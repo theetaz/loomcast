@@ -2,7 +2,7 @@
 
 This guide sets up the whole system on one machine: Postgres and object storage in Docker, the
 API and the web app from source, a studio agent paired with them, and an MCP client. It ends
-with the milestone 1 acceptance runbook.
+with the acceptance runbooks of milestones 1 and 2.
 
 ## Requirements
 
@@ -177,12 +177,19 @@ pnpm test:e2e
 
 The smoke (`tests/e2e`) needs only Postgres from the stack. It picks two free ports, creates a
 scratch database `loomcast_e2e_<time>_<random>`, migrates it, starts the API and the Vite dev
-server, creates an owner with `pnpm admin:create`, and drives the M1 runbook in Chromium with the
-fake studio agent: sign in, create a project, queue a message in its Chat tab with no agent,
-pair through the dialog's code, watch the reply stream in, resume the producer session, go
-offline and back, call the MCP tools with a token from Settings, and sign out. When it ends it stops both servers
-and drops the database; databases left by an aborted run are dropped by a later run after six
-hours.
+server, creates an owner with `pnpm admin:create`, and drives both runbooks in Chromium with the
+fake studio agent:
+
+- `specs/kb.spec.ts` (M2): write a brainstorm and find it with ⌘K, have a chat turn save a
+  brainstorm over MCP with its job token while the Knowledge tab is open, analyze a reference
+  from its transcript, file a session summary with the session-end hook, and invite a user over
+  the API who sets a password and signs in. It revokes the device it paired when it ends.
+- `specs/smoke.spec.ts` (M1): sign in, create a project, queue a message in its Chat tab with no
+  agent, pair through the dialog's code, watch the reply stream in, resume the producer session,
+  go offline and back, call the MCP tools with a token from Settings, and sign out.
+
+When it ends it stops both servers and drops the database; databases left by an aborted run are
+dropped by a later run after six hours.
 
 - Set `LOOMCAST_E2E_LOG_LEVEL=info` to see the API's log.
 - Failures leave a trace and a screenshot in `tests/e2e/test-results/`; open a trace with
@@ -220,6 +227,45 @@ Milestone 1 is done when this passes on the workstation.
 Steps 1 to 8 are also what `pnpm test:e2e` checks, with the fake studio agent in place of a
 producer session.
 
+## M2 acceptance runbook
+
+Milestone 2 adds the knowledge base, reference analysis, the command palette, invitations and
+the session-end hook. It is done when this passes on the workstation, on top of the M1 setup
+(stack up, migrated, owner created, `pnpm dev` running, studio agent paired and running). The
+[knowledge base guide](knowledge-base.md) describes each part.
+
+1. **A producer chat saves a brainstorm through MCP, and it appears live.** Open a project's
+   **Knowledge** tab in one browser tab and its **Chat** tab in another. In the chat, ask the
+   studio agent to brainstorm a few hooks and save them to the knowledge base. The producer
+   session calls `kb.save_brainstorm` with its job token, and the entry appears in the Knowledge
+   tab without a reload.
+2. **A pasted reference is analyzed by the producer session.** In **Knowledge → New entry →
+   Reference**, paste a link to a short video, say why you liked it, paste its transcript (or
+   load a `.srt`, `.vtt`, `.txt` or `.json` file) and save. Choose **Analyze**: the status moves
+   from Queued to Analyzing to Analyzed, and the analysis (hook, structure, pacing, retention,
+   takeaways) appears next to the transcript. The link itself is never opened by Loomcast.
+3. **⌘K search finds it.** Press ⌘K (Ctrl+K), type a word from the brainstorm or the
+   reference, and choose the hit: the entry opens.
+4. **An invited user sets a password and signs in.** As the owner, open **Settings → Members →
+   Invite member**, or call the API:
+
+   ```bash
+   # with the owner's session cookie in $COOKIE
+   curl -s -X POST http://localhost:5173/api/users/invitations \
+     -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' \
+     -H "Cookie: $COOKIE" \
+     -d '{"email":"teammate@example.com","name":"Teammate","role":"admin"}'
+   ```
+
+   Open the one-time `setPasswordUrl` in a private window, choose a password and sign in on the
+   login page it leads to. Opening the link a second time says it was already used.
+5. **Optional: the session-end hook files a session summary.** Set it up as in the
+   [session hook guide](session-hook.md#checking-it); after a session the summary appears under
+   **Sessions** in the project's Knowledge tab.
+
+`pnpm test:e2e` checks steps 1 to 5 with the fake studio agent, whose analysis is a fixed sample
+rather than a producer session's.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -235,6 +281,12 @@ producer session.
 | The agent logs "re-pair required" and exits | Its token was revoked or the device was deleted. Pair again |
 | The agent keeps reconnecting after pairing with `http://localhost:5173` | The bridge goes through the dev server's `/bridge` proxy, so `pnpm dev` must be running (restart it after pulling). Pairing with `--server http://127.0.0.1:8790` talks to the API directly |
 | Messages stay "Queued" while the device is online | The agent did not advertise `producer.chat`, which happens when the producer runtime fails to load. Check the agent's log |
+| An analysis stays "Queued" while the device is online | The agent did not advertise `kb.analyze_reference` (same cause as above), or it is busy with a chat turn: both use the producer credit |
+| **Analyze** is disabled | The reference has no transcript. Edit it and paste one |
+| An analysis fails with "analysis_invalid" | The producer session's answer did not match the analysis schema twice. Use **Re-analyze** |
+| ⌘K finds nothing for a word you can see | The body, tags and transcript match whole words (English stemming); only titles also match by prefix and close spelling. Type the full word; the palette searches from two characters |
+| A set-password link says it expired or was already used | Links work once; invitations last 7 days and reset links 24 hours. Create a new one from Settings → Members |
+| The session-end hook reports `skipped` or `failed` | See the messages table in the [session hook guide](session-hook.md#checking-it) |
 | A reply fails with "The producer session on the studio agent is signed out" | Sign the producer runtime in on the workstation, then use Retry |
 | A reply fails with "The studio agent lost its connection while working on this" | The agent was away for longer than the 10-minute lease. Use Retry |
 | MCP answers 401 | The token is missing, revoked or mistyped; cookies are never accepted on `/mcp` |
