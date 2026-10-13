@@ -1,5 +1,5 @@
 import { LoomcastMark } from "@loomcast/ui/brand";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { z } from "zod";
 import { LoginForm } from "@/features/auth/LoginForm";
 import { meQueryOptions } from "@/features/auth/queries";
@@ -48,6 +48,25 @@ function LoginPage() {
           Loomcast is invite only. Ask your workspace owner for an account.
         </p>
       </div>
+      <footer className="mt-10">
+        <nav
+          aria-label="Legal"
+          className="flex items-center gap-4 text-small text-muted-foreground"
+        >
+          <Link
+            to="/privacy"
+            className="rounded-sm underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Privacy
+          </Link>
+          <Link
+            to="/terms"
+            className="rounded-sm underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Terms
+          </Link>
+        </nav>
+      </footer>
     </main>
   );
 }
