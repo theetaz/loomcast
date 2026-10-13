@@ -1,0 +1,142 @@
+name: deploy
+
+# Deploys a released image to the production server over SSH. The server side is
+# infra/deploy/deploy.sh behind a forced command, so this workflow can only ask for
+# `deploy sha-<hex>`; the script pulls the images, starts them and rolls back by itself when
+# /readyz stays red. Every run waits for approval on the `production` environment.
+# Setup and manual rollback: docs/runbooks/deploy.md.
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to deploy, for example sha-0123456789ab (also used to roll back)
+        required: true
+        type: string
+
+permissions: {}
+
+# One deploy at a time, never cancelled half-way. A newer run waiting in the queue replaces an
+# older one that has not started.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            tag=$INPUT_TAG
+          else
+            tag="sha-${RUN_SHA:0:12}"
+          fi
+          if ! [[ $tag =~ ^sha-[0-9a-f]{7,40}$ ]]; then
+            echo "::error::the tag must look like sha-<7 to 40 lowercase hex characters>"
+            exit 1
+          fi
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "Deploying $tag"
+
+      - name: Prepare the SSH key and known hosts
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_DEPLOY_USER: ${{ secrets.VPS_DEPLOY_USER }}
+        run: |
+          missing=0
+          for name in VPS_SSH_KEY VPS_KNOWN_HOSTS VPS_HOST VPS_DEPLOY_USER; do
+            if [ -z "${!name}" ]; then
+              echo "::error::the production environment has no $name secret"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+          dir="$RUNNER_TEMP/deploy-ssh"
+          install -d -m 0700 "$dir"
+          install -m 0600 /dev/null "$dir/key"
+          printf '%s\n' "$VPS_SSH_KEY" >"$dir/key"
+          install -m 0600 /dev/null "$dir/known_hosts"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" >"$dir/known_hosts"
+
+      - name: Deploy on the server
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          VPS_DEPLOY_USER: ${{ secrets.VPS_DEPLOY_USER }}
+        run: |
+          dir="$RUNNER_TEMP/deploy-ssh"
+          # The server's address never appears in the log: secrets are masked by the runner,
+          # and the host is also replaced in anything ssh prints. Nothing here echoes it.
+          redact() {
+            local line
+            while IFS= read -r line; do
+              printf '%s\n' "${line//"$VPS_HOST"/<host>}"
+            done
+          }
+          ssh -F /dev/null \
+            -i "$dir/key" \
+            -p "${VPS_SSH_PORT:-22}" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$dir/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o UpdateHostKeys=no \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -o LogLevel=ERROR \
+            "$VPS_DEPLOY_USER@$VPS_HOST" "deploy $TAG" 2>&1 | redact
+
+      - name: Check the public endpoint
+        if: vars.APP_URL != ''
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          curl -fsS -o /dev/null --max-time 10 \
+            --retry 6 --retry-delay 5 --retry-all-errors \
+            "${APP_URL%/}/readyz"
+          echo "${APP_URL%/}/readyz is ready"
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/deploy-ssh"
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "### Deploy ${TAG:-(no tag)}: $STATUS"
+            echo
+            echo "On failure the server has already started the previous release again."
+            echo "To roll back by hand, run this workflow with an earlier tag."
+          } >>"$GITHUB_STEP_SUMMARY"
