@@ -2,7 +2,7 @@ import { PROJECT_DESCRIPTION_MAX_LENGTH, type Project } from "@loomcast/contract
 import { Button } from "@loomcast/ui/components/button";
 import { Textarea } from "@loomcast/ui/components/textarea";
 import { PencilIcon } from "lucide-react";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/api";
 import { useUpdateProject } from "./queries";
@@ -24,10 +24,17 @@ export function DescriptionEditor({ project }: { project: Project }) {
     setEditing(true);
   };
 
+  // Return focus to the control that opened the editor once it is back on screen.
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (editing || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    editButtonRef.current?.focus();
+  }, [editing]);
+
   const close = () => {
+    restoreFocus.current = true;
     setEditing(false);
-    // Return focus to the control that opened the editor.
-    queueMicrotask(() => editButtonRef.current?.focus());
   };
 
   const save = (event?: FormEvent) => {
