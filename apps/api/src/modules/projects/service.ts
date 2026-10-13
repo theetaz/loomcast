@@ -9,8 +9,15 @@ import {
   slugify,
   type UpdateProject,
 } from "@loomcast/contracts";
-import { conversations, type Database, kbEntries, type ProjectRow, projects } from "@loomcast/db";
-import { and, count, desc, eq, isNull, like, type SQL, sql } from "drizzle-orm";
+import {
+  contentItems,
+  conversations,
+  type Database,
+  kbEntries,
+  type ProjectRow,
+  projects,
+} from "@loomcast/db";
+import { and, count, desc, eq, isNull, like, ne, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
 import { afterCommit, type Executor, isUniqueViolation, transaction } from "../../lib/db";
@@ -294,7 +301,7 @@ export function createProjectsService(deps: ProjectsServiceDeps): ProjectsServic
     },
 
     async stats(projectId) {
-      const [[conversationCount], [kbCount]] = await Promise.all([
+      const [[conversationCount], [kbCount], [itemCount]] = await Promise.all([
         db
           .select({ count: count() })
           .from(conversations)
@@ -304,11 +311,16 @@ export function createProjectsService(deps: ProjectsServiceDeps): ProjectsServic
           .select({ count: count() })
           .from(kbEntries)
           .where(and(eq(kbEntries.projectId, projectId), isNull(kbEntries.deletedAt))),
+        // Archived items have left the pipeline and no longer count.
+        db
+          .select({ count: count() })
+          .from(contentItems)
+          .where(and(eq(contentItems.projectId, projectId), ne(contentItems.state, "archived"))),
       ]);
       return {
         conversations: conversationCount?.count ?? 0,
         kbEntries: kbCount?.count ?? 0,
-        items: 0,
+        items: itemCount?.count ?? 0,
       };
     },
   };
