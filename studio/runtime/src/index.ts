@@ -3,6 +3,7 @@ export {
   type AssembleOptions,
   type AssembleResult,
   assembleProject,
+  type CaptionStyle,
   hookFontSize,
   localTokens,
   SHORT_COMPOSITION_ID,
@@ -14,6 +15,7 @@ export {
   CAPTION_DEFAULTS,
   type CaptionChunk,
   type CaptionOptions,
+  type CaptionWord,
   chunkCaptions,
 } from "./captions.ts";
 export { type MountCardInput, type MountedCard, mountCard } from "./card.ts";

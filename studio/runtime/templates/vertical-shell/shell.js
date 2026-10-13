@@ -21,5 +21,10 @@
       start,
     );
   }
+  // Word style: each word lights up as it is spoken.
+  for (const word of document.querySelectorAll(".lc-caption-word")) {
+    const at = Number.parseFloat(word.getAttribute("data-word-start") ?? "0");
+    tl.fromTo(word, { opacity: 0.42 }, { opacity: 1, duration: 0.08, ease: "none" }, at);
+  }
   window.__timelines["loomcast-short"] = tl;
 })();

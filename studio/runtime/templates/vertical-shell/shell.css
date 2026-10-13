@@ -149,6 +149,10 @@ body {
   white-space: nowrap;
 }
 
-.lc-caption-line:first-child {
+.lc-caption--line .lc-caption-line:first-child {
   color: var(--accent, #4a52d1);
+}
+
+.lc-caption-word {
+  display: inline-block;
 }

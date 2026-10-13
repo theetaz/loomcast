@@ -16,10 +16,20 @@ export interface CaptionOptions {
   bridgeGapMs?: number;
 }
 
+export interface CaptionWord {
+  text: string;
+  startMs: number;
+  endMs: number;
+  /** The line of the chunk the word is on, from 0. */
+  line: number;
+}
+
 export interface CaptionChunk {
   startMs: number;
   endMs: number;
   lines: string[];
+  /** The chunk's words with their timings, for word-by-word highlighting. */
+  words: CaptionWord[];
 }
 
 export const CAPTION_DEFAULTS: Required<CaptionOptions> = {
@@ -34,15 +44,15 @@ export const CAPTION_DEFAULTS: Required<CaptionOptions> = {
 const SENTENCE_END = /[.!?…]["')\]]*$/;
 
 interface Draft {
-  lines: string[][];
+  lines: AlignedWord[][];
   startMs: number;
   endMs: number;
 }
 
-function lineFits(line: string[], word: string, options: Required<CaptionOptions>): boolean {
+function lineFits(line: AlignedWord[], word: string, options: Required<CaptionOptions>): boolean {
   if (line.length === 0) return true;
   if (line.length + 1 > options.maxWordsPerLine) return false;
-  return [...line, word].join(" ").length <= options.maxCharsPerLine;
+  return [...line.map((w) => w.text), word].join(" ").length <= options.maxCharsPerLine;
 }
 
 /** Groups words into chunks of at most `maxLines` lines. */
@@ -61,17 +71,18 @@ function draftChunks(words: AlignedWord[], options: Required<CaptionOptions>): D
       (word.startMs - previous.endMs >= options.pauseBreakMs ||
         SENTENCE_END.test(previous.text.trim()));
 
+    const entry = { text, startMs: word.startMs, endMs: word.endMs };
     if (!current || breakBefore) {
-      current = { lines: [[text]], startMs: word.startMs, endMs: word.endMs };
+      current = { lines: [[entry]], startMs: word.startMs, endMs: word.endMs };
       drafts.push(current);
     } else {
       const line = current.lines.at(-1) ?? [];
       if (lineFits(line, text, options)) {
-        line.push(text);
+        line.push(entry);
       } else if (current.lines.length < options.maxLines) {
-        current.lines.push([text]);
+        current.lines.push([entry]);
       } else {
-        current = { lines: [[text]], startMs: word.startMs, endMs: word.endMs };
+        current = { lines: [[entry]], startMs: word.startMs, endMs: word.endMs };
         drafts.push(current);
       }
       current.endMs = Math.max(current.endMs, word.endMs);
@@ -94,7 +105,22 @@ export function chunkCaptions(
   for (const draft of drafts) {
     const startMs = Math.round(Math.max(draft.startMs, previousEnd));
     const endMs = Math.round(Math.max(draft.endMs, startMs + settings.minDurationMs));
-    chunks.push({ startMs, endMs, lines: draft.lines.map((line) => line.join(" ")) });
+    chunks.push({
+      startMs,
+      endMs,
+      lines: draft.lines.map((line) => line.map((word) => word.text).join(" ")),
+      words: draft.lines.flatMap((line, index) =>
+        line.map((word) => {
+          const wordStart = Math.round(Math.min(Math.max(word.startMs, startMs), endMs));
+          return {
+            text: word.text,
+            startMs: wordStart,
+            endMs: Math.round(Math.min(Math.max(word.endMs, wordStart), endMs)),
+            line: index,
+          };
+        }),
+      ),
+    });
     previousEnd = endMs;
   }
 

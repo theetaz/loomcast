@@ -17,6 +17,8 @@ export const SHORT_HEIGHT = 1920;
 export const SHORT_FPS = 30;
 export const SHORT_COMPOSITION_ID = "loomcast-short";
 
+export type CaptionStyle = "word" | "line";
+
 /** The card area of the shell, in frame pixels (see templates/vertical-shell/shell.css). */
 const CARD_AREA = { top: 660, height: 608 };
 
@@ -36,6 +38,8 @@ export interface AssembleOptions {
   /** The project title, recorded in meta.json and the page title. */
   title?: string;
   captions?: CaptionOptions;
+  /** `line` shows whole caption lines; `word` also lights up each word as it is spoken. */
+  captionStyle?: CaptionStyle;
   registry?: CardRegistry;
   studioRoot?: string;
   /** Creation time recorded in meta.json. */
@@ -112,15 +116,33 @@ function placement(
   };
 }
 
-function captionMarkup(chunks: CaptionChunk[]): string {
+function captionLines(chunk: CaptionChunk, style: CaptionStyle): string {
+  if (style === "line") {
+    return chunk.lines
+      .map((line) => `<span class="lc-caption-line">${escapeHtml(line)}</span>`)
+      .join("");
+  }
+  return chunk.lines
+    .map((_, line) => {
+      const words = chunk.words
+        .filter((word) => word.line === line)
+        .map(
+          (word) =>
+            `<span class="lc-caption-word" data-word-start="${secondsAttr(word.startMs)}">${escapeHtml(word.text)}</span>`,
+        )
+        .join(" ");
+      return `<span class="lc-caption-line">${words}</span>`;
+    })
+    .join("");
+}
+
+function captionMarkup(chunks: CaptionChunk[], style: CaptionStyle): string {
   return chunks
     .map((chunk, index) => {
       const id = `lc-cap-${String(index + 1).padStart(3, "0")}`;
-      const lines = chunk.lines
-        .map((line) => `<span class="lc-caption-line">${escapeHtml(line)}</span>`)
-        .join("");
+      const lines = captionLines(chunk, style);
       return [
-        `      <div id="${id}" class="clip lc-caption" data-start="${secondsAttr(chunk.startMs)}"`,
+        `      <div id="${id}" class="clip lc-caption lc-caption--${style}" data-start="${secondsAttr(chunk.startMs)}"`,
         `        data-duration="${secondsAttr(chunk.endMs - chunk.startMs)}" data-track-index="2">`,
         `        <div class="lc-caption-inner">${lines}</div>`,
         "      </div>",
@@ -202,7 +224,11 @@ export async function assembleProject(options: AssembleOptions): Promise<Assembl
     options.alignment ? chunkCaptions(options.alignment.words, options.captions) : []
   )
     .filter((chunk) => chunk.startMs < durationMs)
-    .map((chunk) => ({ ...chunk, endMs: Math.min(chunk.endMs, durationMs) }));
+    .map((chunk) => {
+      const endMs = Math.min(chunk.endMs, durationMs);
+      const words = chunk.words.map((word) => ({ ...word, endMs: Math.min(word.endMs, endMs) }));
+      return { ...chunk, endMs, words };
+    });
 
   const hook = options.hook ?? options.title ?? "";
   const title = options.title ?? "Loomcast short";
@@ -213,7 +239,7 @@ export async function assembleProject(options: AssembleOptions): Promise<Assembl
     HOOK: escapeHtml(hook),
     GLYPH: (await readFile(join(shell, "glyph.svg"), "utf8")).trim(),
     CARDS: hosts.join("\n"),
-    CAPTIONS: captionMarkup(captions),
+    CAPTIONS: captionMarkup(captions, options.captionStyle ?? "line"),
     SHELL_SCRIPT: `    <script>\n${guardRawText(await readFile(join(shell, "shell.js"), "utf8"))}    </script>`,
   });
   const indexPath = join(renderDir, "index.html");
