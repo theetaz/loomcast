@@ -5,7 +5,7 @@ harness for Loomcast. The package is consumed as TypeScript source.
 
 | Import | Contents |
 |---|---|
-| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type |
+| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `KB_FIXTURES`, `seedKb` |
 | `@loomcast/db/schema` | Tables, pg enums and row types only |
 | `@loomcast/db/testing` | `setupTemplate` and `createTestDb` for vitest |
 
@@ -54,14 +54,52 @@ mistakes with a new migration.
 4. Run `pnpm db:generate` again: it must report "No schema changes".
 5. Apply it with `pnpm db:migrate`, then run the tests.
 
+**New enum values.** drizzle-kit adds a value with `ALTER TYPE ... ADD VALUE`. Postgres refuses
+to use a value added by a transaction that has not committed yet, and the migrator applies every
+pending migration in **one** transaction. So keep the `ADD VALUE` statements in a migration of
+their own, and never use a new value (in a default, a check, an index predicate or an update)
+in any migration that may run in the same batch. Compare as text instead, as
+`api_tokens_job_id_ck` does with `kind::text = 'job'`.
+
+**Extensions and functions.** `pg_trgm` and the `lc_tags_text(text[])` function are created by
+`0002_add_kb_tables`, written by hand above the generated statements; drizzle-kit does not track
+them.
+
 `pnpm db:migrate` reads `DATABASE_URL` (from the environment, or from the repository's `.env`),
 applies pending migrations under an advisory lock and records them in
 `drizzle.__drizzle_migrations`. Running it again is a no-op. Code can do the same with
 `migrate(url)`.
 
 Other scripts: `pnpm db:studio` opens drizzle-kit studio on `DATABASE_URL`, and
-`pnpm --filter @loomcast/db seed:dev` creates a sample project for the first owner account. The
-seed never creates users; create the owner with `pnpm admin:create` first.
+`pnpm --filter @loomcast/db seed:dev` creates a sample project for the first owner account and
+fills its knowledge base with the 30 entries in `src/fixtures/kb.ts`. The seed never creates
+users; create the owner with `pnpm admin:create` first. Rerunning it skips entries that are
+already there (dedupe keys `seed:<key>`).
+
+## Knowledge-base search
+
+`kb_entries.search` is a stored generated `tsvector`: title (weight A), tags (B), body (C) and
+`search_extra` (D). Postgres keeps it current on every insert and update; never write it, and
+leave it out of API responses. Put text that should be findable but not shown in `search_extra`;
+for references use `referenceSearchExtra({ author, likedReason, transcript })`.
+
+`kbSearch(db, { q, projectId?, kinds?, limit? })` returns `KbSearchHit[]` (the contracts shape),
+best first:
+
+- **Matching.** `websearch_to_tsquery('english', q)` (so `"exact phrase"`, `-exclude` and `or`
+  work), plus trigram matching on the title (`title % q` or `q <% title`, which catches typos)
+  and a title prefix match (`title ILIKE q%`, with `%`, `_` and `\` escaped). Soft-deleted
+  entries never match.
+- **Score.** `ts_rank_cd(search, query, 32)` + `0.6 *` the better of `similarity(title, q)` and
+  `word_similarity(q, title)` + `0.3` for a title prefix match. Ties go to the most recently
+  updated entry.
+- **Snippet.** `ts_headline` over the body with matches between `KB_SNIPPET_MATCH_START` and
+  `KB_SNIPPET_MATCH_END`, or the first 160 characters of the body (whitespace collapsed) when the
+  body has no match. Sentinel characters stored in a body are stripped first.
+
+An empty query or an empty `kinds` list returns no hits; `limit` is clamped to
+`1..KB_SEARCH_MAX_LIMIT`. The trigram thresholds are the `pg_trgm` defaults (0.3 for `%`, 0.6
+for `<%`).
 
 ## Test harness
 
