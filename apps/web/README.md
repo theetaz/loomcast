@@ -29,6 +29,10 @@ streams its reply and stores it, publishing the same live events as the real sys
 message containing `[fail]` fails, and `loomcastMock.setStudioOnline(false)` in the console
 takes the studio agent offline so new messages wait (set it back to `true` to run them).
 
+Settings → Members lists demo members. Inviting someone shows a set-password link. The mock
+API lives in the page and a reload resets it, so open the link without reloading: for example
+`history.pushState({}, "", link); dispatchEvent(new PopStateEvent("popstate"))` in the console.
+
 ### Dev proxy
 
 | Path | Target | Notes |
@@ -40,11 +44,11 @@ takes the studio agent offline so new messages wait (set it back to `true` to ru
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/settings/*` |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -144,7 +148,31 @@ and the composer.
   A link to the project root with `?conversation=` opens the Chat tab.
 - Settings: `settings/devices` pairs studio agents with single-use codes and shows live
   online status; `settings/tokens` manages access tokens and shows each secret exactly once,
-  never keeping it in the query cache.
+  never keeping it in the query cache. The tabs come from a registry: every file in
+  `features/settings-nav/items/` exports one `item: {id, label, description, icon, to, order,
+  keywords?, visible?}`; `visible(me)` hides a section, as Members is hidden from admins.
+- Members (`settings/members`, owner only, like every `/api/users` route): the people who can
+  sign in with role, last sign-in and status, an invite dialog, a new password link and
+  disabling (with confirmation; the owner and yourself can't be disabled). Invitation and
+  reset links are shown once with a copy button and their expiry, live only in the dialog's
+  state, and never reach the query or mutation cache.
+- Set-password (`/set-password#token=…`, public): the page reads the token from the fragment
+  and replaces the history entry without it before painting, so it stays in neither the URL
+  nor the history. It shows who the link is for, takes a new password (12 characters or more)
+  twice, and sends the user to sign in. Unknown, used and expired links (404) and rate limits
+  (429) each get their own message. Neither the token nor the password is put in the query
+  client.
+- Command palette (`features/palette`): ⌘K or Ctrl+K anywhere, or the topbar button. It opens
+  and closes without animation. Groups come from `features/palette/sources/*`, each exporting
+  `source: {id, heading, order, icon, useItems(context)}` and filtering its own rows: projects
+  (from the cached list), the knowledge base (server search after a 150 ms pause, from two
+  characters, aborting the previous request), actions (new project, new brainstorm in the open
+  project, switch theme) and pages (including the visible settings sections). Picked pages are
+  kept per user in localStorage and shown under Recent. The palette body (cmdk, the command
+  menu and the sources) is its own chunk: `features/palette/load.ts` starts loading it on idle
+  after the shell mounts and when the pointer or focus reaches the search button, while the
+  shortcut and the open state stay in the main chunk. Asked to open before the chunk is there,
+  the palette appears as soon as it arrives, with no spinner.
 - Theme: light, dark or system from the user menu, stored by `@loomcast/ui/lib/theme` and
   applied before first paint by `/theme-init.js`. Theme changes never animate.
 - Motion stays inside the `@loomcast/ui` components: press feedback, dialog, menu and sheet

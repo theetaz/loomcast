@@ -10,10 +10,21 @@ import {
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_TTL_MS,
   type PairingCode,
+  type PasswordTokenPurpose,
   type Project,
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
+  type UserSummary,
 } from "@loomcast/contracts";
+
+/** A set-password link the mock API handed out. The real API keeps only a hash of the token. */
+export interface MockPasswordToken {
+  token: string;
+  userId: string;
+  purpose: PasswordTokenPurpose;
+  expiresAt: string;
+  usedAt: string | null;
+}
 
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
 export interface MockDb {
@@ -36,6 +47,10 @@ export interface MockDb {
   jobs: JobSummary[];
   /** Knowledge-base entries of every project, with their reference details. */
   kbEntries: KbEntryDetail[];
+  /** Everyone else in the workspace, as the owner lists them; the signed-in user is `user`. */
+  members: UserSummary[];
+  /** Set-password links handed out, newest last. */
+  passwordTokens: MockPasswordToken[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -72,6 +87,8 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     messages: [],
     jobs: [],
     kbEntries: [],
+    members: [],
+    passwordTokens: [],
     ...seed,
     listeners: new Set(),
   };
