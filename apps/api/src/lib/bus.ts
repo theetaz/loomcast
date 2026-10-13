@@ -1,10 +1,12 @@
-import type { JobType, LiveEvent } from "@loomcast/contracts";
+import type { JobType, LiveEvent, SeriesStatus } from "@loomcast/contracts";
 import type { Logger } from "./logger";
 
 /**
  * Events that stay inside the api process. They are never sent to browsers.
  * - `job.enqueued`: a job was inserted (published after commit); wakes the dispatcher.
  * - `device.revoked`: a device was revoked; the bridge hub closes its socket with 4403.
+ * - `format.updated`: a format got a new version (published after commit).
+ * - `series.updated`: a series was renamed, moved to another format, paused, resumed or archived.
  */
 export type InternalEvent =
   | {
@@ -19,11 +21,33 @@ export type InternalEvent =
   | {
       type: "device.revoked";
       payload: { deviceId: string; tokenId: string };
+    }
+  | {
+      type: "format.updated";
+      payload: {
+        formatId: string;
+        projectId: string;
+        versionId: string;
+        previousVersionId: string;
+      };
+    }
+  | {
+      type: "series.updated";
+      payload: {
+        seriesId: string;
+        projectId: string;
+        status: SeriesStatus;
+        previousStatus: SeriesStatus;
+        formatId: string;
+        previousFormatId: string;
+      };
     };
 
 export const INTERNAL_EVENT_TYPES = [
   "job.enqueued",
   "device.revoked",
+  "format.updated",
+  "series.updated",
 ] as const satisfies readonly InternalEvent["type"][];
 
 export type BusEvent = LiveEvent | InternalEvent;
