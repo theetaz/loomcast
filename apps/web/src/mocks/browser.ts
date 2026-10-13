@@ -1,4 +1,5 @@
 import { setupWorker } from "msw/browser";
+import { setOAuthNavigator } from "@/features/channels/connect/navigation";
 import { seedAnalyticsDemo } from "./analytics";
 import { seedCalendarDemo } from "./calendar";
 import { demoContent } from "./content";
@@ -8,6 +9,7 @@ import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { seedFormatDemo } from "./formats";
 import { createHandlers, createStreamHandler } from "./handlers";
 import { demoKb } from "./kb";
+import { mockOAuthStart } from "./oauth";
 import { seedSchedulerDemo } from "./scheduler";
 import { demoMembers } from "./users";
 
@@ -62,6 +64,13 @@ export async function startMockApi() {
       if (online) resumeQueuedJobs(db);
     },
   };
+
+  // A sign-in would load a new page and reset the demo data, so it moves within the app instead,
+  // straight to the connect page the server would redirect to.
+  setOAuthNavigator((url) => {
+    window.history.pushState(null, "", mockOAuthStart(db, url));
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+  });
 
   const worker = setupWorker(...createHandlers(db), createStreamHandler(db));
   await worker.start({ onUnhandledFrame: "bypass", quiet: true });

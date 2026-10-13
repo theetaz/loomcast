@@ -95,14 +95,17 @@ export function ChannelsSettings() {
             size="compact"
             icon={RadioTowerIcon}
             title="No channels yet"
-            description="Channels are the accounts a series publishes to: Facebook Pages, Instagram and Threads. Add a planning channel to plan posts before connecting an account."
+            description="Channels are the accounts a series publishes to: Facebook Pages, Instagram and Threads. Connect an account, or add a planning channel to plan posts before connecting one."
             action={
-              <AddChannelDialog>
-                <Button>
-                  <PlusIcon aria-hidden="true" />
-                  Add planning channel
-                </Button>
-              </AddChannelDialog>
+              <>
+                <ConnectButton size="default" />
+                <AddChannelDialog>
+                  <Button>
+                    <PlusIcon aria-hidden="true" />
+                    Add planning channel
+                  </Button>
+                </AddChannelDialog>
+              </>
             }
           />
         ) : (

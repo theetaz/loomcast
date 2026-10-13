@@ -24,11 +24,13 @@ import {
   type ScheduledTask,
   type Series,
   type SeriesChannels,
+  type SystemFeatures,
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
   type UserSummary,
 } from "@loomcast/contracts";
 import type { MockLivePost } from "./analytics";
+import type { MockOAuthConnection } from "./oauth";
 
 /** A set-password link the mock API handed out. The real API keeps only a hash of the token. */
 export interface MockPasswordToken {
@@ -88,6 +90,10 @@ export interface MockDb {
   livePosts: MockLivePost[];
   /** The server's publishing switches; dry-run and enabled when left out. */
   publisher?: PublisherStatus;
+  /** The server's feature flags; X publishing is off when left out. */
+  features?: SystemFeatures;
+  /** Pending connections of finished sign-ins, newest last. */
+  oauthConnections?: MockOAuthConnection[];
   /** Scheduled tasks, as the scheduler admin routes list them. */
   tasks: ScheduledTask[];
   /**

@@ -32,7 +32,7 @@ const THREADS = "Rust threads (Threads)";
 const X = "Rust on X (X)";
 
 describe("channel settings", () => {
-  it("lists every channel with its status, the dry-run banner and a disabled Connect", async () => {
+  it("lists every channel with its status, the dry-run banner and the Connect menu", async () => {
     const { db } = channelsSetup();
     renderApp("/settings/channels", db);
 
@@ -50,8 +50,8 @@ describe("channel settings", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/^Dry-run mode\./);
     const connect = screen.getByRole("button", { name: "Connect" });
-    expect(connect).toHaveAttribute("aria-disabled", "true");
-    expect(connect).toHaveAccessibleDescription(/Connecting accounts isn't available yet/);
+    expect(connect).not.toHaveAttribute("aria-disabled");
+    expect(connect).toHaveAttribute("aria-haspopup", "menu");
   });
 
   it("locks the dry-run switch with the server's reason for each channel", async () => {
