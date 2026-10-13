@@ -276,7 +276,8 @@ describe("dispatch", () => {
     expect(running.leaseExpiresAt?.getTime()).toBe(
       server.clock.now().getTime() + BRIDGE_TIMINGS.leaseMs,
     );
-    expect(updates(server, job.id)).toEqual(["dispatched", "running"]);
+    // job.updated is published after the commit, so it can trail the row the test just read.
+    await vi.waitFor(() => expect(updates(server, job.id)).toEqual(["dispatched", "running"]));
   });
 
   it("dispatches a job enqueued while the agent is connected", async () => {
@@ -632,7 +633,10 @@ describe("resume and leases", () => {
       error: { code: "interrupted", retryable: true },
     });
     expect(failed.finishedAt).not.toBeNull();
-    expect(updates(server, job.id)).toEqual(["dispatched", "running", "failed"]);
+    // job.updated is published after the commit, so it can trail the row the test just read.
+    await vi.waitFor(() =>
+      expect(updates(server, job.id)).toEqual(["dispatched", "running", "failed"]),
+    );
 
     const second = await connect(server, device);
     await second.hello({ resume: [{ jobId: job.id, lastAckedSeq: 0 }] });
@@ -711,7 +715,10 @@ describe("outcomes", () => {
     });
     await agent.sync();
     expect(await jobRow(job.id)).toMatchObject({ status: "succeeded", result, error: null });
-    expect(updates(server, job.id)).toEqual(["dispatched", "running", "succeeded"]);
+    // job.updated is published after the commit, so it can trail the row the test just read.
+    await vi.waitFor(() =>
+      expect(updates(server, job.id)).toEqual(["dispatched", "running", "succeeded"]),
+    );
   });
 
   it("fails a job whose result does not match the registry", async () => {
