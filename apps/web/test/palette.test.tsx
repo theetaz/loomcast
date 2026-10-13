@@ -2,7 +2,8 @@ import type { KbSearchHit } from "@loomcast/contracts";
 import { KB_SNIPPET_MATCH_END, KB_SNIPPET_MATCH_START } from "@loomcast/contracts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type PaletteModule, preloadPalette, resetPaletteLoader } from "@/features/palette/load";
 import { matchScore, rankByMatch } from "@/features/palette/match";
 import { readRecent, recordRecent } from "@/features/palette/recent";
 import { KB_SEARCH_DEBOUNCE_MS } from "@/features/palette/use-kb-search";
@@ -65,6 +66,7 @@ function spyOnKbSearches() {
 }
 
 afterEach(() => {
+  resetPaletteLoader();
   vi.restoreAllMocks();
   document.documentElement.classList.remove("dark");
 });
@@ -104,6 +106,11 @@ describe("matching", () => {
 });
 
 describe("command palette", () => {
+  // The palette chunk is normally preloaded on idle; these tests start with it loaded.
+  beforeEach(async () => {
+    await preloadPalette();
+  });
+
   it("opens with ⌘K, Ctrl+K and the topbar button, without any animation", async () => {
     const { db } = setup();
     const { user } = renderApp("/", db);
@@ -235,6 +242,10 @@ describe("command palette", () => {
 });
 
 describe("knowledge-base search", () => {
+  beforeEach(async () => {
+    await preloadPalette();
+  });
+
   it("waits for two characters and a pause, then opens a hit", async () => {
     const { db, rust } = setup();
     const found = hit(rust.id, "Ownership in one picture");
@@ -322,5 +333,65 @@ describe("knowledge-base search", () => {
     expect(
       within(palette()).getByRole("option", { name: /Rust in 60 seconds/ }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("palette chunk", () => {
+  it("opens at once with ⌘K when the chunk is preloaded", async () => {
+    await preloadPalette();
+    const { db } = setup();
+    renderApp("/", db);
+    await screen.findByRole("button", { name: /search or jump to/i });
+
+    press("k", { metaKey: true });
+    // Synchronously: no waiting on a chunk that is already there.
+    expect(palette()).toBeInTheDocument();
+    expect(within(palette()).getByRole("combobox")).toHaveFocus();
+  });
+
+  it("opens as soon as the chunk arrives when asked before it loaded", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const importer = vi.fn(async (): Promise<PaletteModule> => {
+      await gate;
+      return import("@/features/palette/CommandPalette");
+    });
+    resetPaletteLoader(importer);
+    const { db } = setup();
+    const { user } = renderApp("/", db);
+    const button = await screen.findByRole("button", { name: /search or jump to/i });
+
+    await user.hover(button);
+    expect(importer).toHaveBeenCalledTimes(1);
+    press("k", { ctrlKey: true });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Nothing stands in for the palette while it loads.
+    expect(screen.queryByRole("status", { name: /loading/i })).toBeNull();
+
+    release();
+    expect(await screen.findByRole("dialog", { name: "Search or jump to" })).toBeInTheDocument();
+    expect(within(palette()).getByRole("combobox")).toHaveFocus();
+    // The idle preload, the hover and the shortcut shared one import.
+    expect(importer).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains a chunk that failed to load and tries again next time", async () => {
+    const importer = vi.fn(
+      (): Promise<PaletteModule> => Promise.reject(new Error("Failed to fetch module")),
+    );
+    resetPaletteLoader(importer);
+    const { db } = setup();
+    renderApp("/", db);
+    await screen.findByRole("button", { name: /search or jump to/i });
+
+    press("k", { metaKey: true });
+    expect(await screen.findByText("Couldn't open search")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    importer.mockImplementation(() => import("@/features/palette/CommandPalette"));
+    press("k", { metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search or jump to" })).toBeInTheDocument();
   });
 });

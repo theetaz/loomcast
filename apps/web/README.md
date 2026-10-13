@@ -168,7 +168,11 @@ and the composer.
   (from the cached list), the knowledge base (server search after a 150 ms pause, from two
   characters, aborting the previous request), actions (new project, new brainstorm in the open
   project, switch theme) and pages (including the visible settings sections). Picked pages are
-  kept per user in localStorage and shown under Recent.
+  kept per user in localStorage and shown under Recent. The palette body (cmdk, the command
+  menu and the sources) is its own chunk: `features/palette/load.ts` starts loading it on idle
+  after the shell mounts and when the pointer or focus reaches the search button, while the
+  shortcut and the open state stay in the main chunk. Asked to open before the chunk is there,
+  the palette appears as soon as it arrives, with no spinner.
 - Theme: light, dark or system from the user menu, stored by `@loomcast/ui/lib/theme` and
   applied before first paint by `/theme-init.js`. Theme changes never animate.
 - Motion stays inside the `@loomcast/ui` components: press feedback, dialog, menu and sheet
