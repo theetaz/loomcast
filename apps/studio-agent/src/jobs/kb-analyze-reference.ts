@@ -1,11 +1,14 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  type AssetMimeType,
   type KbAnalyzeReferenceResult,
   MAX_ANALYSIS_SUMMARY_LENGTH,
+  MAX_TRANSCRIPT_LENGTH,
   parseJobPayload,
   type ReferenceAnalysis,
   ReferenceAnalysisSchema,
+  TranscriptSchema,
 } from "@loomcast/contracts";
 import type { z } from "zod";
 import { type Handler, type JobContext, JobFailure } from "../handlers";
@@ -15,23 +18,35 @@ import {
   repairPrompt,
 } from "../producer/prompts/analyze-reference";
 import type { ProducerEvent, ProducerRunResult, ProducerRuntime } from "../producer/runtime";
-import { SdkProducerRuntime } from "../producer/sdk-runtime";
 import { ensureProjectWorkspace } from "../producer/workspace";
+import { type ProductionDeps, toJobFailure, withPlatform } from "../production/context";
+import { productionDeps } from "../production/deps";
+import { downloadFile } from "../production/upload";
 import type { HandlerDeps } from "./index";
+
+/** What transcribing uploaded reference media needs. */
+export type ReferenceMediaDeps = Pick<
+  ProductionDeps,
+  "connect" | "studio" | "voiceKey" | "fetch" | "sleep"
+>;
 
 export interface AnalyzeReferenceOptions {
   readonly runtime: ProducerRuntime;
   /** Transcripts are written below `<workspaceRoot>/projects/<projectId>/references/`. */
   readonly workspaceRoot: string;
+  /** Without it, a reference with media but no transcript fails as `transcript_required`. */
+  readonly media?: ReferenceMediaDeps;
 }
 
 /** The `kb.analyze_reference` handler of a running agent. */
 export function createKbAnalyzeReferenceHandler(
   deps: HandlerDeps,
 ): Handler<"kb.analyze_reference"> {
+  const production = productionDeps(deps);
   return analyzeReferenceHandler({
-    runtime: new SdkProducerRuntime({ protectedDirs: [deps.paths.home], log: deps.log }),
+    runtime: production.runtime,
     workspaceRoot: deps.config.workspaceRoot,
+    media: production,
   });
 }
 
@@ -39,8 +54,10 @@ export function createKbAnalyzeReferenceHandler(
  * `kb.analyze_reference`: analyses a saved reference from its transcript in a new, read-only
  * producer session.
  *
- * - A payload without a transcript (uploaded media only) fails as `transcript_required` before any
- *   session starts; transcribing media is not supported yet.
+ * - A payload without a transcript but with uploaded media (`mediaAssetId`) is transcribed first:
+ *   the media is downloaded from the platform's own storage through `asset.get_url` (checked
+ *   against its SHA-256), its audio is extracted and transcribed with the TTS provider's
+ *   speech-to-text, and the media file is removed again. The result then carries the transcript.
  * - The transcript is written to `<workspace>/references/<entryId>/transcript.txt` and sent inside
  *   an untrusted-data block. The reference URL is never fetched and never shown to the session.
  * - The first fenced JSON block of the reply is validated against `ReferenceAnalysis`. When it
@@ -59,9 +76,7 @@ export function analyzeReferenceHandler(
     if (payload.projectId !== ctx.job.projectId) {
       throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
     }
-    const { transcript } = payload;
-    if (transcript === undefined) {
-      // Analysing uploaded media needs transcription, which this agent cannot do yet.
+    if (payload.transcript === undefined && options.media === undefined) {
       throw new JobFailure(
         "transcript_required",
         "This studio agent can only analyse a reference from its transcript; add a transcript",
@@ -73,6 +88,24 @@ export function analyzeReferenceHandler(
     const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
     const referenceDir = join(workspace.dir, "references", payload.entryId);
     await mkdir(referenceDir, { recursive: true });
+    let transcript = payload.transcript;
+    let transcribed = false;
+    if (transcript === undefined) {
+      if (options.media === undefined || payload.mediaAssetId === undefined) {
+        throw new JobFailure("transcript_required", "The reference has no transcript", false);
+      }
+      ctx.emit("status", { state: "transcribing" });
+      try {
+        transcript = await transcribeReferenceMedia(ctx, options.media, {
+          projectId: payload.projectId,
+          mediaAssetId: payload.mediaAssetId,
+          referenceDir,
+        });
+      } catch (error) {
+        throw toJobFailure(error, "transcription_failed");
+      }
+      transcribed = true;
+    }
     const transcriptPath = join(referenceDir, "transcript.txt");
     await writeFile(transcriptPath, transcript, "utf8");
 
@@ -116,9 +149,102 @@ export function analyzeReferenceHandler(
         );
       }
     }
-    ctx.log.info("reference analysis finished", { numTurns: turns });
-    return { analysis: reply.analysis, summaryMd: reply.summaryMd };
+    ctx.log.info("reference analysis finished", { numTurns: turns, transcribed });
+    return {
+      analysis: reply.analysis,
+      summaryMd: reply.summaryMd,
+      ...(transcribed ? { transcript } : {}),
+    };
   };
+}
+
+/** File extensions for reference media, so the transcriber knows audio from video. */
+const MEDIA_EXTENSIONS: Partial<Record<AssetMimeType, string>> = {
+  "video/mp4": ".mp4",
+  "video/quicktime": ".mov",
+  "audio/mpeg": ".mp3",
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a",
+};
+
+/**
+ * Downloads the reference's uploaded media, transcribes it and returns the transcript, cut to the
+ * contract's limits. The media is removed afterwards; the transcript is kept next to it.
+ */
+async function transcribeReferenceMedia(
+  ctx: JobContext<"kb.analyze_reference">,
+  media: ReferenceMediaDeps,
+  target: {
+    readonly projectId: string;
+    readonly mediaAssetId: string;
+    readonly referenceDir: string;
+  },
+): Promise<string> {
+  const { referenceDir } = target;
+  const apiKey = await media.voiceKey();
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new JobFailure(
+      "voice_provider_key_missing",
+      "No TTS provider key is set on this Mac to transcribe the media; run `studio-agent secrets set voice-provider-key`",
+      false,
+    );
+  }
+  const mediaPath = await withPlatform(ctx, media.connect, async (platform) => {
+    const { url, asset } = await platform.getAssetUrl({ assetId: target.mediaAssetId });
+    if (
+      asset.kind !== "reference_media" ||
+      asset.status !== "ready" ||
+      asset.projectId !== target.projectId
+    ) {
+      throw new JobFailure(
+        "invalid_payload",
+        "The media is not ready reference media of this project",
+      );
+    }
+    const extension = MEDIA_EXTENSIONS[asset.mime as AssetMimeType] ?? ".mp4";
+    const path = join(referenceDir, `media${extension}`);
+    await downloadFile({
+      url,
+      path,
+      sha256: asset.sha256,
+      signal: ctx.signal,
+      fetch: media.fetch,
+      sleep: media.sleep,
+    });
+    return path;
+  });
+  try {
+    const studio = await media.studio();
+    const result = await studio.transcribeMedia({
+      apiKey,
+      inputPath: mediaPath,
+      signal: ctx.signal,
+    });
+    const text = cleanTranscript(result.text);
+    const parsed = TranscriptSchema.safeParse(text);
+    if (!parsed.success) {
+      throw new JobFailure("transcript_empty", "The media has no speech to transcribe", false);
+    }
+    return parsed.data;
+  } finally {
+    await rm(mediaPath, { force: true });
+  }
+}
+
+/** Removes control characters (other than line breaks and tabs) and cuts to the contract's limit. */
+export function cleanTranscript(text: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it strips
+  const plain = text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").trim();
+  if (plain.length <= MAX_TRANSCRIPT_LENGTH) {
+    return plain;
+  }
+  // Never end on half a surrogate pair.
+  return plain
+    .slice(0, MAX_TRANSCRIPT_LENGTH)
+    .replace(/[\uD800-\uDBFF]$/, "")
+    .trim();
 }
 
 /** Records a session's durable events; the session id is reported once across both turns. */

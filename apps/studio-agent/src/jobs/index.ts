@@ -54,6 +54,14 @@ const optionalHandlers: readonly OptionalHandler[] = [
     "content.revise",
     async () => (await import("./content-revise")).createContentReviseHandler,
   ),
+  optionalHandler(
+    "content.voice",
+    async () => (await import("./content-voice")).createContentVoiceHandler,
+  ),
+  optionalHandler(
+    "content.render",
+    async () => (await import("./content-render")).createContentRenderHandler,
+  ),
 ];
 
 /** Builds the fixed allow-list of job handlers. Nothing else can run on this agent. */

@@ -5,7 +5,17 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { startAgent } from "./agent";
 import { AGENT_VERSION, detectPlatform } from "./agent-info";
-import { configIsShared, loadConfig, redactConfig } from "./config";
+import {
+  configIsShared,
+  isSecretName,
+  loadConfig,
+  readSecret,
+  redactConfig,
+  SECRET_NAMES,
+  secretsFile,
+  setSecret,
+  unsetSecret,
+} from "./config";
 import { createHandlers } from "./jobs";
 import { createLogger, isLogLevel, LOG_LEVELS } from "./logger";
 import { pairDevice } from "./pair";
@@ -26,6 +36,11 @@ export interface CliIo {
   readonly env: NodeJS.ProcessEnv;
   /** Replaces the launchd environment in tests. */
   readonly service?: ServiceEnvironment;
+  /**
+   * Reads a secret value: hidden input on a terminal, else the first line of stdin. Secrets are
+   * never taken from the command line, where they would show in the process list and history.
+   */
+  readonly readSecret?: (prompt: string) => Promise<string>;
 }
 
 const USAGE = `Usage: studio-agent <command> [options]
@@ -38,6 +53,8 @@ Commands:
   status                 Show the configuration (the device token is redacted)
   service install|uninstall|status
                          Manage the launchd agent that keeps \`run\` going in the background
+  secrets set|unset voice-provider-key
+                         Store or remove the TTS provider key (read from stdin, never an argument)
 
 Options:
   -h, --help             Show this help
@@ -49,6 +66,7 @@ type Command = (args: readonly string[], io: CliIo) => Promise<number>;
 const commands: Readonly<Record<string, Command>> = {
   pair: pairCommand,
   run: runCommand,
+  secrets: secretsCommand,
   service: serviceCommand,
   status: statusCommand,
 };
@@ -208,6 +226,77 @@ async function serviceCommand(args: readonly string[], io: CliIo): Promise<numbe
   }
 }
 
+const SECRETS_USAGE = `Usage: studio-agent secrets set|unset <name>
+Names: ${Object.keys(SECRET_NAMES).join(", ")}
+The value is read from stdin (hidden on a terminal), for example:
+  pbpaste | studio-agent secrets set voice-provider-key
+`;
+
+async function secretsCommand(args: readonly string[], io: CliIo): Promise<number> {
+  const { positionals } = parseArgs({
+    args: [...args],
+    options: {},
+    allowPositionals: true,
+    strict: true,
+  });
+  const [action, name, ...extra] = positionals;
+  if (name === undefined || !isSecretName(name) || extra.length > 0) {
+    io.stderr(SECRETS_USAGE);
+    return 1;
+  }
+  const paths = resolveAgentPaths(io.env);
+  switch (action) {
+    case "set": {
+      const read = io.readSecret ?? readSecretFromStdin;
+      const value = await read(`Enter the ${name}: `);
+      setSecret(paths, name, value);
+      io.stdout(`Stored the ${name} in ${secretsFile(paths)} (readable only by you).\n`);
+      return 0;
+    }
+    case "unset":
+      io.stdout(unsetSecret(paths, name) ? `Removed the ${name}.\n` : `The ${name} is not set.\n`);
+      return 0;
+    default:
+      io.stderr(SECRETS_USAGE);
+      return 1;
+  }
+}
+
+/** A secret from stdin: typed without echo on a terminal, else the first line of piped input. */
+async function readSecretFromStdin(prompt: string): Promise<string> {
+  const { stdin, stderr } = process;
+  if (!stdin.isTTY) {
+    let text = "";
+    for await (const chunk of stdin) {
+      text += String(chunk);
+      if (text.includes("\n") || text.length > 4_096) {
+        break;
+      }
+    }
+    return text.split(/\r?\n/)[0] ?? "";
+  }
+  const { createInterface } = await import("node:readline");
+  const { Writable } = await import("node:stream");
+  let muted = false;
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      if (!muted) {
+        stderr.write(chunk as Buffer);
+      }
+      done();
+    },
+  });
+  const rl = createInterface({ input: stdin, output, terminal: true });
+  stderr.write(prompt);
+  muted = true;
+  try {
+    return await new Promise<string>((resolve) => rl.question("", resolve));
+  } finally {
+    rl.close();
+    stderr.write("\n");
+  }
+}
+
 async function statusCommand(args: readonly string[], io: CliIo): Promise<number> {
   parseArgs({ args: [...args], options: {}, strict: true });
   const paths = resolveAgentPaths(io.env);
@@ -219,6 +308,9 @@ async function statusCommand(args: readonly string[], io: CliIo): Promise<number
     return 0;
   }
   io.stdout(`Status: paired\n${JSON.stringify(redactConfig(config), null, 2)}\n`);
+  io.stdout(
+    `Voice provider key: ${readSecret(paths, "voice-provider-key") === undefined ? "not set" : "set"}\n`,
+  );
   if (configIsShared(paths)) {
     io.stderr(`Warning: ${paths.configFile} is readable by other users; run chmod 600 on it.\n`);
   }
