@@ -31,12 +31,14 @@ import {
   assets,
   type ContentItemRow,
   type ContentVersionRow,
+  type ConversationRow,
+  conversations,
   type Database,
   type JobRow,
   jobs,
   projects,
 } from "@loomcast/db";
-import { and, count, eq, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, or, sql } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
 import { type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, HttpError, notFound } from "../../lib/errors";
@@ -175,6 +177,11 @@ export interface ProductionService {
    * autopilot to bring the item back to review. Null when the item has moved on since.
    */
   requestRevision(review: Review): Promise<JobRow | null>;
+  /**
+   * The item's own conversation, created on first use with the item's title. 404 for an unknown
+   * item; 409 when its project is archived and no conversation exists yet.
+   */
+  conversation(itemId: string, userId: string): Promise<ConversationRow>;
 }
 
 export interface ProductionServiceDeps {
@@ -692,6 +699,43 @@ export function createProductionService(deps: ProductionServiceDeps): Production
         // Autopilot brings the revised item back to review.
         await content.track(tx, item.id, { autopilotTarget: "review" });
         return job;
+      });
+    },
+
+    async conversation(itemId, userId) {
+      if (!IdSchema.safeParse(itemId).success) throw itemNotFound();
+      return transaction(db, async (tx) => {
+        // Locking the item makes concurrent first calls share one conversation.
+        const item = await lockItem(tx, itemId);
+        if (item === null) throw itemNotFound();
+        const [existing] = await tx
+          .select()
+          .from(conversations)
+          .where(eq(conversations.contentItemId, item.id))
+          .orderBy(asc(conversations.createdAt), asc(conversations.id))
+          .limit(1);
+        if (existing !== undefined) return existing;
+        const [project] = await tx
+          .select({ status: projects.status })
+          .from(projects)
+          .where(eq(projects.id, item.projectId))
+          .limit(1);
+        if (project?.status === "archived") {
+          throw conflict("The project is archived. Restore it before adding to it.", {
+            reason: "archived",
+          });
+        }
+        const [row] = await tx
+          .insert(conversations)
+          .values({
+            projectId: item.projectId,
+            title: item.title,
+            createdBy: userId,
+            contentItemId: item.id,
+          })
+          .returning();
+        if (row === undefined) throw new Error("conversation was not inserted");
+        return row;
       });
     },
   };

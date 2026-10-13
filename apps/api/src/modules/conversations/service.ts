@@ -76,6 +76,7 @@ export function toConversation(row: ConversationRow): Conversation {
     projectId: row.projectId,
     title: row.title,
     deviceId: row.deviceId,
+    contentItemId: row.contentItemId,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
@@ -206,6 +207,7 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
             projectId: conversations.projectId,
             producerSessionId: conversations.producerSessionId,
             deviceId: conversations.deviceId,
+            contentItemId: conversations.contentItemId,
             projectStatus: projects.status,
           })
           .from(conversations)
@@ -261,6 +263,10 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
             ...(conversation.producerSessionId === null
               ? {}
               : { producerSessionId: conversation.producerSessionId }),
+            // An item's own conversation tells the producer session which item it is about.
+            ...(conversation.contentItemId === null
+              ? {}
+              : { contentItemId: conversation.contentItemId }),
           },
           projectId: conversation.projectId,
           conversationId: conversation.id,

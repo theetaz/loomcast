@@ -6,6 +6,7 @@ import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { contentServiceFor, userActor } from "../content";
 import { serviceFor } from "../content/support";
+import { toConversation } from "../conversations/service";
 import { toJobSummary } from "../jobs/service";
 import {
   createProductionService,
@@ -53,10 +54,10 @@ export function productionServiceFor(
 }
 
 /**
- * Production endpoints: content actions that start production jobs. Job results become versions
- * in the job hooks (`createProductionJobHooks`, registered in `modules/jobs/handlers`). A
- * `request_changes` review that asks for a revision queues `content.revise` and brings the item
- * back to review on autopilot.
+ * Production endpoints: content actions that start production jobs, and each item's own producer
+ * conversation. Job results become versions in the job hooks (`createProductionJobHooks`,
+ * registered in `modules/jobs/handlers`). A `request_changes` review that asks for a revision
+ * queues `content.revise` and brings the item back to review on autopilot.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const production = productionServiceFor(deps);
@@ -68,6 +69,12 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     const request = await readJson(c, ContentActionRequestSchema);
     const job = await production.start(idParam(c), request, userActor(c, trustProxy), user.role);
     return c.json(toJobSummary(job), 201);
+  });
+
+  router.post(routes["content.conversation"].path, async (c) => {
+    const user = currentUser(c);
+    const row = await production.conversation(idParam(c), user.id);
+    return c.json(toConversation(row), 200);
   });
 
   const unsubscribe = deps.bus.subscribe("review.created", async (event) => {
