@@ -2,11 +2,20 @@ import {
   allowedActions,
   type ContentAction,
   type ContentActionRequest,
+  type ContentItemError,
+  type ContentRenderResult,
+  type ContentReviseResult,
+  type ContentStoryboardResult,
+  type ContentVoiceResult,
+  type ContentWriteScriptResult,
   DEFAULT_FORMAT_RULES,
   DEFAULT_PRODUCE_TARGET,
   type FormatSnapshot,
+  findTransition,
   IdSchema,
+  type JobError,
   type JobType,
+  type JsonObject,
   nextProductionStep,
   type PipelineState,
   PRODUCE_TARGETS,
@@ -31,10 +40,12 @@ import { type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, HttpError, notFound } from "../../lib/errors";
 import type { PipelineActor } from "../content/actor";
 import { versionArtifacts } from "../content/mappers";
-import { activeProductionJob, findVersion, lockItem } from "../content/queries";
+import { activeProductionJob, findVersion, findVersionOfJob, lockItem } from "../content/queries";
 import { type ContentService, createContentService } from "../content/service";
 import { missingArtifact } from "../content/support";
+import { applyChanges, type VersionChanges } from "../content/versions";
 import { createJobsService, type JobsService } from "../jobs/service";
+import { fitStoryboard, renderLengthNote, spansOfScript, timeScript } from "./timing";
 
 /** The single production steps, one job each. `produce` chains them. */
 export type ProductionStepAction = Exclude<ContentAction, "produce">;
@@ -122,6 +133,18 @@ export interface ProductionService {
     actor: PipelineActor,
     role: UserRole | null,
   ): Promise<JobRow>;
+  /**
+   * Stores a production job's result as the item's next version (the `onSucceeded` hook). Runs in
+   * the job's own transaction, at most once per job: a replayed completion finds the job's version
+   * and changes nothing. A result that can no longer be used (the item moved on, or its assets do
+   * not check out) is recorded as the item's `lastError` instead, and autopilot stops.
+   */
+  applyResult(tx: Transaction, job: JobRow, result: JsonObject): Promise<void>;
+  /**
+   * Records a failed or cancelled production job on its item (`lastError`) and stops autopilot.
+   * Idempotent; skipped when a newer production job of the item is already active.
+   */
+  recordFailure(jobId: string): Promise<void>;
 }
 
 export interface ProductionServiceDeps {
@@ -291,6 +314,23 @@ export function createProductionService(deps: ProductionServiceDeps): Production
     return retry.job;
   }
 
+  /** Sets the item's last error and turns autopilot off. */
+  async function recordError(
+    tx: Transaction,
+    itemId: string,
+    job: JobRow,
+    error: Pick<JobError, "code" | "message">,
+  ): Promise<void> {
+    const lastError: ContentItemError = {
+      jobId: job.id,
+      jobType: job.type,
+      code: error.code.slice(0, 64),
+      message: error.message.slice(0, 2_000),
+      at: (job.finishedAt ?? new Date()).toISOString(),
+    };
+    await content.track(tx, itemId, { lastError, autopilotTarget: null });
+  }
+
   /**
    * Starts `produce` on a locked item: records the target and runs the first missing step, sends
    * a rendered version to review, or turns autopilot off once the target is reached.
@@ -323,6 +363,106 @@ export function createProductionService(deps: ProductionServiceDeps): Production
     }
     if (item.autopilotTarget !== null) {
       await content.track(tx, item.id, { autopilotTarget: null });
+    }
+    return null;
+  }
+
+  /** The artifacts a job result adds to `base`. */
+  async function changesFor(
+    tx: Transaction,
+    step: ProductionStepAction,
+    base: ContentVersionRow,
+    result: JsonObject,
+    format: FormatSnapshot,
+  ): Promise<VersionChanges> {
+    switch (step) {
+      case "write_script": {
+        const data = result as unknown as ContentWriteScriptResult;
+        return { script: data.script, notes: data.notes ?? null };
+      }
+      case "storyboard": {
+        const data = result as unknown as ContentStoryboardResult;
+        return { storyboard: await fitToVoice(tx, data.storyboard, base) };
+      }
+      case "revise": {
+        const data = result as unknown as ContentReviseResult;
+        const changes: VersionChanges = { notes: data.summary };
+        if (data.script !== undefined) changes.script = data.script;
+        if (data.storyboard !== undefined) {
+          // A revised script drops the voice, so only a storyboard on the same script is re-timed.
+          changes.storyboard =
+            data.script === undefined
+              ? await fitToVoice(tx, data.storyboard, base)
+              : data.storyboard;
+        }
+        return changes;
+      }
+      case "voice": {
+        const data = result as unknown as ContentVoiceResult;
+        const changes: VersionChanges = { voiceAssetId: data.voiceAssetId };
+        // The same take again (identical audio) keeps the version's timings as they are.
+        const timed =
+          base.script === null || data.voiceAssetId === base.voiceAssetId
+            ? null
+            : timeScript(base.script, data.alignment.words, data.durationMs);
+        const spans = spansOfScript(timed);
+        if (timed !== null && spans !== null) {
+          // The segments get their spoken times, and the storyboard is re-timed to them.
+          changes.script = timed;
+          if (base.storyboard !== null) {
+            changes.storyboard = fitStoryboard(base.storyboard, spans, data.durationMs);
+          }
+        }
+        return changes;
+      }
+      case "render": {
+        const data = result as unknown as ContentRenderResult;
+        return {
+          renderAssetId: data.renderAssetId,
+          posterAssetId: data.posterAssetId,
+          notes: renderLengthNote(data.durationMs, format.rules.lengthSec),
+        };
+      }
+    }
+  }
+
+  /**
+   * A new storyboard for a version that already has a voice is re-timed to it, so a storyboard
+   * cut after the voice can never run past it.
+   */
+  async function fitToVoice(
+    tx: Transaction,
+    storyboard: ContentStoryboardResult["storyboard"],
+    base: ContentVersionRow,
+  ) {
+    if (base.voiceAssetId === null) return storyboard;
+    const spans = spansOfScript(base.script);
+    const voice = await assetRows.getRow(base.voiceAssetId, tx);
+    if (spans === null || voice?.durationMs == null) return storyboard;
+    return fitStoryboard(storyboard, spans, voice.durationMs);
+  }
+
+  /** Why the assets a result names cannot be used, or null when they can. */
+  async function assetProblem(
+    tx: Transaction,
+    itemId: string,
+    base: ContentVersionRow,
+    changes: VersionChanges,
+  ): Promise<string | null> {
+    const named = [
+      ["voice", changes.voiceAssetId, base.voiceAssetId],
+      ["render", changes.renderAssetId, base.renderAssetId],
+      ["poster", changes.posterAssetId, base.posterAssetId],
+    ] as const;
+    for (const [kind, id, previous] of named) {
+      if (id === undefined || id === previous) continue;
+      const row = await assetRows.getRow(id, tx);
+      if (row === null || row.itemId !== itemId || row.kind !== kind) {
+        return `The job named a ${kind} that is not a ${kind} of this item.`;
+      }
+      if (row.status !== "ready") {
+        return `The job's ${kind} upload was never finished.`;
+      }
     }
     return null;
   }
@@ -371,6 +511,86 @@ export function createProductionService(deps: ProductionServiceDeps): Production
           await content.track(tx, item.id, { autopilotTarget: null });
         }
         return job;
+      });
+    },
+
+    async applyResult(tx, job, result) {
+      const step = stepOfJobType(job.type);
+      const payload = job.payload as { itemId?: unknown; versionId?: unknown; format?: unknown };
+      if (
+        step === null ||
+        typeof payload.itemId !== "string" ||
+        typeof payload.versionId !== "string"
+      ) {
+        return;
+      }
+      const item = await lockItem(tx, payload.itemId);
+      if (item === null || item.state === "archived") return;
+      // A replayed completion: the job's version exists, nothing more to do.
+      if ((await findVersionOfJob(tx, job.id)) !== null) return;
+      if (item.currentVersionId !== payload.versionId) {
+        await recordError(tx, item.id, job, {
+          code: "stale_version",
+          message: "The item changed while the job ran, so its result was not used.",
+        });
+        return;
+      }
+      const base = await currentVersion(tx, item);
+      const format =
+        (payload.format as FormatSnapshot | undefined) ?? (await formatOf(tx, item.id));
+      const changes = await changesFor(tx, step, base, result, format);
+
+      const problem = await assetProblem(tx, item.id, base, changes);
+      if (problem !== null) {
+        await recordError(tx, item.id, job, { code: "invalid_result", message: problem });
+        return;
+      }
+      const next = applyChanges(base, changes);
+      const stage = stageForArtifacts(next);
+      // A render goes on to review, unless autopilot was asked to stop at the render.
+      const toReview = step === "render" && item.autopilotTarget !== "render";
+      const to: PipelineState = toReview && item.state !== "review" ? "review" : stage;
+      if (findTransition({ from: item.state, to, actor: "device", version: next }) === undefined) {
+        await recordError(tx, item.id, job, {
+          code: "invalid_transition",
+          message: `The item is in ${item.state} now, so the job's result was not used.`,
+        });
+        return;
+      }
+
+      const written = await content.createVersionFromJob(tx, job.id, item.id, changes, {
+        baseVersionId: payload.versionId,
+        state: to,
+        reason: `job:${job.type}`,
+      });
+      if (!written.created) return;
+      if (toReview && to !== "review") {
+        // A render made while the item was in review: it leaves review for the new version and
+        // goes straight back with it.
+        await content.transition(
+          tx,
+          item.id,
+          "review",
+          { kind: "device", id: job.claimedByDevice, userId: job.createdBy },
+          { via: "submit", reason: `job:${job.type}` },
+        );
+      }
+    },
+
+    async recordFailure(jobId) {
+      await transaction(db, async (tx) => {
+        const [job] = await tx.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+        if (job === undefined || (job.status !== "failed" && job.status !== "cancelled")) return;
+        const itemId = (job.payload as { itemId?: unknown }).itemId;
+        if (typeof itemId !== "string" || !IdSchema.safeParse(itemId).success) return;
+        const item = await lockItem(tx, itemId);
+        if (item === null || item.lastError?.jobId === job.id) return;
+        const active = await activeProductionJob(tx, item);
+        if (active !== null && active.id !== job.id) return;
+        await recordError(tx, item.id, job, {
+          code: job.error?.code ?? job.status,
+          message: job.error?.message ?? `The ${job.type} job was ${job.status}.`,
+        });
       });
     },
   };

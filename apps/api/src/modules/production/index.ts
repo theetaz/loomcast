@@ -13,6 +13,7 @@ import {
   type ProductionServiceDeps,
 } from "./service";
 
+export { createProductionJobHooks } from "./hooks";
 export {
   type AutopilotMove,
   autopilotMove,
@@ -22,6 +23,13 @@ export {
   STEP_JOB_TYPES,
   stepKey,
 } from "./service";
+export {
+  fitStoryboard,
+  RENDER_LENGTH_TOLERANCE,
+  renderLengthNote,
+  segmentSpans,
+  timeScript,
+} from "./timing";
 
 /** The app's production service (one per deps object). */
 export function productionServiceFor(
@@ -40,7 +48,8 @@ export function productionServiceFor(
 }
 
 /**
- * Production endpoints: content actions that start production jobs.
+ * Production endpoints: content actions that start production jobs. Job results become versions
+ * in the job hooks (`createProductionJobHooks`, registered in `modules/jobs/handlers`).
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const production = productionServiceFor(deps);
