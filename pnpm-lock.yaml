@@ -595,6 +595,9 @@ importers:
 
   tests/e2e:
     devDependencies:
+      '@loomcast/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@loomcast/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -604,6 +607,9 @@ importers:
       '@types/pg':
         specifier: 'catalog:'
         version: 8.23.1
+      '@types/ws':
+        specifier: 'catalog:'
+        version: 8.18.2
       pg:
         specifier: 'catalog:'
         version: 8.23.1
@@ -616,6 +622,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      ws:
+        specifier: 'catalog:'
+        version: 8.22.0
 
 packages:
 

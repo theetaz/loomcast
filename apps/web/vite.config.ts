@@ -30,6 +30,10 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // REST and the `/api/stream` server-sent events.
       "/api": { target: API_TARGET, changeOrigin: false },
+      // MCP clients may use the web origin shown in Settings, as in production.
+      "/mcp": { target: API_TARGET, changeOrigin: false },
+      // The bridge, for a studio agent paired with the web origin (`--server http://localhost:5173`).
+      "/bridge": { target: API_TARGET, changeOrigin: false, ws: true },
       // Reserved for WebSocket endpoints.
       "/live": { target: API_TARGET, ws: true },
     },
