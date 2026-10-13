@@ -40,8 +40,14 @@ export function toUserSummary(row: UserRow): UserSummary {
   };
 }
 
-/** Who asked for a change: a signed-in user (with their address), or the admin CLI. */
-export type UserActor = { kind: "user"; id: string; ip: string | null } | { kind: "system" };
+/**
+ * Who asked for a change: a signed-in user (with their address), an MCP token acting for its user
+ * (`id` is the token id), or the admin CLI.
+ */
+export type UserActor =
+  | { kind: "user"; id: string; ip: string | null }
+  | { kind: "token"; id: string; userId: string; ip: string | null }
+  | { kind: "system" };
 
 export interface UserWithLink {
   user: UserRow;
@@ -89,10 +95,24 @@ export async function lockUserCreation(tx: Transaction): Promise<void> {
 }
 
 function actorFields(actor: UserActor) {
-  return actor.kind === "user"
-    ? { actorKind: "user" as const, actorId: actor.id, ip: actor.ip }
-    : { actorKind: "system" as const, actorId: null, ip: null };
+  return actor.kind === "system"
+    ? { actorKind: "system" as const, actorId: null, ip: null }
+    : { actorKind: actor.kind, actorId: actor.id, ip: actor.ip };
 }
+
+/** The account behind a change, or null for the admin CLI. */
+function actorUserId(actor: UserActor): string | null {
+  switch (actor.kind) {
+    case "user":
+      return actor.id;
+    case "token":
+      return actor.userId;
+    case "system":
+      return null;
+  }
+}
+
+const ACTOR_VIA = { user: "web", token: "mcp", system: "cli" } as const;
 
 export function createUsersService(deps: UsersServiceDeps): UsersService {
   const { db, clock, sessions, tokens, passwordTokens } = deps;
@@ -125,7 +145,7 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
       throw new Error("user was not inserted");
     }
     const issued = await passwordTokens.issue(
-      { userId: user.id, purpose: "invite", createdBy: actor.kind === "user" ? actor.id : null },
+      { userId: user.id, purpose: "invite", createdBy: actorUserId(actor) },
       tx,
     );
     await audit(tx, {
@@ -137,7 +157,7 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
         email: user.email,
         role: user.role,
         expiresAt: issued.link.expiresAt,
-        via: actor.kind === "user" ? "web" : "cli",
+        via: ACTOR_VIA[actor.kind],
       },
     });
     return { user, link: issued.link };
@@ -183,7 +203,7 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
           {
             userId: user.id,
             purpose: "reset",
-            createdBy: actor.kind === "user" ? actor.id : null,
+            createdBy: actorUserId(actor),
           },
           tx,
         );
@@ -209,7 +229,7 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
         if (user === undefined) {
           return null;
         }
-        if (actor.kind === "user" && actor.id === user.id) {
+        if (actorUserId(actor) === user.id) {
           throw conflict("You cannot disable your own account.");
         }
         if (user.role === "owner") {

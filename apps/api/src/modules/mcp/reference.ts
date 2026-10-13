@@ -62,7 +62,9 @@ function typeLabel(schema: JsonSchema): string {
       .join(" | ");
   }
   if (schema.type === "array") {
-    return `${schema.items === undefined ? "unknown" : typeLabel(schema.items)}[]`;
+    const item = schema.items === undefined ? "unknown" : typeLabel(schema.items);
+    // `("a" | "b")[]`, so the brackets apply to the whole union.
+    return item.includes(" | ") ? `(${item})[]` : `${item}[]`;
   }
   if (schema.type === "string" && schema.format !== undefined) {
     return `string (${schema.format})`;

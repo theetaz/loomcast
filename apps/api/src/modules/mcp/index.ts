@@ -3,7 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { forbidden } from "../../lib/errors";
-import { createRateLimiter, type RateLimitOptions, rateLimit } from "../../lib/rate-limit";
+import { consume, createRateLimiter, type RateLimitOptions } from "../../lib/rate-limit";
 import type { AppEnv } from "../../types";
 import { currentToken } from "../auth/guards";
 import { CALLER_RESOLVERS, type CallerResolver, requireMcpCaller, resolveCaller } from "./caller";
@@ -18,10 +18,14 @@ export {
 } from "./caller";
 export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server";
 export {
+  createAdminTools,
+  createKbTools,
   createMcpTools,
   createProjectTools,
   defineTool,
+  kbEntryUrl,
   McpToolError,
+  projectIdFromCwd,
   projectUrl,
   TOOL_CALL_AUDIT_ACTION,
   type ToolDefinition,
@@ -29,6 +33,12 @@ export {
 
 /** Tool calls and other MCP requests allowed per token: a burst of 120, refilling over a minute. */
 export const MCP_RATE_LIMIT: RateLimitOptions = { capacity: 120, intervalMs: 60_000 };
+
+/**
+ * The same for a job token (`lc_job_…`): a producer session calls tools in quick bursts while it
+ * works, so it gets 240 a minute. Each job token has a bucket of its own.
+ */
+export const MCP_JOB_RATE_LIMIT: RateLimitOptions = { capacity: 240, intervalMs: 60_000 };
 
 /** Largest JSON-RPC request body accepted on `/mcp`. */
 export const MCP_BODY_LIMIT_BYTES = 1024 * 1024;
@@ -48,7 +58,7 @@ export interface McpRouteOptions {
  *
  * - Bearer tokens only: user MCP tokens (`lc_mcp_…`) and job tokens (`lc_job_…`) bound to one
  *   job's project. Cookies are never read.
- * - 120 requests a minute per token.
+ * - 120 requests a minute per user token, 240 per job token.
  * - A browser request from another origin is refused, against DNS rebinding.
  * - GET (a server-to-client event stream) and DELETE (ending a session) are not offered: 405.
  */
@@ -65,6 +75,7 @@ export function registerMcpRoutes(
   const resolvers = options.resolvers ?? CALLER_RESOLVERS;
   const tools = options.tools ?? createMcpTools(deps);
   const limiter = createRateLimiter(MCP_RATE_LIMIT, deps.clock);
+  const jobLimiter = createRateLimiter(MCP_JOB_RATE_LIMIT, deps.clock);
   const router = new Hono<AppEnv>();
 
   router.use(path, async (c, next) => {
@@ -75,10 +86,11 @@ export function registerMcpRoutes(
     await next();
   });
   router.use(path, requireMcpCaller(deps, resolvers));
-  router.use(
-    path,
-    rateLimit(limiter, (c) => currentToken(c).id),
-  );
+  router.use(path, async (c, next) => {
+    const token = currentToken(c);
+    consume(token.kind === "job" ? jobLimiter : limiter, token.id);
+    await next();
+  });
 
   router.post(path, async (c) => {
     const caller = await resolveCaller(c, deps, resolvers);
@@ -93,7 +105,10 @@ export function registerMcpRoutes(
     logger.debug({ tokenId: caller.token.id }, "mcp request");
     try {
       await server.connect(transport);
-      return await transport.handleRequest(c.req.raw);
+      const response = await transport.handleRequest(c.req.raw);
+      // Results can carry one-time links (`admin.create_user`): keep them out of every cache.
+      response.headers.set("Cache-Control", "no-store");
+      return response;
     } finally {
       await server.close();
     }
