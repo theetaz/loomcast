@@ -22,9 +22,9 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 
 | Module | Contents |
 |---|---|
-| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds |
+| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
-| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills; `ApiError`; list and cursor-page shapes |
+| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
 | `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
@@ -36,12 +36,17 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/kb-tools.ts` | `kbTools`: the `kb.*` tools |
 | `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
 | `src/mcp/pipeline-tools.ts` | `pipelineTools`: format, content, asset and skill tools |
+| `src/mcp/calendar-tools.ts` | `calendarTools`: `calendar.get_slots` |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
 | `src/pipeline/artifacts.ts` | `ScriptSchema`, `StoryboardSchema` and `VoiceAlignmentSchema`, the artifacts of a content version |
 | `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
 | `src/pipeline/skills.ts` | Skill names, versions, file paths and limits, `skill.json`, and `skillChecksumInput` |
+| `src/calendar/slots.ts` | `generateSlots`, the cadence slots of a range in a real time zone, and `toLocalDateTime` / `fromLocalDateTime` |
+| `src/scheduler/tasks.ts` | `scheduledTaskRegistry`, the allow-list of scheduled tasks, with payloads, attempts, backoff and leases, and `taskRetryDelayMs` |
+| `src/publishing/request.ts` | `PublishRequestSchema` and `PublishErrorSchema`, what an adapter is asked to publish and how it fails, and dry-run permalinks |
+| `src/publishing/policy.ts` | `effectivePublishMode` |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -61,7 +66,7 @@ type Reply = RouteResponse<"messages.post">; // { message, job }
 ```
 
 - `response: null` means the route answers `204 No Content`.
-- `auth: "session"` routes use the cookie session; unsafe methods also pass the CSRF guard. `auth: "none"` routes are public and rate-limited: login, the two set-password routes and device pairing.
+- `auth: "session"` routes use the cookie session; unsafe methods also pass the CSRF guard. Every route uses one of `GET`, `POST`, `PUT`, `PATCH` and `DELETE`. `auth: "none"` routes are public and rate-limited: login, the two set-password routes and device pairing.
 - The `users.*` routes are owner-only.
 - Register `kb.search` (`GET /api/kb/search`) before the `/api/kb/:id` routes.
 - Error responses always have the body `ApiError`: `{error: {code, message, details?}}`.
@@ -115,6 +120,7 @@ A content item moves through `PIPELINE_STATES`:
 | `version` | `review` to `review` (only the caption or notes changed; needs a render) | user |
 | `submit` | a production stage to `review` (needs a render) | user, device, token, system |
 | `approve` | `review` to `approved` (needs a render) | user |
+| `auto_approve` | `review` to `approved` when every open post is `auto` (needs a render) | system |
 | `request_changes` | `review` to `script` | user |
 | `reject` | `review` to `archived` | user |
 | `edit` | `approved` to `script`, `storyboard` or `voice`; `approved` to `approved` when only the caption or notes changed | user |
@@ -124,7 +130,7 @@ A content item moves through `PIPELINE_STATES`:
 | `restore` | `archived` to `idea` | user |
 
 - `from === to` rows allow a new version that leaves the state unchanged.
-- Devices and tokens only ever add versions and submit to review. Approving, rejecting, archiving and restoring are for users; from M4, approval may also come from `system` under a series' `auto` publish mode.
+- Devices and tokens only ever add versions and submit to review. Review decisions, archiving and restoring are for users. Under the `auto` publish mode the scheduler approves with its own move, `auto_approve`, so `system` never gets the user's `approve`.
 - `version` is the version the item ends up on. Rows with `requiresRender` are refused when it is missing or has no `renderAssetId`.
 - `stageForArtifacts(version)` is the last of script, storyboard, voice and render present without a gap; a version with nothing is at `idea`. `nextProductionStep(version)` is the action that adds the next artifact, or `null` once there is a render.
 - `allowedActions` returns `ITEM_ACTIONS`: the `CONTENT_ACTIONS` (`write_script`, `storyboard`, `voice`, `render`, `revise`, `produce`), `submit`, the review decisions, `edit`, `archive` and `restore`. Users and autopilot (`system`) may start production work in a production stage or in `review` once the previous artifact exists (`storyboard` needs a script, `voice` a storyboard, `render` a voice, `revise` a script); `produce` does not start from `review`. A user without a role gets nothing; both roles have the same pipeline rights.
@@ -232,6 +238,9 @@ Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fiel
 | `asset.updated` | `{asset}` (created, finalized or failed) |
 | `review.created` | `{projectId, review}` |
 | `skill.published` | `{skill}` (a `SkillVersionSummary`; skills are global) |
+| `post.updated` | `{post}` (a `ScheduledPost`: created, moved, cancelled, publishing, published, failed or missed) |
+| `channel.updated` | `{channel}` (a `Channel`, never with credentials) |
+| `task.dead` | `{task}` (a `ScheduledTask` that used up its attempts) |
 | `resync` | `{}`: the client missed events and should refetch |
 
 `parseLiveEvent(data)` returns `null` for unknown types, so an older web build ignores newer events.
@@ -284,7 +293,7 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools` and `pipelineTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools`, `pipelineTools` and `calendarTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
 - `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
 - `projectBinding: "input"`: the input names one project, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
@@ -311,10 +320,90 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 | `asset.get_url` | `mcp:read` | allow | input | `{assetId, disposition?}` | `{url, expiresAt, asset: AssetDetail}` |
 | `skill.pull` | `mcp:read` | allow | none | `{name?, version?}` | `{skills: [{name, kind, version, checksum, files}]}` |
 | `skill.publish` | `mcp:write` | deny | none | `{name, kind, files, changelog?}` | `{name, version, checksum, created}` |
+| `calendar.get_slots` | `mcp:read` | allow | input | `{projectId?, seriesId?, channelId?, from, to}` (at most 62 days) | `{slots: [{at, seriesId, channelId, postId?}]}` |
 
 - `content.submit_for_review` moves the item to the stage its artifacts reach (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is refused instead of overwritten.
 - `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
 - `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
+
+## Calendar and publishing
+
+Channels publish to `PLATFORMS`: `facebook` (Page Reels), `instagram` (Reels), `threads` and `x` (behind a feature flag). Every value array below is mirrored as a pg enum.
+
+| Enum | Values |
+|---|---|
+| `CHANNEL_STATUSES` | `disconnected` (no credentials, dry-run only), `active`, `needs_reauth`, `disabled` |
+| `POST_STATUSES` | `planned` (a slot holds it, the item is not approved), `queued` (approved, waits for its time), `publishing`, `published`, `failed`, `cancelled`, `missed` (its time came while still `planned`) |
+| `TASK_STATUSES` | `pending`, `running`, `succeeded`, `failed` (gave up with an error no retry fixes), `dead` (every attempt failed; waits for a manual retry) |
+| `PUBLISH_MODES` | `auto`, `approval` |
+| `PUBLISHING_MODES` | `dry-run`, `live`: the server's `PUBLISHING_MODE` |
+
+`OPEN_POST_STATUSES` (`planned`, `queued`) are the posts that wait for their time. `RESCHEDULABLE_POST_STATUSES` adds `failed` and `missed`; publishing, published and cancelled posts cannot move. `TERMINAL_TASK_STATUSES` are `succeeded`, `failed` and `dead`.
+
+### Scheduled tasks
+
+The scheduler runs server-side tasks at a set time. Tasks never reach the studio agent; `scheduled_tasks.kind` is text, so a new kind needs a `scheduledTaskRegistry` entry but no migration.
+
+| Kind | Payload | Attempts | Backoff base | Lease |
+|---|---|---|---|---|
+| `cadence.plan` | `{seriesId?}` (every active series when left out) | 3 | 1 min | 5 min |
+| `cadence.produce` | `{itemId}` | 5 | 2 min | 2 min |
+| `post.publish` | `{postId}` | 5 | 1 min | 5 min |
+| `post.check_status` | `{postId, since}` | 5 | 15 s | 1 min |
+| `assets.cleanup` | `{}` | 3 | 5 min | 10 min |
+
+- A failed run is retried after `taskRetryDelayMs(backoffBaseMs, attempt)`: `min(base · 2^(attempt − 1), 1 h)`, varied by ±20%. After `maxAttempts` failed runs the task is `dead`.
+- The lease is extended every `leaseMs / 2` while the handler runs. `cadence.plan` and `assets.cleanup` recur every hour (`RECURRING_TASK_INTERVAL_MS`).
+- `post.check_status` polls every 15 s, backing off to 60 s, and gives up 20 minutes after `since` (`POST_STATUS_POLL_INITIAL_MS`, `POST_STATUS_POLL_MAX_MS`, `POST_STATUS_TIMEOUT_MS`).
+- Use `isScheduledTaskKind` and `parseScheduledTaskPayload(kind, payload)` rather than reading schemas by hand.
+
+### Channels, posts and the calendar
+
+| Route | Request | Response |
+|---|---|---|
+| `channels.list` `GET /api/channels` | | `{items: Channel[]}` |
+| `channels.create` `POST /api/channels` | `{platform, displayName, requiresApproval?}` | `Channel` (201): a planning channel, `disconnected`, dry-run on |
+| `channels.update` `PATCH /api/channels/:id` | `{displayName?, dryRun?, requiresApproval?}` | `Channel`, or `409 dry_run_locked` |
+| `series.channels` `GET /api/series/:id/channels` | | `SeriesChannels` `{seriesId, channels: [{channelId, enabled}]}` |
+| `series.setChannels` `PUT /api/series/:id/channels` | `{channels: [{channelId, enabled}]}` (replaces the set, at most 50) | `SeriesChannels` |
+| `calendar.get` `GET /api/calendar` | `?from=&to=&projectId=&seriesIds=a,b&channelIds=a,b` (at most 62 days) | `{posts: ScheduledPost[], slots: [{at, seriesId, channelId, postId?}]}` |
+| `scheduledPosts.create` `POST /api/scheduled-posts` | `{itemId, channelId, scheduledAt}` | `ScheduledPost` (201), `queued` |
+| `scheduledPosts.reschedule` `PATCH /api/scheduled-posts/:id` | `{scheduledAt, expectedUpdatedAt}` | `ScheduledPost`; `409 conflict` when stale, `409 post_not_editable` |
+| `scheduledPosts.cancel` `POST /api/scheduled-posts/:id/cancel` | | `ScheduledPost` |
+| `scheduledPosts.attempts` `GET /api/scheduled-posts/:id/attempts` | | `{items: PublishAttempt[]}`, newest first |
+| `approvals.inbox` `GET /api/approvals` | `?projectId=` | `{items: [{item, deadlineAt, posts}], missed: ScheduledPost[]}` |
+| `publisher.status` `GET /api/publisher/status` | | `{mode: dry-run\|live, enabled, lastTickAt}` |
+| `scheduler.tasks` `GET /api/scheduler/tasks` | `?status=&kind=&cursor=&limit=` | `{items: ScheduledTask[], nextCursor}` (owner and admins) |
+| `scheduler.retryTask` `POST /api/scheduler/tasks/:id/retry` | | `ScheduledTask`; only `failed` and `dead` tasks (owner and admins) |
+
+- `Channel` never carries credentials. Tokens stay encrypted on the server, and parsing through `ChannelSchema` drops every field it does not list. `connected` says whether credentials are stored; `liveBlocker` (`LIVE_PUBLISHING_BLOCKERS`: `not_connected`, `not_active`, `publishing_dry_run`, `platform_unavailable`) says why `dryRun` cannot be switched off, and is null when it can. The same reason comes back in `details.reason` of `409 dry_run_locked`.
+- A `ScheduledPost` carries its `platform`, its effective `publishMode`, whether it is a `dryRun` (fixed at creation), the approved `versionId` (null while `planned`), `permalink` (`https://` or `dryrun://<platform>/<postId>`, see `dryRunPermalink`), `attempts`, `lastError` (a `PublishError`) and `item: {title, state, posterAssetId}` for chips and inbox rows.
+- New and moved posts must be at least `MIN_SCHEDULE_LEAD_MS` (2 minutes) ahead, and only `RESCHEDULABLE_POST_STATUSES` move.
+- Calendar ranges are `[from, to)`, end after they start and span at most `MAX_CALENDAR_RANGE_DAYS` (62); `checkCalendarRange` checks any `{from, to}` schema. Slots without `postId` are open.
+- The approvals inbox sorts items by `deadlineAt` (the earliest open post; null last), then `updatedAt`.
+
+### Cadence slots
+
+`generateSlots(cadence, from, to)` returns the slots of a cadence (`{days, slots, tz}` from the format rules) in `[from, to)` as `Date`s, in time order and without repeats. It uses only `Intl`, so the API, the scheduler and the web app compute the same slots.
+
+```ts
+import { generateSlots } from "@loomcast/contracts";
+
+generateSlots({ days: ["sun"], slots: ["02:30"], tz: "America/New_York" }, from, to);
+// on 2026-03-08 the clocks skip 02:00-03:00: the slot is 03:00 EDT, 2026-03-08T07:00:00.000Z
+```
+
+- Each local time is resolved in two passes: the zone's offsets a day before and a day after give the candidate instants, and only candidates that really show that local time are kept.
+- A time the clocks skip (spring forward) moves forward to the first valid minute, the moment the clocks changed. A time that happens twice (fall back) takes the earlier instant.
+- An empty `days` or `slots` gives no slots, and so does a range whose end is not after its start. A range over 62 days or an invalid time throws a `RangeError`.
+- `toLocalDateTime(instant, tz)` gives `{date: "YYYY-MM-DD", time: "HH:mm", weekday}`, such as for an item's title; `fromLocalDateTime(date, time, tz)` resolves one local time the same way as a slot.
+
+### Publishing
+
+- `effectivePublishMode(formatMode, requiresApproval)` is `approval` when the channel requires approval and the format's mode otherwise. An item is approved by the system (`auto_approve`) only when all of its open posts are `auto`.
+- `PublishRequest` `{platform, externalId, videoUrl, posterUrl?, caption, durationMs, width, height}` is what an adapter is asked to publish. Media links are public HTTPS links without credentials; the caption is at most 2,200 characters and already cut to the platform's limit.
+- `PublishError` `{code, retryable, retryAfterMs?, platformCode?, message}`, with `code` one of `rate_limited`, `auth`, `permission`, `invalid_media`, `transient`, `permanent` and `not_configured`. `RETRYABLE_PUBLISH_ERROR_CODES` (`rate_limited`, `transient`) are retryable unless the adapter knows better. Messages never contain credentials.
+- `PublishAttempt.request` is what was sent, or in dry-run what would have been sent, with credentials removed.
 
 ## Limits and formats
 

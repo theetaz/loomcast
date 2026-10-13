@@ -186,10 +186,91 @@ export const SERIES_STATUSES = ["active", "paused", "archived"] as const;
 export const SeriesStatusSchema = z.enum(SERIES_STATUSES);
 export type SeriesStatus = (typeof SERIES_STATUSES)[number];
 
-/** Whether a series publishes approved items on its own or waits for each approval. */
+/**
+ * Whether approved items publish on their own or wait for each approval. A series sets it in its
+ * format rules; a channel that requires approval overrides `auto` (`effectivePublishMode`).
+ */
 export const PUBLISH_MODES = ["auto", "approval"] as const;
 export const PublishModeSchema = z.enum(PUBLISH_MODES);
 export type PublishMode = (typeof PUBLISH_MODES)[number];
+
+/**
+ * Platforms a channel publishes to: Facebook Page Reels, Instagram Reels and Threads. `x` stays
+ * behind a feature flag until its adapter ships.
+ */
+export const PLATFORMS = ["facebook", "instagram", "threads", "x"] as const;
+export const PlatformSchema = z.enum(PLATFORMS);
+export type Platform = (typeof PLATFORMS)[number];
+
+/**
+ * - `disconnected`: no stored credentials, such as a planning channel; it can only dry-run.
+ * - `active`: connected and usable.
+ * - `needs_reauth`: the platform refused the stored credentials; the owner has to reconnect.
+ * - `disabled`: switched off; nothing is planned or published for it.
+ */
+export const CHANNEL_STATUSES = ["disconnected", "active", "needs_reauth", "disabled"] as const;
+export const ChannelStatusSchema = z.enum(CHANNEL_STATUSES);
+export type ChannelStatus = (typeof CHANNEL_STATUSES)[number];
+
+/**
+ * A post of one item on one channel:
+ * - `planned`: a cadence slot holds it; the item is not approved yet.
+ * - `queued`: the item is approved and the post waits for its time.
+ * - `publishing`: the publisher is sending it, or waits for the platform to finish processing.
+ * - `published`: live (or recorded, in dry-run), with a permalink.
+ * - `failed`: the publisher gave up; `lastError` says why.
+ * - `cancelled`: withdrawn by a user or by replanning.
+ * - `missed`: its time came while it was still `planned`.
+ */
+export const POST_STATUSES = [
+  "planned",
+  "queued",
+  "publishing",
+  "published",
+  "failed",
+  "cancelled",
+  "missed",
+] as const;
+export const PostStatusSchema = z.enum(POST_STATUSES);
+export type PostStatus = (typeof POST_STATUSES)[number];
+
+/** Posts that wait for their time; the calendar and the publisher act on these. */
+export const OPEN_POST_STATUSES = ["planned", "queued"] as const satisfies readonly PostStatus[];
+
+/** Posts a user may move to another time. Publishing, published and cancelled posts stay put. */
+export const RESCHEDULABLE_POST_STATUSES = [
+  "planned",
+  "queued",
+  "failed",
+  "missed",
+] as const satisfies readonly PostStatus[];
+
+/**
+ * A scheduled task's lifecycle:
+ * - `pending`: waits for `runAt`; a retry after a failed run is pending again.
+ * - `running`: claimed by a scheduler under a lease.
+ * - `succeeded`: done.
+ * - `failed`: the handler gave up with an error that a retry cannot fix.
+ * - `dead`: every attempt failed; it waits in the dead-letter list for a manual retry.
+ */
+export const TASK_STATUSES = ["pending", "running", "succeeded", "failed", "dead"] as const;
+export const TaskStatusSchema = z.enum(TASK_STATUSES);
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** Task statuses after which a task runs again only when an admin retries it. */
+export const TERMINAL_TASK_STATUSES = [
+  "succeeded",
+  "failed",
+  "dead",
+] as const satisfies readonly TaskStatus[];
+
+/**
+ * Whether the publisher sends posts to the platforms (`live`) or only records the exact request it
+ * would send (`dry-run`). Matches the server's `PUBLISHING_MODE` setting.
+ */
+export const PUBLISHING_MODES = ["dry-run", "live"] as const;
+export const PublishingModeSchema = z.enum(PUBLISHING_MODES);
+export type PublishingMode = (typeof PUBLISHING_MODES)[number];
 
 /** What a stored file is for. `reference_media` is a reference video or audio the user uploaded. */
 export const ASSET_KINDS = [

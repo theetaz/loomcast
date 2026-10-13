@@ -51,8 +51,8 @@ function expected(
   if (from === "review" && to === "review") return user && hasRender;
   // Anyone may send a rendered version to review.
   if (PRODUCTION.includes(from) && to === "review") return hasRender;
-  // Only users approve, and only a rendered version.
-  if (from === "review" && to === "approved") return user && hasRender;
+  // Users approve; the system approves under the auto publish mode (M4). Only a rendered version.
+  if (from === "review" && to === "approved") return userOrSystem && hasRender;
   // An edit after approval goes back into production, or keeps the approval for caption and notes.
   if (from === "approved" && ["script", "storyboard", "voice"].includes(to)) return user;
   if (from === "approved" && to === "approved") return user && hasRender;
@@ -115,11 +115,33 @@ describe("transition table", () => {
       expect(rows.length, via).toBeGreaterThan(0);
       for (const row of rows) expect(row.actors, via).toEqual(["user"]);
     }
-    expect(canTransition("review", "approved", "system", rendered)).toBe(false);
+    expect(
+      findTransition({ from: "review", to: "approved", actor: "system", via: "approve" }),
+    ).toBeUndefined();
+  });
+
+  it("lets only the system approve automatically, and only a rendered version", () => {
+    const rows = PIPELINE_TRANSITIONS.filter((row) => row.via === "auto_approve");
+
+    expect(rows).toEqual([
+      {
+        from: "review",
+        to: "approved",
+        via: "auto_approve",
+        actors: ["system"],
+        requiresRender: true,
+      },
+    ]);
+    expect(
+      findTransition({ from: "review", to: "approved", actor: "system", version: rendered })?.via,
+    ).toBe("auto_approve");
+    expect(canTransition("review", "approved", "system", voiced)).toBe(false);
+    expect(canTransition("review", "approved", "device", rendered)).toBe(false);
+    expect(canTransition("review", "approved", "token", rendered)).toBe(false);
   });
 
   it("requires a render to approve, submit, schedule and publish", () => {
-    for (const via of ["approve", "submit", "schedule", "unschedule", "publish"]) {
+    for (const via of ["approve", "auto_approve", "submit", "schedule", "unschedule", "publish"]) {
       for (const row of PIPELINE_TRANSITIONS.filter((candidate) => candidate.via === via)) {
         expect(row.requiresRender, via).toBe(true);
       }

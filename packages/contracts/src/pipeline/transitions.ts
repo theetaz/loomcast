@@ -21,6 +21,8 @@ import {
  *   state is the version's stage (`stageForArtifacts`).
  * - `submit`: a version with a render goes to review.
  * - `approve`, `request_changes`, `reject`: a review decision.
+ * - `auto_approve`: the system approves a rendered item whose posts all publish in `auto` mode
+ *   (`effectivePublishMode`), recording a system review (M4).
  * - `edit`: a user changes an approved item; it goes back into production unless only the caption
  *   or notes changed.
  * - `schedule`, `unschedule`, `publish`: the calendar and the publisher (M4).
@@ -32,6 +34,7 @@ export const TRANSITION_VIA = [
   "approve",
   "request_changes",
   "reject",
+  "auto_approve",
   "edit",
   "schedule",
   "unschedule",
@@ -103,6 +106,9 @@ function buildTransitions(): PipelineTransition[] {
   rows.push(edge("review", "approved", "approve", USER, true));
   rows.push(edge("review", "script", "request_changes", USER));
   rows.push(edge("review", "archived", "reject", USER));
+  // Under the `auto` publish mode the scheduler approves on the user's behalf (M4). It is a move
+  // of its own, so `system` never gets the user's review decisions.
+  rows.push(edge("review", "approved", "auto_approve", SYSTEM, true));
 
   // Editing an approved item sends it back into production; a caption or notes change keeps it.
   for (const to of ["script", "storyboard", "voice"] as const) {

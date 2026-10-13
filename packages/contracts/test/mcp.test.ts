@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   adminTools,
+  calendarTools,
   DEFAULT_FORMAT_RULES,
   kbTools,
   MCP_JOB_TOKEN_POLICIES,
@@ -29,8 +30,8 @@ const tools = Object.entries(mcpTools);
 
 describe("mcp tool contracts", () => {
   it("collects every tool once", () => {
-    const names = [projectTools, kbTools, adminTools, pipelineTools].flatMap((group) =>
-      Object.keys(group),
+    const names = [projectTools, kbTools, adminTools, pipelineTools, calendarTools].flatMap(
+      (group) => Object.keys(group),
     );
 
     expect(new Set(names).size).toBe(names.length);
@@ -58,6 +59,7 @@ describe("mcp tool contracts", () => {
 
     expect(allowed).toEqual([
       "asset.get_url",
+      "calendar.get_slots",
       "content.create_idea",
       "content.finalize_asset",
       "content.get",
@@ -106,6 +108,7 @@ describe("mcp tool contracts", () => {
     expect(pipelineTools["content.upload_asset"].scope).toBe("mcp:write");
     expect(pipelineTools["content.finalize_asset"].scope).toBe("mcp:write");
     expect(pipelineTools["skill.publish"].scope).toBe("mcp:write");
+    expect(calendarTools["calendar.get_slots"].scope).toBe("mcp:read");
   });
 });
 
@@ -231,6 +234,33 @@ describe("pipeline tools", () => {
         created: false,
       }).created,
     ).toBe(false);
+  });
+});
+
+describe("calendar tools", () => {
+  it("reads slots of a series or channel, bound to a project", () => {
+    const { input, output, projectBinding } = calendarTools["calendar.get_slots"];
+    const range = { from: "2026-10-12T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z" };
+    const slots = [
+      { at: "2026-10-12T13:00:00.000Z", seriesId: ids.series, channelId: ids.channel },
+      {
+        at: "2026-10-14T13:00:00.000Z",
+        seriesId: ids.series,
+        channelId: ids.channel,
+        postId: ids.post,
+      },
+    ];
+
+    expect(projectBinding).toBe("input");
+    expect(input.safeParse(range).success).toBe(true);
+    expect(
+      input.safeParse({ ...range, seriesId: ids.series, channelId: ids.channel }).success,
+    ).toBe(true);
+    expect(input.safeParse({ ...range, projectId: ids.project }).success).toBe(true);
+    expect(input.safeParse({ ...range, seriesId: "rust" }).success).toBe(false);
+    expect(input.safeParse({ from: range.from }).success).toBe(false);
+    expect(output.parse({ slots })).toEqual({ slots });
+    expect(output.safeParse({ slots: [{ ...slots[0], postId: null }] }).success).toBe(false);
   });
 });
 

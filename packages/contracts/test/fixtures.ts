@@ -1,5 +1,6 @@
 import type {
   Asset,
+  Channel,
   ContentItem,
   ContentVersion,
   ContentVersionSummary,
@@ -7,8 +8,11 @@ import type {
   KbEntry,
   Message,
   Project,
+  PublishAttempt,
   ReferenceAnalysis,
   Review,
+  ScheduledPost,
+  ScheduledTask,
   Script,
   SkillVersionSummary,
   Storyboard,
@@ -34,6 +38,11 @@ export const ids = {
   formatVersion: "3b4c5d6e-7f80-4192-a3b4-c5d6e7f80912",
   skill: "1f2e3d4c-5b6a-4798-8a9b-0c1d2e3f4a5b",
   asset: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  channel: "c0d1e2f3-a4b5-4c6d-8e7f-a0b1c2d3e4f5",
+  channel2: "d1e2f3a4-b5c6-4d7e-9f80-b1c2d3e4f5a6",
+  post: "e2f3a4b5-c6d7-4e8f-a091-c2d3e4f5a6b7",
+  task: "f3a4b5c6-d7e8-4f90-81a2-d3e4f5a6b7c8",
+  attempt: "a4b5c6d7-e8f9-4a01-92b3-e4f5a6b7c8d9",
 } as const;
 
 export const at = "2026-10-12T09:30:00.000Z";
@@ -247,6 +256,79 @@ export const skillVersion: SkillVersionSummary = {
   bytes: 4_096,
   publishedByUser: ids.user,
   publishedAt: at,
+};
+
+export const channel: Channel = {
+  id: ids.channel,
+  platform: "instagram",
+  displayName: "Rust in 60 seconds",
+  externalId: "17841400000000001",
+  username: "rustin60",
+  parentChannelId: ids.channel2,
+  status: "active",
+  dryRun: true,
+  requiresApproval: false,
+  connected: true,
+  scopes: ["instagram_basic", "instagram_content_publish"],
+  tokenExpiresAt: "2026-12-11T09:30:00.000Z",
+  liveBlocker: "publishing_dry_run",
+  createdAt: at,
+  updatedAt: at,
+  disabledAt: null,
+};
+
+export const post: ScheduledPost = {
+  id: ids.post,
+  projectId: ids.project,
+  itemId: ids.item,
+  versionId: ids.version,
+  channelId: ids.channel,
+  seriesId: ids.series,
+  platform: "instagram",
+  scheduledAt: "2026-10-14T13:00:00.000Z",
+  status: "queued",
+  dryRun: true,
+  publishMode: "auto",
+  externalId: null,
+  permalink: null,
+  attempts: 0,
+  lastError: null,
+  publishedAt: null,
+  item: { title: "Borrowing in one minute", state: "scheduled", posterAssetId: ids.poster },
+  createdAt: at,
+  updatedAt: at,
+};
+
+export const publishAttempt: PublishAttempt = {
+  id: ids.attempt,
+  postId: ids.post,
+  attempt: 1,
+  adapter: "instagram",
+  dryRun: true,
+  request: {
+    method: "POST",
+    path: "/17841400000000001/media",
+    body: { media_type: "REELS", caption: "The borrow checker in one rule." },
+  },
+  response: null,
+  error: null,
+  startedAt: at,
+  finishedAt: at,
+};
+
+export const deadTask: ScheduledTask = {
+  id: ids.task,
+  kind: "post.publish",
+  status: "dead",
+  runAt: at,
+  payload: { postId: ids.post },
+  attempts: 5,
+  maxAttempts: 5,
+  dedupeKey: `publish:${ids.post}`,
+  lastError: { code: "transient", message: "The platform timed out.", at },
+  lockedUntil: null,
+  createdAt: at,
+  finishedAt: at,
 };
 
 /** A fresh value per run, so the suite holds no credential-like literals. */

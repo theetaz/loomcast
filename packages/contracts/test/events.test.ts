@@ -3,11 +3,15 @@ import { type LiveEvent, LiveEventSchema, type LiveEventType, parseLiveEvent } f
 import {
   asset,
   at,
+  channel,
   contentItem,
+  deadTask,
+  fakeSecret,
   ids,
   job,
   kbEntry,
   message,
+  post,
   project,
   review,
   skillVersion,
@@ -55,6 +59,19 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
   "asset.updated": { type: "asset.updated", payload: { asset } },
   "review.created": { type: "review.created", payload: { projectId: ids.project, review } },
   "skill.published": { type: "skill.published", payload: { skill: skillVersion } },
+  "post.updated": {
+    type: "post.updated",
+    payload: {
+      post: {
+        ...post,
+        status: "published",
+        permalink: `dryrun://instagram/${ids.post}`,
+        publishedAt: at,
+      },
+    },
+  },
+  "channel.updated": { type: "channel.updated", payload: { channel } },
+  "task.dead": { type: "task.dead", payload: { task: deadTask } },
   resync: { type: "resync", payload: {} },
 };
 
@@ -79,5 +96,17 @@ describe("live events", () => {
       parseLiveEvent(JSON.stringify({ type: "content.item.created", payload: {} })),
     ).toBeNull();
     expect(parseLiveEvent("not json")).toBeNull();
+  });
+
+  it("never carries channel credentials", () => {
+    const leaked = {
+      type: "channel.updated",
+      payload: {
+        channel: { ...channel, accessToken: fakeSecret("token"), secretNonce: fakeSecret("nonce") },
+      },
+    };
+    const parsed = parseLiveEvent(JSON.stringify(leaked));
+
+    expect(parsed).toEqual({ type: "channel.updated", payload: { channel } });
   });
 });
