@@ -33,6 +33,7 @@ const TABLES = [
   "publish_attempts",
   "reviews",
   "scheduled_posts",
+  "scheduled_tasks",
   "series",
   "series_channels",
   "sessions",

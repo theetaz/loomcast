@@ -19,6 +19,7 @@ import {
   REVIEW_DECISIONS,
   SERIES_STATUSES,
   SKILL_KINDS,
+  TASK_STATUSES,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -54,3 +55,4 @@ export const skillKind = pgEnum("skill_kind", SKILL_KINDS);
 export const platform = pgEnum("platform", PLATFORMS);
 export const channelStatus = pgEnum("channel_status", CHANNEL_STATUSES);
 export const postStatus = pgEnum("post_status", POST_STATUSES);
+export const taskStatus = pgEnum("task_status", TASK_STATUSES);

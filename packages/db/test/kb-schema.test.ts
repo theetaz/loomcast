@@ -19,6 +19,7 @@ import {
   REVIEW_DECISIONS,
   SERIES_STATUSES,
   SKILL_KINDS,
+  TASK_STATUSES,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -379,6 +380,7 @@ describe("pg enums", () => {
     platform: PLATFORMS,
     channel_status: CHANNEL_STATUSES,
     post_status: POST_STATUSES,
+    task_status: TASK_STATUSES,
   };
 
   it("hold exactly the contracts values, in order", async () => {

@@ -5,7 +5,7 @@ harness for Loomcast. The package is consumed as TypeScript source.
 
 | Import | Contents |
 |---|---|
-| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `KB_FIXTURES`, `seedKb` |
+| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `enqueueTask`, `claimDueTasks`, `extendLease`, `completeTask`, `retryTask`, `KB_FIXTURES`, `seedKb` |
 | `@loomcast/db/schema` | Tables, pg enums and row types only |
 | `@loomcast/db/testing` | `setupTemplate` and `createTestDb` for vitest |
 
@@ -120,6 +120,68 @@ parent always points at its current version (`current_version_id` is never null)
 - **Jobs.** `jobs.project_id` stays required, because the contracts' `JobSummary.projectId` is
   required and job tokens are bound to their job's project. Queue a project-less job such as
   `skills.sync` under the project it was started from.
+
+## Channels, posts and scheduled tasks
+
+**Channels** (`channels`) are the accounts the publisher posts to. They belong to the workspace,
+not to a project; `series_channels` links series to them (primary key `(series_id, channel_id)`,
+with `enabled`).
+
+- **Credentials** exist only as AES-256-GCM output: `secret_ciphertext` (the encrypted JSON with
+  the 16-byte tag appended), `secret_nonce` (12 bytes) and `key_version`. There is no plaintext
+  column. The three are set or cleared together (`channels_secret_ck`), the nonce must be 12 bytes
+  and the ciphertext longer than the tag. Encryption, decryption and key rotation belong to the
+  API's token vault. Never select these columns into a response, a log line or a job payload, and
+  derive the contracts' `connected` from `secret_ciphertext is not null`.
+- **Status.** An `active` channel has credentials and a `disconnected` one has none
+  (`channels_status_secret_ck`), so disconnecting clears the secret columns and sets the status in
+  one update. `dry_run` defaults to true and `requires_approval` to false.
+- **Accounts.** `channels_platform_external_id_uq` lets a platform account be connected once;
+  planning channels have a null `external_id`. An Instagram account published through a Facebook
+  Page points at the Page's channel with `parent_channel_id` (set null if the Page is deleted).
+- A channel with posts cannot be deleted (`scheduled_posts_channel_id_channels_id_fk`); disable it.
+
+**Posts** (`scheduled_posts`) put one item on one channel at one time.
+
+- `scheduled_posts_item_id_channel_id_uq` allows one post per item and channel that is not
+  `cancelled`. Insert-or-skip with `target: [itemId, channelId]` and
+  ``where: sql`status <> 'cancelled'` ``.
+- `version_id` must be a version of the post's item (`scheduled_posts_version_fk`), and `queued`,
+  `publishing` and `published` posts must have one (`scheduled_posts_version_ck`). A published
+  post has `published_at` (`scheduled_posts_published_at_ck`).
+- The contracts' `ScheduledPost` adds joined fields: `projectId` from the item, `platform` from the
+  channel, and `publishMode` as `effectivePublishMode(rules.publishMode, channel.requiresApproval)`
+  with the rules of the series format's current version. `dry_run` is stored, fixed at creation.
+- `publish_attempts` keeps one row per try (`(post_id, attempt)` unique, from 1). Its `request` is
+  stored as given: redact credentials before inserting it.
+
+**Scheduled tasks** (`scheduled_tasks`) are the scheduler's queue. `kind` is text (validate it and
+the payload with `scheduledTaskRegistry`); `status` follows `TASK_STATUSES`. Use the helpers in
+`src/queries/scheduler.ts`, which take the database or a transaction and an optional `now` for
+tests with a fake clock:
+
+- `enqueueTask(db, { kind, payload, runAt?, maxAttempts, dedupeKey?, onDuplicate? })` returns
+  `{ task, created }`. A dedupe key is unique among `pending` and `running` tasks
+  (`scheduled_tasks_dedupe_key_uq`), so the call is an upsert: by default (`reschedule`) a pending
+  duplicate takes the new `runAt`, `payload` and `maxAttempts`, a running one is left alone, and
+  `keep` leaves either alone. A finished task frees its key.
+- `claimDueTasks(db, { limit, workerId, leaseMs })` takes up to `limit` due tasks in one statement:
+  pending tasks whose `run_at` has come and running tasks whose lease ran out, oldest first, through
+  a CTE with `FOR UPDATE SKIP LOCKED`. Each becomes `running` with `attempts + 1` and a lease for
+  `workerId` (unique per process). A selected task with no attempt left becomes `dead` instead
+  (`lease_expired`, or `attempts_exhausted` for a pending one) and is returned in `deadLettered`.
+- A run is named by its lease, `taskLease(task, workerId)`: the task id, the worker and the run
+  number (`attempts` at claim). `extendLease` renews it and `completeTask` records `succeeded`, a
+  retry (`pending` at a new `runAt`), `failed` or `dead`. Both return null once the run has lost
+  the task to another claim; stop the handler then.
+- `retryTask(db, { id, runAt? })` puts a `failed` or `dead` task back to `pending` with its
+  attempts reset. It fails with `23505` on `scheduled_tasks_dedupe_key_uq` when another task holds
+  the key.
+
+The partial indexes of these tables compare enum literals (`status <> 'cancelled'`), which is safe
+because `post_status` and `task_status` are created, not extended, by the migrations that create
+the indexes. A later migration that adds a value to either type must not use it in the same
+batch.
 
 ## Knowledge-base search
 

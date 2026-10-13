@@ -12,5 +12,6 @@ export * from "./kb";
 export * from "./messages";
 export * from "./posts";
 export * from "./projects";
+export * from "./scheduler";
 export * from "./skills";
 export * from "./users";
