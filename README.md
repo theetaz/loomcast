@@ -65,8 +65,9 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 | Document | Contents |
 |---|---|
 | [Architecture](docs/architecture.md) | Components, decisions, data model, live events and the security model |
-| [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, production on the workstation, tests, the M1 to M3 acceptance runbooks and troubleshooting |
+| [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, production on the workstation, tests, scheduling and dry-run publishing, the M1 to M4 acceptance runbooks and troubleshooting |
 | [Production pipeline](docs/pipeline.md) | Series and formats, pipeline states, actions and job types, autopilot, versions, reviews, timing after the voice, and skills |
+| [Scheduling and publishing](docs/scheduling-and-publishing.md) | Cadences and planning, post states, approval rules, dry-run and going live, dead letters and time zones |
 | [Studio runtime](docs/studio-runtime.md) | Rendering on the Mac: requirements, telemetry, the TTS provider key, how a version is rendered, smoke checks and troubleshooting |
 | [Knowledge base](docs/knowledge-base.md) | Entry kinds, the Knowledge tab, reference analysis, search and the ⌘K palette |
 | [Session-end hook](docs/session-hook.md) | The optional hook that files session summaries in the knowledge base: what it sends, redaction, setup |

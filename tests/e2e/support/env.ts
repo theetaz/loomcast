@@ -214,10 +214,24 @@ export function storageEnvironment(): Record<string, string> {
 /** The S3 settings the API must not inherit when the run has no storage. */
 export const STORAGE_KEYS = ["S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"] as const;
 
-/** The environment the API runs with: the scratch database and the web origin. */
+/** How often the API's scheduler looks for due tasks in the suite, so slots are met promptly. */
+export const SCHEDULER_TICK_MS = 500;
+
+/** How far ahead the cadence planner fills the calendar in the suite (the server default). */
+export const CADENCE_HORIZON_DAYS = 14;
+
+/**
+ * The environment the API runs with: the scratch database, the web origin, a fast scheduler tick
+ * and dry-run publishing (whatever `.env` says), so nothing is ever sent to a platform.
+ */
 export function apiEnvironment(settings: E2eSettings): Record<string, string> {
   return {
     NODE_ENV: "development",
+    SCHEDULER_ENABLED: "true",
+    SCHEDULER_TICK_MS: String(SCHEDULER_TICK_MS),
+    PUBLISHING_MODE: "dry-run",
+    PUBLISHING_ENABLED: "true",
+    CADENCE_HORIZON_DAYS: String(CADENCE_HORIZON_DAYS),
     DATABASE_URL: settings.databaseUrl,
     APP_ORIGIN: settings.webUrl,
     API_PORT: String(settings.apiPort),
