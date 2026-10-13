@@ -19,8 +19,10 @@ export {
 export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server";
 export {
   createMcpTools,
+  createProjectTools,
   defineTool,
   McpToolError,
+  projectUrl,
   TOOL_CALL_AUDIT_ACTION,
   type ToolDefinition,
 } from "./tools";
