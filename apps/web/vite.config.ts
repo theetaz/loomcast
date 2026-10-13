@@ -8,7 +8,8 @@ import { defineConfig } from "vite";
 import { sharedVitestConfig } from "../../vitest.shared.ts";
 import { themeInit } from "./vite/theme-init.ts";
 
-const API_TARGET = "http://127.0.0.1:8790";
+// The API the dev server proxies to. The end-to-end tests point it at an API on a free port.
+const API_TARGET = process.env.LOOMCAST_API_URL ?? "http://127.0.0.1:8790";
 
 // `vite --mode mock` serves the app against the in-browser mock API (src/mocks).
 export default defineConfig(({ mode }) => ({
