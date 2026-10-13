@@ -24,6 +24,11 @@ studio. Sign in with `owner@loomcast.test` / `loomcast-demo-password`. Creating 
 also publishes a `project.created` event on the mock `/api/stream`. The mocks are never part
 of a production build.
 
+The mock studio agent answers chat messages: the job is dispatched, reports tool activity,
+streams its reply and stores it, publishing the same live events as the real system. A
+message containing `[fail]` fails, and `loomcastMock.setStudioOnline(false)` in the console
+takes the studio agent offline so new messages wait (set it back to `true` to run them).
+
 ### Dev proxy
 
 | Path | Target | Notes |
@@ -81,6 +86,24 @@ useLiveEvent("conversation.message.delta", (event) => append(event.payload.text)
 useLiveReconnect(() => void refetchMessages());
 ```
 
+## Conversations
+
+`features/conversation` is the panel on the project page: the conversation list (a column
+from 768px, a picker below), the open conversation (`?conversation=<id>`, else the latest),
+and the composer.
+
+- Messages are read page by page to the end and kept oldest first. Assistant text is
+  markdown (GFM); raw HTML shows as text, unsafe link targets are dropped and images become
+  links.
+- Sending adds a pending message keyed by its `clientMessageId`; the stored message takes
+  over the same element. A failed send keeps the message with Retry, which reuses the id.
+- `store.ts` holds what the API does not: pending messages, text streamed by
+  `conversation.message.delta` (replaced by `conversation.message.created`), the latest
+  `job.activity` per job and the job answering each conversation. `job-status.ts` turns a
+  job into the status line; `scroll.ts` follows new content only while the view is at the
+  end.
+- ⌘Enter or Ctrl+Enter sends. Messages sent from the keyboard appear without animation.
+
 ## Screens and conventions
 
 - Pages use `Page` and `PageHeader`. Lists sit in a card (`rounded-lg bg-card shadow-card`)
@@ -89,7 +112,7 @@ useLiveReconnect(() => void refetchMessages());
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
   for labels that need data (see `_app/projects/$projectId.tsx`).
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
-- `ConversationPanel` is a placeholder for the conversation work that follows.
+- The project page's conversation panel is described under Conversations above.
 - Settings: `settings/devices` pairs studio agents with single-use codes and shows live
   online status; `settings/tokens` manages access tokens and shows each secret exactly once,
   never keeping it in the query cache.
