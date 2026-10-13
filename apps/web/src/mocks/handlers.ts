@@ -13,6 +13,7 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
 import { createContentHandlers } from "./content";
+import { createContentItemHandlers } from "./content-item";
 import { createConversationHandlers } from "./conversations";
 import {
   type MockDb,
@@ -198,6 +199,8 @@ export function createHandlers(db: MockDb) {
     ...createKbHandlers(db),
     ...createUserHandlers(db),
     ...createContentHandlers(db),
+    // Last, so handlers added for the same routes elsewhere take precedence.
+    ...createContentItemHandlers(db),
   ];
 }
 

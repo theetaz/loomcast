@@ -1,5 +1,6 @@
 import {
   type AccessToken,
+  type AssetDetail,
   type ContentItem,
   type ContentVersion,
   type Conversation,
@@ -14,6 +15,7 @@ import {
   type PairingCode,
   type PasswordTokenPurpose,
   type Project,
+  type Review,
   type Series,
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
@@ -60,6 +62,10 @@ export interface MockDb {
   contentItems: ContentItem[];
   /** Every version of every content item. */
   contentVersions: ContentVersion[];
+  /** Stored files: voice takes, renders and posters. Versions' assets are filled in on first read. */
+  assets: AssetDetail[];
+  /** Review decisions on content items, newest last. */
+  reviews: Review[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -101,6 +107,8 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     series: [],
     contentItems: [],
     contentVersions: [],
+    assets: [],
+    reviews: [],
     ...seed,
     listeners: new Set(),
   };
