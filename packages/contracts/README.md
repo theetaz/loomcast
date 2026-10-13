@@ -24,7 +24,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 |---|---|
 | `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
-| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`); `ApiError`; list and cursor-page shapes |
+| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills; `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
 | `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
@@ -40,7 +40,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
 | `src/pipeline/artifacts.ts` | `ScriptSchema`, `StoryboardSchema` and `VoiceAlignmentSchema`, the artifacts of a content version |
 | `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
-| `src/pipeline/skills.ts` | Skill names and version numbers |
+| `src/pipeline/skills.ts` | Skill names, versions, file paths and limits, `skill.json`, and `skillChecksumInput` |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -64,7 +64,7 @@ type Reply = RouteResponse<"messages.post">; // { message, job }
 - The `users.*` routes are owner-only.
 - Register `kb.search` (`GET /api/kb/search`) before the `/api/kb/:id` routes.
 - Error responses always have the body `ApiError`: `{error: {code, message, details?}}`.
-- Small collections return `{items}`. Messages and knowledge-base entries are cursor-paginated: `?cursor=&limit=` returns `{items, nextCursor}`, where `nextCursor` is `null` on the last page.
+- Small collections return `{items}`. Messages, knowledge-base entries, content items and the review queue are cursor-paginated: `?cursor=&limit=` returns `{items, nextCursor}`, where `nextCursor` is `null` on the last page.
 
 ## Knowledge base
 
@@ -129,6 +129,57 @@ A content item moves through `PIPELINE_STATES`:
 - `allowedActions` returns `ITEM_ACTIONS`: the `CONTENT_ACTIONS` (`write_script`, `storyboard`, `voice`, `render`, `revise`, `produce`), `submit`, the review decisions, `edit`, `archive` and `restore`. Users and autopilot (`system`) may start production work in a production stage or in `review` once the previous artifact exists (`storyboard` needs a script, `voice` a storyboard, `render` a voice, `revise` a script); `produce` does not start from `review`. A user without a role gets nothing; both roles have the same pipeline rights.
 - `REVIEW_DECISION_STATES` maps each decision to its target state. `produce` runs the missing steps up to a `ProduceTarget` (`DEFAULT_PRODUCE_TARGET` is `review`).
 
+### Pipeline REST routes
+
+All of them use the cookie session. Lists of formats, series, versions, reviews, assets and skills return `{items}`; content and the review queue are cursor-paginated.
+
+| Route | Request | Response |
+|---|---|---|
+| `formats.list` `GET /api/projects/:projectId/formats` | | `{items: Format[]}` |
+| `formats.create` `POST /api/projects/:projectId/formats` | `{name, slug?, rules?}` (rules default to `DEFAULT_FORMAT_RULES`) | `Format` (201) |
+| `formats.get` `GET /api/formats/:id` | | `Format`, with `currentVersion` |
+| `formats.update` `PATCH /api/formats/:id` | `{baseVersionId, name?, rules?}` | `Format`; every update stores a new version; `409 conflict` when `baseVersionId` is stale |
+| `formats.versions` `GET /api/formats/:id/versions` | | `{items: FormatVersion[]}`, newest first |
+| `series.list`, `series.create` `/api/projects/:projectId/series` | `?status=`; `{name, slug?, formatId}` | `{items: Series[]}`; `Series` (201) |
+| `series.get`, `series.update` `/api/series/:id` | `{name?, formatId?}` | `Series` |
+| `series.pause`, `series.resume`, `series.archive` `POST /api/series/:id/<action>` | | `Series` |
+| `content.list` `GET /api/content` | `?projectId=&states=a,b&seriesId=&q=&targetFrom=&targetTo=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`; archived items only when `states` asks for them |
+| `content.create` `POST /api/projects/:projectId/content` | `{title, pitch?, topic?, seriesId?, targetAt?}` | `ContentItemDetail` (201) |
+| `content.get` `GET /api/content/:id` | | `ContentItemDetail`: `{item, currentVersion, versions, activeJob}` |
+| `content.update` `PATCH /api/content/:id` | `{title?, pitch?}` | `ContentItem` (no new version) |
+| `content.versions.list` `GET /api/content/:id/versions` | | `{items: ContentVersionSummary[]}` |
+| `content.versions.get` `GET /api/content/:id/versions/:versionId` | | `ContentVersion` |
+| `content.versions.edit` `POST /api/content/:id/versions` | `{baseVersionId, script?, storyboard?, caption?, voiceAssetId?, notes?}` | `{item, version}` (201); `409 conflict` when the base is stale |
+| `content.actions` `POST /api/content/:id/actions` | `{action, through?}` (`through` for `produce` only) | `JobSummary` (201) |
+| `content.archive`, `content.restore` `POST /api/content/:id/<action>` | | `ContentItem` |
+| `content.conversation` `POST /api/content/:id/conversation` | | `Conversation`, created on first use |
+| `content.assets` `GET /api/content/:id/assets` | `?kind=` | `{items: Asset[]}`, such as every voice take |
+| `reviews.create` `POST /api/content/:id/reviews` | `{versionId, decision, comment?, enqueueRevision?}` | `{review, item}` (201) |
+| `reviews.list` `GET /api/content/:id/reviews` | | `{items: Review[]}` |
+| `reviews.queue` `GET /api/reviews/queue` | `?projectId=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`: items in `review` by `targetAt` (nulls last), then `updatedAt` |
+| `assets.createUpload` `POST /api/assets/uploads` | `{projectId, itemId?, kind, filename, mime, bytes, sha256}` | `{asset, upload: {url, method: "PUT", headers, expiresAt} \| null}` (201) |
+| `assets.finalize` `POST /api/assets/:id/finalize` | `{probe?, alignment?}` | `Asset` |
+| `assets.get` `GET /api/assets/:id` | | `AssetDetail` (adds a voice take's `alignment`) |
+| `assets.url` `GET /api/assets/:id/url` | `?disposition=inline\|attachment` | `{url, expiresAt}` |
+| `skills.list` `GET /api/skills` | | `{items: SkillSummary[]}` |
+| `skills.get` `GET /api/skills/:name` | `?version=` (latest by default) | `SkillVersionDetail`, with files |
+| `skills.versions` `GET /api/skills/:name/versions` | | `{items: SkillVersionSummary[]}` |
+
+- Every item has a current version from the start: version 1 is the bare idea, created together with the item.
+- Versions never change. `content.versions.edit` copies the base forward with the changes: a new script clears the voice, render and poster; a new storyboard clears the render and poster; a new `voiceAssetId` (a ready voice take of the same item) clears the render. The new state follows from `PIPELINE_TRANSITIONS`.
+- `content.actions` answers `409 job_in_progress` while the item has an active production job, `422 missing_artifact` when the step's input is missing, and `422 voice_not_configured` for a voice without a format voice. A refused state change is `409 invalid_transition`.
+- `reviews.create` decides the current version of an item in `review`. Requesting changes needs a comment and queues a `content.revise` job unless `enqueueRevision` is `false`; `enqueueRevision` is refused for other decisions.
+- Uploads never pass through the API. `assets.createUpload` checks the MIME type against the kind (`ASSET_KIND_MIME_TYPES`) and the size against its cap (`ASSET_KIND_MAX_BYTES`: renders and reference media 1 GiB, voice 100 MiB, images and other files 20 MiB). The client PUTs the bytes with exactly the returned `headers`, then finalizes; the server checks the size and SHA-256 and marks the asset `ready`, or `failed` and deletes the object. A ready asset with the same project, kind and SHA-256 comes back with `upload: null`. `alignment` is accepted for voice takes only.
+- `ConversationSchema.contentItemId` and the reference's `mediaAssetId` (`KbReferenceDetail`, `CreateKbEntry`, `UpdateKbEntry`) link conversations and references to the pipeline; they are optional until every server sends them.
+
+### Skill files
+
+A skill is a directory of text files with a `skill.json` (`SkillManifestSchema`: `{name, kind: skill|recipe, description}`). Names match `^[a-z0-9][a-z0-9-]{0,63}$`.
+
+- At most 200 files and 1 MiB of UTF-8 content in total (`SKILL_MAX_FILES`, `SKILL_MAX_BYTES`). Contents are plain text without control characters other than tab and line breaks.
+- Paths match `^(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$` and are relative: no leading or trailing `/`, no empty or `.` segments (`isSkillPath`). Two paths that differ only in case are refused, since they would collide on a case-insensitive disk.
+- The checksum is the SHA-256 of the UTF-8 bytes of `skillChecksumInput(files)`: `path`, NUL, `content` for every file sorted by path, joined with NUL.
+
 ### Format rules
 
 A format is versioned; every update stores a new `FormatRules` version. Production jobs carry a snapshot of the rules they run with.
@@ -175,6 +226,11 @@ Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fiel
 | `project.created`, `project.updated` | `{project}` |
 | `kb.entry.created`, `kb.entry.updated` | `{entry}` (a `KbEntry`, without transcript or analysis) |
 | `kb.entry.deleted` | `{entryId, projectId}` |
+| `content.item.created`, `content.item.updated` | `{item}` (a `ContentItem`; updates cover state, title, target, autopilot and `lastError`) |
+| `content.version.created` | `{projectId, version}` (a `ContentVersionSummary`) |
+| `asset.updated` | `{asset}` (created, finalized or failed) |
+| `review.created` | `{projectId, review}` |
+| `skill.published` | `{skill}` (a `SkillVersionSummary`; skills are global) |
 | `resync` | `{}`: the client missed events and should refetch |
 
 `parseLiveEvent(data)` returns `null` for unknown types, so an older web build ignores newer events.

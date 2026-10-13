@@ -1,10 +1,16 @@
 import type {
+  Asset,
+  ContentItem,
+  ContentVersion,
+  ContentVersionSummary,
   JobSummary,
   KbEntry,
   Message,
   Project,
   ReferenceAnalysis,
+  Review,
   Script,
+  SkillVersionSummary,
   Storyboard,
   VoiceAlignment,
 } from "../src";
@@ -17,6 +23,16 @@ export const ids = {
   job: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
   device: "6c5b4a39-2817-4f06-a5e4-d3c2b1a09f8e",
   entry: "3e2d1c0b-9a8f-4e7d-8c6b-5a4f3e2d1c0b",
+  item: "8b7a6f5e-4d3c-4b2a-9f1e-0d9c8b7a6f5e",
+  version: "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  voice: "7f6e5d4c-3b2a-4190-8f7e-6d5c4b3a2190",
+  render: "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+  poster: "9e8d7c6b-5a49-4382-a716-05f4e3d2c1b0",
+  review: "6d7e8f90-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+  series: "0f1e2d3c-4b5a-4697-8877-665544332211",
+  format: "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
+  formatVersion: "3b4c5d6e-7f80-4192-a3b4-c5d6e7f80912",
+  skill: "1f2e3d4c-5b6a-4798-8a9b-0c1d2e3f4a5b",
 } as const;
 
 export const at = "2026-10-12T09:30:00.000Z";
@@ -139,6 +155,97 @@ export const alignment: VoiceAlignment = {
     { text: "will", startMs: 320, endMs: 480 },
     { text: "not", startMs: 480, endMs: 700 },
   ],
+};
+
+export const contentItem: ContentItem = {
+  id: ids.item,
+  projectId: ids.project,
+  seriesId: ids.series,
+  title: "Borrowing in one minute",
+  pitch: "The borrow checker as one rule.",
+  topic: null,
+  state: "review",
+  currentVersionId: ids.version,
+  versionNo: 4,
+  durationMs: 41_000,
+  posterAssetId: ids.poster,
+  targetAt: at,
+  autopilotTarget: null,
+  lastError: null,
+  createdVia: "ui",
+  createdBy: ids.user,
+  createdAt: at,
+  updatedAt: at,
+  archivedAt: null,
+};
+
+export const versionSummary: ContentVersionSummary = {
+  id: ids.version,
+  itemId: ids.item,
+  versionNo: 4,
+  stage: "review",
+  parentVersionId: null,
+  formatVersionId: ids.formatVersion,
+  hasScript: true,
+  hasStoryboard: true,
+  voiceAssetId: ids.voice,
+  renderAssetId: ids.render,
+  posterAssetId: ids.poster,
+  notes: null,
+  createdVia: "job",
+  createdByUser: null,
+  jobId: ids.job,
+  createdAt: at,
+};
+
+export const version: ContentVersion = {
+  ...versionSummary,
+  script,
+  storyboard,
+  caption: null,
+};
+
+export const asset: Asset = {
+  id: ids.render,
+  projectId: ids.project,
+  itemId: ids.item,
+  kind: "render",
+  status: "ready",
+  filename: "final.mp4",
+  mime: "video/mp4",
+  bytes: 12_345_678,
+  sha256: "a".repeat(64),
+  width: 1080,
+  height: 1920,
+  durationMs: 41_000,
+  probe: { durationMs: 41_000, width: 1080, height: 1920, fps: 30, videoCodec: "h264" },
+  createdAt: at,
+  finalizedAt: at,
+};
+
+export const review: Review = {
+  id: ids.review,
+  itemId: ids.item,
+  versionId: ids.version,
+  decision: "request_changes",
+  comment: "Open on the error message instead.",
+  enqueueRevision: true,
+  userId: ids.user,
+  actorKind: "user",
+  createdAt: at,
+};
+
+export const skillVersion: SkillVersionSummary = {
+  skillId: ids.skill,
+  name: "scriptwriting",
+  kind: "skill",
+  version: 3,
+  checksum: "b".repeat(64),
+  changelog: "Tighter hooks.",
+  fileCount: 2,
+  bytes: 4_096,
+  publishedByUser: ids.user,
+  publishedAt: at,
 };
 
 /** A fresh value per run, so the suite holds no credential-like literals. */

@@ -53,13 +53,15 @@ export interface PipelineTransition {
 }
 
 /**
- * The artifacts of a version, as far as the state machine cares. Any non-null value counts as
- * present, so a full `ContentVersion` or a summary with `hasScript`-style flags mapped to values
- * both work.
+ * The artifacts of a version, as far as the state machine cares. A full `ContentVersion` (any
+ * non-null `script` or `storyboard` counts) and a `ContentVersionSummary` (`hasScript`,
+ * `hasStoryboard`) both fit.
  */
 export interface VersionArtifacts {
   readonly script?: unknown;
+  readonly hasScript?: boolean;
   readonly storyboard?: unknown;
+  readonly hasStoryboard?: boolean;
   readonly voiceAssetId?: string | null;
   readonly renderAssetId?: string | null;
 }
@@ -140,8 +142,8 @@ function hasRender(version: VersionArtifacts | null | undefined): boolean {
  * render present without a gap. A version with a voice but no storyboard is at `script`.
  */
 export function stageForArtifacts(version: VersionArtifacts): ProductionState {
-  if (!hasValue(version.script)) return "idea";
-  if (!hasValue(version.storyboard)) return "script";
+  if (!hasValue(version.script) && version.hasScript !== true) return "idea";
+  if (!hasValue(version.storyboard) && version.hasStoryboard !== true) return "script";
   if (!hasValue(version.voiceAssetId)) return "storyboard";
   if (!hasValue(version.renderAssetId)) return "voice";
   return "render";

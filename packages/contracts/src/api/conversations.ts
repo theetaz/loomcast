@@ -11,6 +11,11 @@ export const ConversationSchema = z.object({
   title: z.string().nullable(),
   /** Studio agent that holds this conversation's producer session, once one has replied. */
   deviceId: IdSchema.nullable(),
+  /**
+   * The content item this conversation is about (`content.conversation`); null for project
+   * conversations. Optional until every server sends it.
+   */
+  contentItemId: IdSchema.nullable().optional(),
   createdBy: IdSchema,
   createdAt: TimestampSchema,
   lastMessageAt: TimestampSchema.nullable(),
