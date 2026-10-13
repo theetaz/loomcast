@@ -42,8 +42,9 @@ function expected(
 ): boolean {
   const user = actor === "user";
   const userOrSystem = user || actor === "system";
-  // Archiving is a user's call from anywhere; restoring returns an archived item as an idea.
-  if (to === "archived") return user && from !== "archived";
+  // Archiving is a user's call from anywhere, and the system's for ideas only; restoring returns
+  // an archived item as an idea.
+  if (to === "archived") return from !== "archived" && (user || (from === "idea" && userOrSystem));
   if (from === "archived") return user && to === "idea";
   // Anyone may add a version while the item is in production or in review.
   if ((PRODUCTION.includes(from) || from === "review") && VERSION_STAGES.includes(to)) return true;
@@ -113,7 +114,11 @@ describe("transition table", () => {
       const rows = PIPELINE_TRANSITIONS.filter((row) => row.via === via);
 
       expect(rows.length, via).toBeGreaterThan(0);
-      for (const row of rows) expect(row.actors, via).toEqual(["user"]);
+      for (const row of rows) {
+        // The cadence planner (system) may archive the ideas it retires, and nothing else.
+        const actors = via === "archive" && row.from === "idea" ? ["user", "system"] : ["user"];
+        expect(row.actors, `${via} from ${row.from}`).toEqual(actors);
+      }
     }
     expect(
       findTransition({ from: "review", to: "approved", actor: "system", via: "approve" }),

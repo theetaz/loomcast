@@ -121,9 +121,12 @@ function buildTransitions(): PipelineTransition[] {
   rows.push(edge("scheduled", "approved", "unschedule", USER_OR_SYSTEM, true));
   rows.push(edge("scheduled", "published", "publish", SYSTEM, true));
 
-  // Archiving and restoring.
+  // Archiving and restoring. The system may archive only ideas, which the cadence planner retires
+  // when a series pauses or its cadence changes; anything further along is the user's call.
   for (const from of PIPELINE_STATES) {
-    if (from !== "archived") rows.push(edge(from, "archived", "archive", USER));
+    if (from !== "archived") {
+      rows.push(edge(from, "archived", "archive", from === "idea" ? USER_OR_SYSTEM : USER));
+    }
   }
   rows.push(edge("archived", "idea", "restore", USER));
 
