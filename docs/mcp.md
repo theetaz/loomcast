@@ -237,6 +237,27 @@ of the latest version of each in its workspace.
   `pnpm --filter @loomcast/api run skills:seed -- ../../studio/skills` publishes every directory
   with a `skill.json` (recipes under `recipes/` included) as the owner, skipping unchanged ones.
 
+## Calendar tools
+
+**`calendar.get_slots`** lists the publishing slots of series' cadences between `from` and `to`
+(at most 62 days), so a producer can see when the next videos are due. Each slot is one local time
+of a series' cadence (days, times and time zone from its format) on one channel the series
+publishes to, as a UTC instant. Times the clocks skip move forward to the first valid minute, and
+times that happen twice take the earlier instant. Only active series of active projects have
+slots.
+
+- `postId` is set when a post that is not cancelled has the same series, channel and time; a slot
+  without it is open. A post moved to another time leaves its slot open.
+- `seriesId` and `channelId` narrow the list; `projectId` keeps it to one project. Without them an
+  access token sees every project, and a job token only its job's project. A job token naming
+  another project's series is refused with `forbidden`, an unknown series with `not_found`.
+- Slots are listed in time order, then by series and channel. The text summary counts them and
+  the open ones.
+
+The cadence planner fills the slots of the next `CADENCE_HORIZON_DAYS` (14 by default) every hour
+and right after a series, its format or its channels change: one idea per slot (titled
+`<series> · <local date>`, with a topic from the format's pool) and a planned post on each channel.
+
 ## Results and errors
 
 A successful call returns the tool's output as `structuredContent`, matching the output schema
@@ -343,6 +364,34 @@ Get a short-lived download URL for a ready asset, with its details.
 | `asset.createdAt` | string (date-time) | yes |  |
 | `asset.finalizedAt` | string (date-time) \| null | yes |  |
 | `asset.alignment` | object \| null | yes |  |
+
+### `calendar.get_slots`
+
+List the publishing slots of series' cadences between two times (at most 62 days), per channel, with the post that holds each slot if any.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `projectId` | string (uuid) | no |  |
+| `seriesId` | string (uuid) | no |  |
+| `channelId` | string (uuid) | no |  |
+| `from` | string (date-time) | yes |  |
+| `to` | string (date-time) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `slots` | object[] | yes |  |
+| `slots[].at` | string (date-time) | yes |  |
+| `slots[].seriesId` | string (uuid) | yes |  |
+| `slots[].channelId` | string (uuid) | yes |  |
+| `slots[].postId` | string (uuid) | no |  |
 
 ### `content.create_idea`
 
