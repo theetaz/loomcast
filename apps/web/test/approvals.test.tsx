@@ -1,7 +1,7 @@
 import type { ApprovalItem, ApprovalsInbox, ContentItem } from "@loomcast/contracts";
 import { routes } from "@loomcast/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
-import { HttpResponse, http } from "msw";
+import { getResponse, HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatSpan, slotCountdown } from "@/features/approvals/countdown";
 import { compareApprovals, compareMissed } from "@/features/approvals/queries";
@@ -9,8 +9,10 @@ import { suggestedTime } from "@/features/approvals/RescheduleDialog";
 import { mockPost } from "@/mocks/calendar";
 import { mockContentItem } from "@/mocks/content";
 import { MOCK_USER } from "@/mocks/db";
+import { createHandlers } from "@/mocks/handlers";
 import { CALENDAR_NOW, calendarSetup } from "./support/calendar";
 import { recordRequests } from "./support/kb";
+import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
 const HOUR = 60 * 60_000;
@@ -88,6 +90,18 @@ function waitingTitles() {
 function waitingRow(title: string) {
   const list = screen.getByRole("list", { name: "Videos waiting for approval" });
   return within(list).getByRole("listitem", { name: title });
+}
+
+/** The toast with this title about this video; toasts of earlier tests may still be showing. */
+function findToast(title: string, description: string) {
+  return waitFor(() => {
+    const toast = [...document.querySelectorAll<HTMLElement>("[data-sonner-toast]")].find(
+      (node) =>
+        within(node).queryByText(title) !== null && within(node).queryByText(description) !== null,
+    );
+    if (!toast) throw new Error(`expected a "${title}" toast for ${description}`);
+    return toast;
+  });
 }
 
 function countdownOf(row: HTMLElement) {
@@ -171,6 +185,32 @@ describe("approvals inbox", () => {
     });
     expect(db.contentItems.find((item) => item.id === review.tomorrow.id)?.state).toBe("approved");
     expect(await screen.findByText("Approved")).toBeInTheDocument();
+  });
+
+  it("confirms each decision even when the live stream removes the row first", async () => {
+    // The API publishes the item's new state before it answers, so with the stream open the row
+    // leaves the inbox (and unmounts) before the decision's response arrives.
+    const { db, review } = approvalsSetup();
+    const stream = fakeStream(db);
+    const late = http.post(`*${routes["reviews.create"].path}`, async ({ request, params }) => {
+      const response = await getResponse(createHandlers(db), request);
+      const title = db.contentItems.find((item) => item.id === params.id)?.title;
+      await waitFor(() => expect(waitingTitles()).not.toContain(title));
+      return response;
+    });
+    const { user } = renderApp("/approvals", db, [late], { createEventSource: stream.factory });
+    await screen.findByRole("list", { name: "Videos waiting for approval" }, { timeout: 5000 });
+
+    await user.click(screen.getByRole("button", { name: `Approve ${review.later.title}` }));
+    expect(await findToast("Approved", review.later.title)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: `Request changes to ${review.undated.title}` }),
+    );
+    const form = screen.getByRole("form", { name: `Request changes to ${review.undated.title}` });
+    await user.type(within(form).getByLabelText("What should change?"), "The hook runs long.");
+    await user.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await findToast("Changes requested", review.undated.title)).toBeInTheDocument();
   });
 
   it("asks for changes inline, and needs a comment first", async () => {

@@ -6,10 +6,11 @@ import type {
   ScheduledPost,
 } from "@loomcast/contracts";
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { applyPost } from "@/features/calendar/queries";
 import { upsertContentItem } from "@/features/library/queries";
 import { applyToQueues } from "@/features/review-queue/queries";
-import { api, isApiError } from "@/lib/api";
+import { api, errorMessage, isApiError } from "@/lib/api";
 import { useLiveEvent, useLiveReconnect } from "@/lib/live";
 
 export const approvalsKeys = {
@@ -154,20 +155,32 @@ function reviewBody(input: Decision): CreateReviewRequest {
 /**
  * Approves an item or asks for changes, on the version the inbox shows. The item leaves every
  * inbox and the review queue; a `409` (a newer version, or decided elsewhere) refetches.
+ *
+ * The outcome toasts live here, not in the row's `mutate` callbacks: the row unmounts as soon as
+ * its item leaves the inbox (from this cache update or from the live stream, which can arrive
+ * before the response), and an unmounted row's callbacks never run.
  */
 export function useDecide() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: Decision) =>
       api.request("reviews.create", { params: { id: input.item.id }, body: reviewBody(input) }),
-    onSuccess: ({ item }) => {
+    onSuccess: ({ item }, input) => {
+      toast.success(input.decision === "approve" ? "Approved" : "Changes requested", {
+        description: input.item.title,
+      });
       applyApprovalItem(queryClient, item);
       upsertContentItem(queryClient, item);
       applyToQueues(queryClient, item);
       // A request for changes may have queued a revision.
       void queryClient.invalidateQueries({ queryKey: ["content", "detail", item.id] });
     },
-    onError: (error) => {
+    onError: (error, input) => {
+      toast.error(input.decision === "approve" ? "Couldn't approve" : "Couldn't request changes", {
+        description: isApiError(error, 409)
+          ? "The video changed since the inbox loaded. It now shows the latest version."
+          : errorMessage(error),
+      });
       if (isApiError(error, 409) || isApiError(error, 404)) invalidateInboxes(queryClient);
     },
   });
