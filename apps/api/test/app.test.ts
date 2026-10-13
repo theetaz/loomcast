@@ -104,10 +104,10 @@ describe("default deny", () => {
 
   it("lets the public pairing route through to its module", async () => {
     const { app } = createTestApp(testDb.db);
-    // No handler yet: the request passes the guard and reaches the 404 handler.
+    // The request passes the guard and reaches the pairing handler, which validates the body.
     const response = await send(app, "POST", "/api/bridge/pair", { origin: null, body: {} });
-    expect(response.status).toBe(404);
-    expect(await errorCode(response)).toBe("not_found");
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("validation_failed");
   });
 
   it("answers 404 with an ApiError body outside the API", async () => {
