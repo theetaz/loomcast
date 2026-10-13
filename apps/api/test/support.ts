@@ -74,6 +74,10 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     scheduler: { enabled: false, tickMs: 5_000 },
     publishing: { mode: "dry-run", enabled: true },
     cadenceHorizonDays: 14,
+    // No webhook: alerts are only logged.
+    alerts: { webhookUrl: null, format: "json" },
+    gitSha: null,
+    backupDir: null,
     ...overrides,
   };
 }

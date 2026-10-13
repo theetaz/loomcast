@@ -37,10 +37,22 @@ services:
       API_PORT: "8790"
       # Keep the heap well under mem_limit so V8 collects garbage before the kernel kills it.
       NODE_OPTIONS: --enable-source-maps --max-old-space-size=${API_HEAP_MB:-448}
+      # The backup service's directory, mounted read-only below. The api reads last-success.json
+      # for the ops status and alerts when the last backup is older than 26 hours.
+      BACKUP_DIR: /backups
     ports:
       - "127.0.0.1:${LOOMCAST_HTTP_PORT:?set LOOMCAST_HTTP_PORT in compose.env}:8790"
     tmpfs:
       - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    volumes:
+      # Read-only. The directory is mode 0711 (owner uid 70), so the api (uid 1000) can open
+      # last-success.json and last-failure.json by name but cannot list or read the dumps (0600).
+      - type: bind
+        source: ${LOOMCAST_BACKUP_DIR:-/opt/loomcast/backups}
+        target: /backups
+        read_only: true
+        bind:
+          create_host_path: false
     mem_limit: ${API_MEM:-640m}
     memswap_limit: ${API_MEM:-640m}
     cpus: 1.0

@@ -8,6 +8,7 @@ import { HTTPException } from "hono/http-exception";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppDeps, ModuleDeps, Presence, RegisterModule } from "./deps";
+import { type Alert, createAlerts } from "./lib/alerts";
 import { HttpError, notFound } from "./lib/errors";
 import { type CheckStatus, createHealthRegistry, type HealthRegistry } from "./lib/health";
 import {
@@ -34,7 +35,12 @@ import { createJobsService, register as registerJobs } from "./modules/jobs";
 import { createJobHooks, subscribeJobStatusHooks } from "./modules/jobs/handlers";
 import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
-import { databaseCheck, schedulerCheck, storageCheck } from "./modules/ops";
+import {
+  databaseCheck,
+  register as registerOps,
+  schedulerCheck,
+  storageCheck,
+} from "./modules/ops";
 import { register as registerProduction } from "./modules/production";
 import { register as registerProjects } from "./modules/projects";
 import { register as registerPublisher } from "./modules/publisher";
@@ -117,6 +123,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   const hooks = createJobHooks(deps);
   deps.lifecycle.onClose(subscribeJobStatusHooks(deps.bus, hooks));
   const auth = createAuthGuards({ config, clock: deps.clock, sessions, tokens });
+  const alert = alertSink(deps);
   const presence: Presence = { connectedDevices: () => NO_DEVICES };
   const storage: Storage =
     deps.storage ??
@@ -128,13 +135,14 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     clock: deps.clock,
     logger: logger.child({ module: "scheduler" }),
     config: config.scheduler,
-    alert: deps.alert,
+    alert,
   });
   const health = readinessChecks(deps, scheduler);
   const vault: TokenVault =
     config.encryption === null ? createUnconfiguredVault() : createVault(config.encryption);
   const moduleDeps: ModuleDeps = {
     ...deps,
+    alert,
     health,
     sessions,
     tokens,
@@ -262,6 +270,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerBridge(app, moduleDeps);
   registerJobs(app, moduleDeps);
   registerMcp(app, moduleDeps);
+  registerOps(app, moduleDeps);
   for (const register of options.modules ?? []) {
     register(app, moduleDeps);
   }
@@ -280,6 +289,26 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   app.onError((error, c) => errorResponse(error, c, deps));
 
   return app;
+}
+
+/**
+ * Where alerts go: `AppDeps.alert` when a caller supplies one (tests), otherwise the webhook alerts
+ * from `ALERT_WEBHOOK_URL`, de-duplicated per key. The returned function never throws.
+ */
+function alertSink(deps: AppDeps): (alert: Alert) => Promise<void> {
+  const logger = deps.logger.child({ module: "alerts" });
+  const alerts = createAlerts({ config: deps.config.alerts, clock: deps.clock, logger });
+  return async (alert) => {
+    try {
+      if (deps.alert === undefined) {
+        await alerts.send(alert);
+      } else {
+        await deps.alert(alert);
+      }
+    } catch (error) {
+      logger.error({ err: error, alert: alert.key }, "could not raise an alert");
+    }
+  };
 }
 
 /** The readiness registry with the database, object storage and scheduler checks. */

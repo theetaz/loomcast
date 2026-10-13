@@ -4,7 +4,7 @@
 
 | Service | Image | Notes |
 |---|---|---|
-| `api` | `ghcr.io/theetaz/loomcast:<tag>` | Serves the API, the bridge WebSocket (`/bridge/v1`), MCP (`/mcp`), the event stream (`/api/stream`) and the built web app on one port. Published on `127.0.0.1:${LOOMCAST_HTTP_PORT}` only; the host's reverse proxy terminates TLS in front of it. |
+| `api` | `ghcr.io/theetaz/loomcast:<tag>` | Serves the API, the bridge WebSocket (`/bridge/v1`), MCP (`/mcp`), the event stream (`/api/stream`) and the built web app on one port. Published on `127.0.0.1:${LOOMCAST_HTTP_PORT}` only; the host's reverse proxy terminates TLS in front of it. Mounts `${LOOMCAST_BACKUP_DIR}` read-only at `/backups` to report the last backup. |
 | `postgres` | `postgres:17-alpine` | No published ports. Data in the `loomcast_pgdata` volume. |
 | `backup` | `ghcr.io/theetaz/loomcast-backup:<tag>` | Nightly `pg_dump` with local rotation and an optional encrypted copy to object storage. No published ports; writes only to `${LOOMCAST_BACKUP_DIR}`. See `docs/runbooks/backup-and-restore.md`. |
 
@@ -90,7 +90,8 @@ The entry point takes one command:
 | anything else | Runs as a command, for example `id -u` |
 
 The image runs as `node` (uid 1000), holds no secrets, and reports health with a `fetch` to
-`/healthz`. `/readyz` also checks the database. Build it locally with:
+`/healthz`. `/readyz` also checks the database, object storage and the scheduler (see
+`docs/runbooks/monitoring.md`). Build it locally with:
 
 ```bash
 docker build -f infra/docker/app.Dockerfile --build-arg LOOMCAST_GIT_SHA=$(git rev-parse HEAD) -t loomcast:local .
