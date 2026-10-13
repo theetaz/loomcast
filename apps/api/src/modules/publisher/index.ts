@@ -5,15 +5,20 @@ import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { notFound } from "../../lib/errors";
 import { idParam } from "../../lib/http";
+import { createMetaGraphClient } from "../../lib/meta-graph";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { flagNeedsReauth } from "../channels/reauth";
 import { contentServiceFor } from "../content";
+import { enqueueInsightsPulls } from "../insights/schedule";
 import { publisherAdapters } from "./adapters";
 import { createFacebookAdapter, type MetaAdapterOptions } from "./adapters/facebook";
+import { createInstagramAdapter } from "./adapters/instagram";
 import { createThreadsAdapter } from "./adapters/threads";
 import { createXAdapter, storageMediaSource } from "./adapters/x";
+import { PublishFailure } from "./errors";
 import { toPublishAttempt } from "./posts";
+import { createUsageObserver } from "./rate-limit";
 import { registerPublisherTasks } from "./tasks";
 
 export {
@@ -46,9 +51,22 @@ export {
   RATE_WINDOW_MS,
 } from "./gates";
 export { loadScheduledPost, loadScheduledPosts, toPublishAttempt, toScheduledPost } from "./posts";
+export {
+  createUsageObserver,
+  META_USAGE_WINDOW_MS,
+  RATE_LIMITED_FALLBACK_MS,
+  rateLimitedRetryMs,
+  recordChannelUsage,
+  type Throttle,
+  throttleOf,
+  USAGE_THROTTLE_PERCENT,
+  type UsageObserver,
+  type UsageScope,
+} from "./rate-limit";
 export { REDACTED, redactRequest } from "./redact";
 export * from "./requests";
 export {
+  type LivePublishedPost,
   PUBLISHING_PAUSED_RETRY_MS,
   type PublisherDeps,
   registerPublisherTasks,
@@ -67,9 +85,12 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
   const logger = deps.logger.child({ module: "publisher" });
   // The live Meta adapters sign calls with the server's platform settings; a channel whose
-  // credentials the platform refuses turns `needs_reauth` through the channels module.
+  // credentials the platform refuses turns `needs_reauth` through the channels module. Their
+  // calls go through the usage observer, so each attempt's throttling headers reach the channel.
+  const usage = createUsageObserver();
   const meta: MetaAdapterOptions = {
     platforms: deps.config.platforms,
+    fetch: usage.fetch,
     onCredentialsRefused: async ({ channelId, error, reason }) => {
       await flagNeedsReauth(deps, logger, { channelId, error, reason });
     },
@@ -85,8 +106,26 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     scheduler: deps.scheduler,
     content: contentServiceFor(deps),
     alert: deps.alert,
+    usage,
+    onLivePublished: async (tx, post) => {
+      await enqueueInsightsPulls(deps.scheduler, tx, post);
+    },
     adapters: {
       ...publisherAdapters,
+      instagram: createInstagramAdapter({
+        client: () => {
+          if (deps.config.platforms.meta === null) {
+            throw PublishFailure.of(
+              "not_configured",
+              "The Meta app is not configured on the server.",
+              {
+                retryable: false,
+              },
+            );
+          }
+          return createMetaGraphClient(deps.config.platforms, { fetch: usage.fetch });
+        },
+      }),
       facebook: createFacebookAdapter(meta),
       threads: createThreadsAdapter(meta),
       // Refuses every post with `not_configured` unless `FEATURE_X_PUBLISHING` is on and the X

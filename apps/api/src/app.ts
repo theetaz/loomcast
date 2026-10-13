@@ -19,6 +19,7 @@ import {
   type StorageConfig,
 } from "./lib/storage";
 import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
+import { register as registerAnalytics } from "./modules/analytics";
 import { register as registerApprovals } from "./modules/approvals";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
@@ -31,6 +32,7 @@ import { register as registerContent } from "./modules/content";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
 import { register as registerFormats } from "./modules/formats";
+import { register as registerInsights } from "./modules/insights";
 import { createJobsService, register as registerJobs } from "./modules/jobs";
 import { createJobHooks, subscribeJobStatusHooks } from "./modules/jobs/handlers";
 import { createKbService, register as registerKb } from "./modules/kb";
@@ -266,6 +268,8 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerCadence(app, moduleDeps);
   registerApprovals(app, moduleDeps);
   registerPublisher(app, moduleDeps);
+  registerInsights(app, moduleDeps);
+  registerAnalytics(app, moduleDeps);
   registerScheduler(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
