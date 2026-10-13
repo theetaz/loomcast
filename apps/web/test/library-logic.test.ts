@@ -1,4 +1,4 @@
-import { type ContentItem, PIPELINE_STATES } from "@loomcast/contracts";
+import { type ContentItem, type ContentItemDetail, PIPELINE_STATES } from "@loomcast/contracts";
 import { STATUS_STYLES, statusStyle } from "@loomcast/ui/components/StatusPill";
 import { describe, expect, it } from "vitest";
 import { formatDuration } from "@/features/library/format";
@@ -298,6 +298,35 @@ describe("live patching", () => {
       updatedAt: "2020-01-01T00:00:00.000Z",
     });
     expect(read()).toEqual([items.borrow.title]);
+  });
+
+  it("keeps an item page stale until it has loaded the item's new current version", () => {
+    const { items } = librarySetup();
+    const queryClient = createQueryClient();
+    const key = contentKeys.detail(items.borrow.id);
+    queryClient.setQueryData<ContentItemDetail>(key, {
+      item: items.borrow,
+      currentVersion: { id: items.borrow.currentVersionId } as ContentItemDetail["currentVersion"],
+      versions: [],
+      activeJob: null,
+    });
+    // A job writes a new version, then autopilot moves the item on that same version, while
+    // the item page is closed: the second event must not make the old version look current.
+    const currentVersionId = crypto.randomUUID();
+    upsertContentItem(queryClient, {
+      ...items.borrow,
+      currentVersionId,
+      state: "render",
+      updatedAt: "2026-10-01T12:00:00.000Z",
+    });
+    upsertContentItem(queryClient, {
+      ...items.borrow,
+      currentVersionId,
+      state: "review",
+      updatedAt: "2026-10-01T12:00:01.000Z",
+    });
+    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData<ContentItemDetail>(key)?.item.state).toBe("review");
   });
 
   it("refetches a searched list instead of guessing whether a new item matches", async () => {

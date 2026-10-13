@@ -183,7 +183,9 @@ export function upsertContentItem(queryClient: QueryClient, item: ContentItem) {
       item,
     });
     // The event carries the item only; the current version and the job come with a refetch.
-    if (detail.item.currentVersionId !== item.currentVersionId) {
+    // Compared with the loaded version, not the cached item: a later event on the same version
+    // must not mark a detail fresh that still holds an older version.
+    if (detail.currentVersion.id !== item.currentVersionId) {
       void queryClient.invalidateQueries({ queryKey: contentKeys.detail(item.id) });
     }
   }
