@@ -56,7 +56,7 @@ describe("sidebar navigation registry", () => {
 });
 
 describe("app sidebar", () => {
-  it("links Library and Review and keeps Calendar as coming soon", async () => {
+  it("links Library, Review and Calendar", async () => {
     renderApp("/", signedInDb());
     const nav = await workspace();
 
@@ -66,9 +66,10 @@ describe("app sidebar", () => {
       "href",
       "/settings",
     );
-    const calendar = within(nav).getByRole("button", { name: "Calendar" });
-    expect(calendar).toBeDisabled();
-    expect(within(nav).queryByRole("link", { name: "Calendar" })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Calendar" })).toHaveAttribute(
+      "href",
+      "/calendar",
+    );
   });
 
   it("lists the planned channels: Facebook, Instagram, Threads and X", async () => {
