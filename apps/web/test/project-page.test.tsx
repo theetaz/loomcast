@@ -18,6 +18,8 @@ describe("project tab registry", () => {
   it("loads the tab files in order", () => {
     expect(projectTabs.map((tab) => [tab.id, tab.label, tab.to])).toEqual([
       ["overview", "Overview", "/projects/$projectId"],
+      ["content", "Content", "/projects/$projectId/content"],
+      ["series", "Series", "/projects/$projectId/series"],
       ["chat", "Chat", "/projects/$projectId/chat"],
       ["knowledge", "Knowledge", "/projects/$projectId/kb"],
     ]);
@@ -44,7 +46,7 @@ describe("project page", () => {
       within(tabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Overview", "Chat", "Knowledge"]);
+    ).toEqual(["Overview", "Content", "Series", "Chat", "Knowledge"]);
     expect(within(tabs).getByRole("tab", { name: "Overview" })).toHaveAttribute(
       "aria-selected",
       "true",

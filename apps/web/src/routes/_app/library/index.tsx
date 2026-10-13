@@ -1,7 +1,9 @@
+import { Button } from "@loomcast/ui/components/button";
 import { createFileRoute } from "@tanstack/react-router";
-import { LibraryBigIcon } from "lucide-react";
-import { EmptyState } from "@/components/EmptyState";
+import { PlusIcon } from "lucide-react";
 import { Page, PageHeader } from "@/components/PageHeader";
+import { LibraryView } from "@/features/library/LibraryView";
+import { NewIdeaDialog } from "@/features/library/NewIdeaDialog";
 import { LibrarySearchSchema } from "@/features/library/search";
 import { useTitle } from "@/lib/use-title";
 
@@ -12,13 +14,28 @@ export const Route = createFileRoute("/_app/library/")({
 
 function LibraryPage() {
   useTitle("Library");
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+
   return (
-    <Page>
+    <Page className="max-w-[1240px]">
       <PageHeader
         title="Library"
         description="Every video in every project, from first idea to published."
+        actions={
+          <NewIdeaDialog>
+            <Button>
+              <PlusIcon aria-hidden="true" />
+              New idea
+            </Button>
+          </NewIdeaDialog>
+        }
       />
-      <EmptyState icon={LibraryBigIcon} title="No videos yet" />
+      <LibraryView
+        projectId={null}
+        search={search}
+        onSearchChange={(next) => void navigate({ search: next, replace: true })}
+      />
     </Page>
   );
 }

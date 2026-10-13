@@ -33,6 +33,10 @@ Settings → Members lists demo members. Inviting someone shows a set-password l
 API lives in the page and a reload resets it, so open the link without reloading: for example
 `history.pushState({}, "", link); dispatchEvent(new PopStateEvent("popstate"))` in the console.
 
+The demo projects also have series and content items in every pipeline state
+(`src/mocks/content.ts`). Producing an item walks it through script, storyboard, voice and
+render to review, one version every second or so, with the live events the API sends.
+
 ### Dev proxy
 
 | Path | Target | Notes |
@@ -49,7 +53,7 @@ API lives in the page and a reload resets it, so open the link without reloading
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -132,6 +136,28 @@ and the composer.
   characters). The detail page has find-in-transcript and the analysis panes; the Analyze
   button queues `kb.analyze_reference`, and `analysis-status.ts` combines the stored status
   with `job.updated` for the status pill.
+
+## Library
+
+`features/library` is the Library page (`/library`, every project) and each project's Content
+tab (`/projects/:id/content`), the same view scoped to one project.
+
+- Rows are 38px: title, series, state pill, version, target date, length and last change.
+  Column headers sort the loaded rows; empty values sort last. One title link is in the tab
+  order: arrow keys, Home and End move between rows and Enter opens the item.
+- Filters live in the address, validated by `LibrarySearchSchema` (`search.ts`): `states`
+  (comma-separated pipeline states; none means everything but archived), `series`, `from` and
+  `to` (target days, inclusive, in the browser's time zone), `q` (debounced 200 ms) and `sort`
+  (`title`, `-updated` and so on). Invalid values are dropped, not fatal. They map onto
+  `content.list` with `states` sent comma-separated. A channel filter joins them once posts can
+  be scheduled.
+- `content.item.created` and `content.item.updated` patch every loaded list
+  (`upsertContentItem` in `queries.ts`): an item is replaced, dropped when it no longer matches,
+  or added at the top. Searched lists refetch instead, since only the server knows what a search
+  matches. `content.version.created` refetches the open item.
+- New idea asks for a title, an optional pitch and series, and, in the library, the project.
+- Item pages (`/content/:itemId`) and the review queue (`/review`) are placeholders until their
+  screens land; the project's Series tab is one too.
 
 ## Screens and conventions
 
