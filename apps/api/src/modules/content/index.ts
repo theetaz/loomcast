@@ -1,5 +1,6 @@
 import {
   CreateContentItemRequestSchema,
+  EditVersionRequestSchema,
   ListContentQuerySchema,
   routes,
   UpdateContentItemRequestSchema,
@@ -30,13 +31,21 @@ export {
   type CreateItemOptions,
   createContentService,
   type ItemTracking,
+  type JobVersionOptions,
   type WriteOptions,
 } from "./service";
 export { invalidTransition, missingArtifact, staleVersion } from "./support";
+export type { TransitionOptions } from "./transitions";
+export {
+  applyChanges,
+  type CreateVersionOptions,
+  type VersionChanges,
+  type VersionResult,
+} from "./versions";
 
 /**
- * The app's content service (one per deps object), for production, the MCP tools and the
- * calendar.
+ * The app's content service (one per deps object). Production, the MCP tools and the calendar
+ * use it for every item write, so all state changes go through its `transition`.
  */
 export function contentServiceFor(deps: ContentServiceDeps): ContentService {
   return serviceFor(deps, "content", () => createContentService(deps));
@@ -60,8 +69,9 @@ function queryObject(c: Context<AppEnv>, repeatable: readonly string[]): Record<
 }
 
 /**
- * Content item endpoints: items and their immutable versions. Production actions and the item's
- * conversation belong to the production module; the asset list to the assets module.
+ * Content item endpoints: items, their immutable versions and edits, archive and restore. Every
+ * state change goes through the content service's transitions. Production actions and the
+ * item's conversation belong to the production module; the asset list to the assets module.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const content = contentServiceFor(deps);
@@ -123,6 +133,23 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       throw notFound("The item has no version with that id.");
     }
     return c.json(version, 200);
+  });
+
+  router.post(routes["content.versions.edit"].path, async (c) => {
+    const id = idParam(c);
+    const input = await readJson(c, EditVersionRequestSchema);
+    const result = await content.edit(id, input, userActor(c, trustProxy));
+    return c.json(result, 201);
+  });
+
+  router.post(routes["content.archive"].path, async (c) => {
+    const item = await content.archive(idParam(c), userActor(c, trustProxy));
+    return c.json(item, 200);
+  });
+
+  router.post(routes["content.restore"].path, async (c) => {
+    const item = await content.restore(idParam(c), userActor(c, trustProxy));
+    return c.json(item, 200);
   });
 
   app.route("/", router);

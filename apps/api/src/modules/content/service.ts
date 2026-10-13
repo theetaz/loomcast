@@ -9,9 +9,13 @@ import {
   type CreateContentItemRequest,
   type CursorPage,
   DEFAULT_PAGE_LIMIT,
+  type EditVersionRequest,
+  type EditVersionResponse,
   type FormatSnapshot,
+  FormatSnapshotSchema,
   IdSchema,
   type ListContentQuery,
+  type PipelineState,
   type ProduceTarget,
   type UpdateContentItemRequest,
 } from "@loomcast/contracts";
@@ -22,6 +26,7 @@ import {
   type Database,
   escapeLikePattern,
   type JobRow,
+  jobs,
   series,
 } from "@loomcast/db";
 import { and, desc, eq, gte, ilike, inArray, lte, ne, or, type SQL, sql } from "drizzle-orm";
@@ -43,6 +48,13 @@ import {
   versionSummaries,
 } from "./queries";
 import { decodeCursor, encodeCursor, inTransaction, projectExists } from "./support";
+import { type TransitionOptions, transitionItem } from "./transitions";
+import {
+  type CreateVersionOptions,
+  createVersion,
+  type VersionChanges,
+  type VersionResult,
+} from "./versions";
 
 export interface WriteOptions {
   /** Run inside the caller's transaction; events are published when it commits. */
@@ -61,6 +73,11 @@ export interface ItemTracking {
   /** The last production failure; null clears it. */
   lastError?: ContentItemError | null;
   targetAt?: Date | null;
+}
+
+export interface JobVersionOptions extends Omit<CreateVersionOptions, "jobId" | "createdVia"> {
+  /** Defaults to the device that ran the job, acting for the user who started it. */
+  actor?: PipelineActor;
 }
 
 export interface ContentService {
@@ -99,6 +116,49 @@ export interface ContentService {
     versionId: string,
     executor?: Executor,
   ): Promise<ContentVersion | null>;
+  /**
+   * A user's edit in the web app: a new version on `baseVersionId`, which must be current
+   * (409 `conflict` otherwise). 409 `invalid_transition` when the state machine refuses the move,
+   * for example while the item is scheduled. 404 for an unknown item.
+   */
+  edit(id: string, input: EditVersionRequest, actor: PipelineActor): Promise<EditVersionResponse>;
+  /** Writes a version in the caller's transaction; see `createVersion` in `versions.ts`. */
+  createVersion(
+    tx: Transaction,
+    itemId: string,
+    changes: VersionChanges,
+    actor: PipelineActor,
+    options?: CreateVersionOptions,
+  ): Promise<VersionResult>;
+  /**
+   * Stores a production job's result as a new version, idempotently: a job that already has a
+   * version gets it back (`created: false`). The actor defaults to the device that ran the job,
+   * and the format version to the one in the job's payload.
+   */
+  createVersionFromJob(
+    tx: Transaction,
+    jobId: string,
+    itemId: string,
+    artifacts: VersionChanges,
+    options?: JobVersionOptions,
+  ): Promise<VersionResult>;
+  /**
+   * Moves an item without a new version (review decisions, submit, archive, restore,
+   * auto-approval, schedule, publish). Locks the row, checks `PIPELINE_TRANSITIONS` against the
+   * resulting version, audits, and publishes `content.item.updated` and the internal
+   * `content.item.state_changed` after commit. 409 `invalid_transition` when refused.
+   */
+  transition(
+    tx: Transaction,
+    itemId: string,
+    to: PipelineState,
+    actor: PipelineActor,
+    options?: TransitionOptions,
+  ): Promise<ContentItem>;
+  /** Takes an item out of the pipeline (a user's move). Archiving an archived item is a no-op. */
+  archive(id: string, actor: PipelineActor, options?: WriteOptions): Promise<ContentItem>;
+  /** Brings an archived item back as an idea (a user's move). */
+  restore(id: string, actor: PipelineActor, options?: WriteOptions): Promise<ContentItem>;
   /**
    * Sets autopilot, the last error or the target time and publishes `content.item.updated`.
    * Null when there is no such item.
@@ -181,6 +241,19 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
 
   function publishUpdated(tx: Transaction, item: ContentItem): void {
     afterCommit(tx, () => bus.publish({ type: "content.item.updated", payload: { item } }));
+  }
+
+  async function move(
+    id: string,
+    to: PipelineState,
+    actor: PipelineActor,
+    via: "archive" | "restore",
+    options: WriteOptions,
+  ): Promise<ContentItem> {
+    if (!IdSchema.safeParse(id).success) {
+      throw itemNotFound();
+    }
+    return inTransaction(db, options.tx, (tx) => transitionItem(tx, bus, id, to, actor, { via }));
   }
 
   return {
@@ -337,6 +410,54 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
       const row = await findVersion(executor, itemId, versionId);
       return row === null ? null : toContentVersion(row);
     },
+
+    async edit(id, input, actor) {
+      const { baseVersionId, ...changes } = input;
+      return inTransaction(db, undefined, async (tx) => {
+        const existing = await findItem(tx, id);
+        if (existing === null) {
+          throw itemNotFound();
+        }
+        await requireActiveProject(tx, existing.projectId);
+        const result = await createVersion(tx, deps, id, changes, actor, { baseVersionId });
+        return { item: result.item, version: result.version };
+      });
+    },
+
+    createVersion: (tx, itemId, changes, actor, options) =>
+      createVersion(tx, deps, itemId, changes, actor, options),
+
+    async createVersionFromJob(tx, jobId, itemId, artifacts, options = {}) {
+      const [job] = await tx.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+      if (job === undefined) {
+        throw notFound("No job has that id.");
+      }
+      const { actor: actorOverride, ...rest } = options;
+      const actor: PipelineActor = actorOverride ?? {
+        kind: "device",
+        id: job.claimedByDevice,
+        userId: job.createdBy,
+      };
+      if (job.payload.itemId !== itemId) {
+        throw validationFailed([{ path: "itemId", message: "The job is for another item" }]);
+      }
+      const format = FormatSnapshotSchema.shape.formatVersionId.safeParse(
+        (job.payload.format as { formatVersionId?: unknown } | undefined)?.formatVersionId,
+      );
+      return createVersion(tx, deps, itemId, artifacts, actor, {
+        ...(format.success ? { formatVersionId: format.data } : {}),
+        ...rest,
+        jobId,
+        createdVia: "job",
+      });
+    },
+
+    transition: (tx, itemId, to, actor, options) =>
+      transitionItem(tx, bus, itemId, to, actor, options),
+
+    archive: (id, actor, options = {}) => move(id, "archived", actor, "archive", options),
+
+    restore: (id, actor, options = {}) => move(id, "idea", actor, "restore", options),
 
     async track(tx, itemId, fields) {
       const existing = await lockItem(tx, itemId);

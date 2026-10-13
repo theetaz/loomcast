@@ -1,10 +1,20 @@
-import type { JobType, LiveEvent, SeriesStatus } from "@loomcast/contracts";
+import type {
+  ActorKind,
+  JobType,
+  LiveEvent,
+  PipelineState,
+  SeriesStatus,
+  TransitionVia,
+} from "@loomcast/contracts";
 import type { Logger } from "./logger";
 
 /**
  * Events that stay inside the api process. They are never sent to browsers.
  * - `job.enqueued`: a job was inserted (published after commit); wakes the dispatcher.
  * - `device.revoked`: a device was revoked; the bridge hub closes its socket with 4403.
+ * - `content.item.state_changed`: an item moved between pipeline states, or onto a new version in
+ *   the same state (`from === to`). Published after commit by the content service, the only
+ *   writer of `content_items.state`.
  * - `format.updated`: a format got a new version (published after commit).
  * - `series.updated`: a series was renamed, moved to another format, paused, resumed or archived.
  */
@@ -21,6 +31,10 @@ export type InternalEvent =
   | {
       type: "device.revoked";
       payload: { deviceId: string; tokenId: string };
+    }
+  | {
+      type: "content.item.state_changed";
+      payload: ContentStateChange;
     }
   | {
       type: "format.updated";
@@ -43,9 +57,25 @@ export type InternalEvent =
       };
     };
 
+/** A committed move of a content item (`content.item.state_changed`). */
+export interface ContentStateChange {
+  itemId: string;
+  projectId: string;
+  from: PipelineState;
+  to: PipelineState;
+  /** Who moved it; `id` is the user, token or device id, null for the system. */
+  actor: { kind: ActorKind; id: string | null };
+  /** The version the item is on after the move. */
+  versionId: string;
+  previousVersionId: string;
+  via: TransitionVia;
+  reason: string | null;
+}
+
 export const INTERNAL_EVENT_TYPES = [
   "job.enqueued",
   "device.revoked",
+  "content.item.state_changed",
   "format.updated",
   "series.updated",
 ] as const satisfies readonly InternalEvent["type"][];
