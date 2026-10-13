@@ -18,10 +18,14 @@ import {
   type StorageConfig,
 } from "./lib/storage";
 import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
+import { register as registerApprovals } from "./modules/approvals";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
 import { createSessionsService } from "./modules/auth/sessions";
 import { register as registerBridge } from "./modules/bridge";
+import { register as registerCadence } from "./modules/cadence";
+import { register as registerCalendar } from "./modules/calendar";
+import { register as registerChannels } from "./modules/channels";
 import { register as registerContent } from "./modules/content";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
@@ -32,6 +36,7 @@ import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
 import { register as registerProduction } from "./modules/production";
 import { register as registerProjects } from "./modules/projects";
+import { register as registerPublisher } from "./modules/publisher";
 import { register as registerReviews } from "./modules/reviews";
 import { createScheduler, register as registerScheduler } from "./modules/scheduler";
 import { register as registerSeries } from "./modules/series";
@@ -233,6 +238,11 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerReviews(app, moduleDeps);
   registerProduction(app, moduleDeps);
   registerSkills(app, moduleDeps);
+  registerChannels(app, moduleDeps);
+  registerCalendar(app, moduleDeps);
+  registerCadence(app, moduleDeps);
+  registerApprovals(app, moduleDeps);
+  registerPublisher(app, moduleDeps);
   registerScheduler(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
