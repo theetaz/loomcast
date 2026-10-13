@@ -78,6 +78,7 @@ export {
   verifyDelivery,
 } from "./render.ts";
 export { sha256File, sha256Hex } from "./sha256.ts";
+export { type BundledSkill, loadBundledSkills } from "./skills.ts";
 export {
   hasErrors,
   parseStoryboard,

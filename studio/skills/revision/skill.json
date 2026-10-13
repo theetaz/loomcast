@@ -1,0 +1,5 @@
+{
+  "name": "revision",
+  "kind": "skill",
+  "description": "Revise a script or storyboard after review: treat the reviewer's comment as the owner's instruction, change only what it asks, keep ids and timing stable, and return the whole artifact in its contract."
+}

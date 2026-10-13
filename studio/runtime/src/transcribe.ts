@@ -14,10 +14,10 @@ import {
 import { type CommandRunner, runChecked, runCommand } from "./process.ts";
 import { TTS_BASE_URL } from "./voice.ts";
 
-// Word-level transcription of reference media the owner supplied, ported from
-// scripts/transcribe-elevenlabs.mjs: video inputs are reduced to mono 16 kHz MP3 with ffmpeg,
-// the audio is uploaded to the provider's speech-to-text endpoint (POST /v1/speech-to-text,
-// checked 2026-10-13) with the same key as voice synthesis, and the temporary audio is removed.
+// Word-level transcription of reference media the owner supplied, ported from the existing
+// transcription helper in scripts/: video inputs are reduced to mono 16 kHz MP3 with ffmpeg, the
+// audio is uploaded to the provider's speech-to-text endpoint (POST /v1/speech-to-text, checked
+// 2026-10-13) with the same key as voice synthesis, and the temporary audio is removed.
 
 export const STT_DEFAULT_MODEL = "scribe_v2";
 

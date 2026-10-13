@@ -108,6 +108,11 @@ HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 pnpm --filter @loomcast/studio exec ts
 
 Use `pnpm … run runtime`, not `pnpm … runtime`, which pnpm reserves for its own command.
 
+Producer guidance lives in `studio/skills/`: `scriptwriting`, `storyboarding`,
+`captions-and-pacing`, `revision` and the `recipes/vertical-explainer` recipe. Each has a
+`skill.json` manifest and a `SKILL.md`; `loadBundledSkills()` validates them against the skill
+contract.
+
 ## Contributing
 
 Branching, commit and pull-request conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md).

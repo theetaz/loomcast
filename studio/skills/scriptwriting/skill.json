@@ -1,0 +1,5 @@
+{
+  "name": "scriptwriting",
+  "kind": "skill",
+  "description": "Write a short-form tech video script: a hook in the format's hook style, segments at the format's reading level, about 150 words a minute, and one JSON object that matches the script contract."
+}
