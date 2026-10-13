@@ -1,0 +1,154 @@
+/* Loomcast vertical shell. Colours and type come from the style's tokens.css (--bg, --fg,
+   --accent, --muted, --font-display, --font-body); brand accents are the Loomcast Thread and
+   Ember. Positions are fixed pixels on the 1080x1920 frame so every render lays out the same. */
+
+:root {
+  --lc-thread: #4a52d1;
+  --lc-ember: #c2552a;
+  --lc-card-top: 660px;
+  --lc-card-height: 608px;
+  --lc-caption-top: 1330px;
+}
+
+html,
+body {
+  margin: 0;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: var(--bg, #0b0d12);
+}
+
+#root {
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: var(--bg, #0b0d12);
+  color: var(--fg, #f4f2ee);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+
+.lc-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      70% 38% at 50% 50%,
+      color-mix(in srgb, var(--accent, #4a52d1) 16%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--fg, #f4f2ee) 4%, transparent) 100%
+    );
+}
+
+.lc-hook {
+  position: absolute;
+  left: 72px;
+  right: 72px;
+  top: 220px;
+  height: 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 28px;
+}
+
+.lc-hook-text {
+  margin: 0;
+  font-family: var(--font-display, system-ui, sans-serif);
+  font-size: var(--lc-hook-size, 64px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--fg, #f4f2ee);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.lc-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-body, system-ui, sans-serif);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted, rgba(244, 242, 238, 0.6));
+}
+
+.lc-brand svg {
+  width: 34px;
+  height: 34px;
+  color: var(--lc-thread);
+}
+
+.lc-safe-area {
+  position: absolute;
+  left: 0;
+  top: var(--lc-card-top);
+  width: 1080px;
+  height: var(--lc-card-height);
+  background: color-mix(in srgb, var(--fg, #f4f2ee) 6%, transparent);
+  border-top: 4px solid var(--lc-thread);
+  border-bottom: 4px solid var(--lc-ember);
+  box-sizing: border-box;
+}
+
+/* Mounted cards. The runtime sets each host's position, size and scale inline: landscape cards
+   are scaled to fit the card area, 9:16 cards fill the frame under the captions. */
+.lc-card {
+  position: absolute;
+  overflow: hidden;
+  transform-origin: 0 0;
+}
+
+.lc-card--landscape {
+  z-index: 2;
+}
+
+.lc-card--vertical {
+  z-index: 4;
+}
+
+.lc-caption {
+  position: absolute;
+  left: 60px;
+  right: 60px;
+  top: var(--lc-caption-top);
+  height: 270px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 6;
+}
+
+.lc-caption-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display, system-ui, sans-serif);
+  font-size: 84px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: var(--fg, #f4f2ee);
+  text-shadow: 0 4px 24px color-mix(in srgb, var(--bg, #0b0d12) 70%, transparent);
+}
+
+.lc-caption-line {
+  display: block;
+  white-space: nowrap;
+}
+
+.lc-caption-line:first-child {
+  color: var(--accent, #4a52d1);
+}
