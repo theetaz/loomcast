@@ -98,7 +98,10 @@ export async function main(): Promise<void> {
   }
 
   const logger: Logger = createLogger({ level: config.logLevel });
-  const database = createDb(config.databaseUrl, { max: 10 });
+  const database = createDb(config.databaseUrl, {
+    max: 10,
+    onError: (error) => logger.warn({ err: error }, "idle database connection failed"),
+  });
   const lifecycle = createLifecycle(logger);
   const deps: AppDeps = {
     db: database.db,
