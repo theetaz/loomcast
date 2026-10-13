@@ -10,6 +10,7 @@ import {
   type KbEntry,
   type KbEntryDetail,
   type KbEntryKind,
+  type KbSearchHit,
   type KbTagCount,
   type ListKbQuery,
   MAX_KB_BODY_LENGTH,
@@ -25,6 +26,7 @@ import {
   type KbReferenceRow,
   kbEntries,
   kbReferences,
+  kbSearch,
   messages,
   type NewKbEntryRow,
   projects,
@@ -153,6 +155,18 @@ export interface KbService {
   update(id: string, input: UpdateKbEntry, actor: KbActor): Promise<KbEntryDetail | null>;
   /** Soft-deletes an entry and publishes `kb.entry.deleted`. False when there is no such entry. */
   softDelete(id: string, actor: KbActor): Promise<boolean>;
+  /**
+   * Ranked full-text search over live entries (`kbSearch`): within one project when `projectId`
+   * is given, otherwise across every project.
+   */
+  search(options: KbSearchOptions): Promise<KbSearchHit[]>;
+}
+
+export interface KbSearchOptions {
+  q: string;
+  projectId?: string;
+  kinds?: readonly KbEntryKind[];
+  limit?: number;
 }
 
 export interface KbServiceDeps {
@@ -818,6 +832,10 @@ export function createKbService(deps: KbServiceDeps): KbService {
         publishUpdated(tx, row);
         return toKbEntryDetail(row, reference);
       });
+    },
+
+    search(options) {
+      return kbSearch(db, options);
     },
 
     softDelete(id, actor) {

@@ -1,6 +1,7 @@
 import {
   CaptureConversationSchema,
   CreateKbEntrySchema,
+  KbSearchQuerySchema,
   ListKbQuerySchema,
   routes,
   UpdateKbEntrySchema,
@@ -18,6 +19,7 @@ export { type EntryRow, entryColumns, toKbEntry, toKbEntryDetail } from "./mappe
 export {
   createKbService,
   type KbActor,
+  type KbSearchOptions,
   type KbService,
   type KbServiceDeps,
   type NewDecisionEntry,
@@ -105,6 +107,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     if (items === null) {
       throw projectNotFound();
     }
+    return c.json({ items }, 200);
+  });
+
+  // Registered before `/api/kb/:id`, which would otherwise take `search` as an id.
+  router.get(routes["kb.search"].path, async (c) => {
+    currentUser(c);
+    const query = KbSearchQuerySchema.safeParse(queryObject(c, ["kinds"]));
+    if (!query.success) {
+      throw validationFailed(issueDetails(query.error));
+    }
+    const items = await kb.search(query.data);
     return c.json({ items }, 200);
   });
 

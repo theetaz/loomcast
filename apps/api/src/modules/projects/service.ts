@@ -9,8 +9,8 @@ import {
   slugify,
   type UpdateProject,
 } from "@loomcast/contracts";
-import { conversations, type Database, type ProjectRow, projects } from "@loomcast/db";
-import { count, desc, eq, like, type SQL, sql } from "drizzle-orm";
+import { conversations, type Database, kbEntries, type ProjectRow, projects } from "@loomcast/db";
+import { and, count, desc, eq, isNull, like, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
 import { afterCommit, type Executor, isUniqueViolation, transaction } from "../../lib/db";
@@ -294,11 +294,22 @@ export function createProjectsService(deps: ProjectsServiceDeps): ProjectsServic
     },
 
     async stats(projectId) {
-      const [row] = await db
-        .select({ conversations: count() })
-        .from(conversations)
-        .where(eq(conversations.projectId, projectId));
-      return { conversations: row?.conversations ?? 0, kbEntries: 0, items: 0 };
+      const [[conversationCount], [kbCount]] = await Promise.all([
+        db
+          .select({ count: count() })
+          .from(conversations)
+          .where(eq(conversations.projectId, projectId)),
+        // Deleted entries are kept for the audit trail but no longer count.
+        db
+          .select({ count: count() })
+          .from(kbEntries)
+          .where(and(eq(kbEntries.projectId, projectId), isNull(kbEntries.deletedAt))),
+      ]);
+      return {
+        conversations: conversationCount?.count ?? 0,
+        kbEntries: kbCount?.count ?? 0,
+        items: 0,
+      };
     },
   };
 }
