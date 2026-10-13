@@ -25,6 +25,7 @@ export {
   type KbSearchOptions,
   type KbService,
   type KbServiceDeps,
+  mediaAnalysisKey,
   type NewDecisionEntry,
   type NewKbEntry,
   type NewTextEntry,

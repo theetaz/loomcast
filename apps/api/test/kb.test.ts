@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createJobsService } from "../src/modules/jobs";
 import { createKbService, type KbActor, normalizeTag } from "../src/modules/kb";
 import { createProjectsService } from "../src/modules/projects";
-import { sampleAnalysis } from "./kb-support";
+import { insertAsset, sampleAnalysis } from "./kb-support";
 import { createTestApp, errorCode, insertUser, login, send, type TestApp } from "./support";
 
 const EntryPageSchema = cursorPageSchema(KbEntrySchema);
@@ -674,6 +674,49 @@ describe("references", () => {
       .from(kbReferences)
       .where(eq(kbReferences.entryId, entry.id));
     expect(reference?.transcript).toBe(transcript);
+  });
+});
+
+describe("reference media", () => {
+  it("attaches only a ready reference_media asset of the same project", async () => {
+    const project = await newProject();
+    const other = await newProject();
+    const media = await insertAsset(testDb.db, project.id);
+    const entry = await created(project.id, {
+      kind: "reference",
+      url: "https://www.facebook.com/reel/1000000000000000042",
+      mediaAssetId: media,
+    });
+    expect(entry.reference).toMatchObject({ mediaAssetId: media, transcript: null });
+
+    for (const assetId of [
+      await insertAsset(testDb.db, other.id),
+      await insertAsset(testDb.db, project.id, { status: "pending" }),
+      await insertAsset(testDb.db, project.id, { kind: "poster" }),
+      randomUUID(),
+    ]) {
+      const response = await createEntry(project.id, {
+        kind: "reference",
+        url: `https://example.test/watch/${randomUUID()}`,
+        mediaAssetId: assetId,
+      });
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe("validation_failed");
+    }
+
+    const cleared = await send(t.app, "PATCH", `/api/kb/${entry.id}`, {
+      cookie,
+      body: { expectedUpdatedAt: entry.updatedAt, mediaAssetId: null },
+    });
+    expect(cleared.status).toBe(200);
+    const updated = KbEntryDetailSchema.parse(await cleared.json());
+    expect(updated.reference?.mediaAssetId).toBeNull();
+    const pending = await insertAsset(testDb.db, project.id, { status: "pending" });
+    const refused = await send(t.app, "PATCH", `/api/kb/${entry.id}`, {
+      cookie,
+      body: { expectedUpdatedAt: updated.updatedAt, mediaAssetId: pending },
+    });
+    expect(refused.status).toBe(400);
   });
 });
 

@@ -9,9 +9,9 @@ import { auditLog, jobs, kbEntries, projects } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { analysisKey } from "../src/modules/kb";
+import { analysisKey, mediaAnalysisKey } from "../src/modules/kb";
 import { type BridgeServer, FakeAgent, pairDevice, startBridgeServer } from "./bridge-support";
-import { sampleAnalysis } from "./kb-support";
+import { insertAsset, sampleAnalysis } from "./kb-support";
 import { errorCode, insertUser, login, send } from "./support";
 
 let testDb: TestDb;
@@ -260,6 +260,47 @@ describe("reference analysis", () => {
     expect(after.reference).toMatchObject({ analysisStatus: "queued", analysisJobId: second.id });
     expect(after.reference?.analysis).toBeNull();
     expect(after.bodyMd).toBe("");
+
+    // The current analysis still completes normally.
+    agent.send({ type: "credits", payload: { producer: 1, render: 1 } });
+    await acceptAssignment(second.id);
+    agent.send({
+      type: "job.complete",
+      payload: { jobId: second.id, result: { analysis: sampleAnalysis(), summaryMd: "New." } },
+    });
+    expect((await waitForStatus(reference.id, "done")).bodyMd).toBe("New.");
+  });
+
+  it("analyses uploaded media when there is no transcript and keeps the transcript it made", async () => {
+    const media = await insertAsset(testDb.db, projectId);
+    const response = await send(server.app, "POST", `/api/projects/${projectId}/kb`, {
+      cookie,
+      body: {
+        kind: "reference",
+        url: `https://x.com/sample/status/${Date.now()}`,
+        mediaAssetId: media,
+      },
+    });
+    expect(response.status).toBe(201);
+    const reference = KbEntryDetailSchema.parse(await response.json());
+    const job = await analyzed(reference.id);
+    const [row] = await testDb.db.select().from(jobs).where(eq(jobs.id, job.id));
+    expect(row?.idempotencyKey).toBe(mediaAnalysisKey(reference.id, media));
+    expect(row?.payload).toMatchObject({ entryId: reference.id, mediaAssetId: media });
+    expect(row?.payload).not.toHaveProperty("transcript");
+
+    await acceptAssignment(job.id);
+    await waitForStatus(reference.id, "running");
+    const transcript = "Captions name each command, so it works with the sound off.";
+    agent.send({
+      type: "job.complete",
+      payload: {
+        jobId: job.id,
+        result: { analysis: sampleAnalysis(), summaryMd: "Captions.", transcript },
+      },
+    });
+    const done = await waitForStatus(reference.id, "done");
+    expect(done.reference).toMatchObject({ transcript, mediaAssetId: media });
   });
 
   it("requires a reference with a transcript", async () => {

@@ -22,6 +22,7 @@ import {
   type UpdateKbEntry,
 } from "@loomcast/contracts";
 import {
+  assets,
   conversations,
   type Database,
   type JobRow,
@@ -102,6 +103,11 @@ export interface NewReferenceEntry extends Omit<CommonEntryFields, "title"> {
   likedReason?: string;
   /** Untrusted text supplied by the user. */
   transcript?: string;
+  /**
+   * A ready `reference_media` asset of the same project, uploaded by the user. It is analysed when
+   * the reference has no transcript.
+   */
+  mediaAssetId?: string;
   /** An analysis made elsewhere, for example by a producer session through MCP. */
   analysis?: ReferenceAnalysis;
 }
@@ -165,11 +171,12 @@ export interface KbService {
    */
   search(options: KbSearchOptions): Promise<KbSearchHit[]>;
   /**
-   * Queues `kb.analyze_reference` for a reference with a transcript and marks its analysis
-   * `queued`. The idempotency key is `analyze:<entryId>:<sha256(transcript)>`, so asking twice
-   * for the same transcript returns the job already queued or running. A failed or cancelled
-   * analysis, or a finished one the reference no longer shows, is run again under a key chained
-   * on that job. 409 for an entry that is not a reference or has no transcript; null when there
+   * Queues `kb.analyze_reference` for a reference with a transcript (or, without one, uploaded
+   * media) and marks its analysis `queued`. The idempotency key is
+   * `analyze:<entryId>:<sha256(transcript)>` (`analyze:<entryId>:media:<assetId>` for media), so
+   * asking twice for the same transcript returns the job already queued or running. A failed or
+   * cancelled analysis, or a finished one the reference no longer shows, is run again under a key
+   * chained on that job. 409 for an entry that is not a reference or has neither; null when there
    * is no such entry.
    */
   analyze(id: string, actor: KbActor): Promise<AnalyzeResult | null>;
@@ -205,6 +212,36 @@ export function analysisKey(entryId: string, transcript: string): string {
   return `analyze:${entryId}:${sha256Hex(transcript)}`;
 }
 
+/** The base idempotency key of an analysis of uploaded media, for a reference without a transcript. */
+export function mediaAnalysisKey(entryId: string, mediaAssetId: string): string {
+  return `analyze:${entryId}:media:${mediaAssetId}`;
+}
+
+/** Throws unless `assetId` is a ready `reference_media` asset of the project. */
+async function requireReferenceMedia(
+  executor: Executor,
+  projectId: string,
+  assetId: string,
+): Promise<void> {
+  const [asset] = await executor
+    .select({ id: assets.id })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.id, assetId),
+        eq(assets.projectId, projectId),
+        eq(assets.kind, "reference_media"),
+        eq(assets.status, "ready"),
+      ),
+    )
+    .limit(1);
+  if (asset === undefined) {
+    throw validationFailed([
+      { path: "mediaAssetId", message: "No uploaded reference media with that id in this project" },
+    ]);
+  }
+}
+
 /** The fields `update` accepts for every kind, and the extra ones per kind. */
 const COMMON_UPDATE_FIELDS = ["title", "bodyMd", "tags"] as const;
 const KIND_UPDATE_FIELDS: { readonly [K in KbEntryKind]: readonly string[] } = {
@@ -212,7 +249,7 @@ const KIND_UPDATE_FIELDS: { readonly [K in KbEntryKind]: readonly string[] } = {
   note: [],
   session_summary: [],
   decision: ["decision", "rationale", "status"],
-  reference: ["likedReason", "author", "transcript"],
+  reference: ["likedReason", "author", "transcript", "mediaAssetId"],
 };
 
 const SPEAKER_LABELS: Readonly<Record<string, string>> = {
@@ -532,6 +569,9 @@ export function createKbService(deps: KbServiceDeps): KbService {
     const transcript = optionalText(input.transcript);
     const analysis = input.analysis ?? null;
     const dedupeKey = referenceDedupeKey(normalized.url);
+    if (input.mediaAssetId !== undefined) {
+      await requireReferenceMedia(tx, projectId, input.mediaAssetId);
+    }
 
     const row = await tryInsertEntry(
       tx,
@@ -575,6 +615,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
         author,
         likedReason,
         transcript,
+        mediaAssetId: input.mediaAssetId ?? null,
         analysis,
         analysisStatus: analysis === null ? "none" : "done",
         analyzedAt: analysis === null ? null : sql`now()`,
@@ -838,7 +879,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
         }
         let reference: KbReferenceRow | null = null;
         if (existing.kind === "reference") {
-          const extra = await updateReference(tx, existing.id, input);
+          const extra = await updateReference(tx, existing, input);
           reference = extra.reference;
           if (extra.searchExtra !== undefined) {
             values.searchExtra = extra.searchExtra;
@@ -887,12 +928,20 @@ export function createKbService(deps: KbServiceDeps): KbService {
         if (reference === undefined) {
           throw conflict("Only references can be analysed.", { reason: "not_reference" });
         }
-        if (reference.transcript === null) {
-          throw conflict("Add a transcript before analysing this reference.", {
+        // A transcript is analysed as it is; uploaded media only when there is no transcript.
+        const { transcript, mediaAssetId } = reference;
+        const source =
+          transcript !== null
+            ? { payload: { transcript }, baseKey: analysisKey(entry.id, transcript) }
+            : mediaAssetId !== null
+              ? { payload: { mediaAssetId }, baseKey: mediaAnalysisKey(entry.id, mediaAssetId) }
+              : null;
+        if (source === null) {
+          throw conflict("Add a transcript or upload the video before analysing this reference.", {
             reason: "missing_transcript",
           });
         }
-        const baseKey = analysisKey(entry.id, reference.transcript);
+        const { baseKey } = source;
 
         // Someone already asked for this transcript and the job is still on its way.
         const current =
@@ -914,7 +963,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
               entryId: entry.id,
               url: reference.url,
               platform: reference.platform,
-              transcript: reference.transcript,
+              ...source.payload,
               ...(reference.likedReason === null ? {} : { likedReason: reference.likedReason }),
             },
             projectId: entry.projectId,
@@ -1017,17 +1066,21 @@ function decisionData(current: JsonObject, input: UpdateKbEntry): JsonObject | n
  */
 async function updateReference(
   tx: Transaction,
-  entryId: string,
+  entry: EntryRow,
   input: UpdateKbEntry,
 ): Promise<{ reference: KbReferenceRow | null; searchExtra?: string }> {
-  const current = await loadReference(tx, entryId);
+  const current = await loadReference(tx, entry.id);
   if (current === null) {
     return { reference: null };
+  }
+  if (input.mediaAssetId != null) {
+    await requireReferenceMedia(tx, entry.projectId, input.mediaAssetId);
   }
   const values = {
     ...(input.author === undefined ? {} : { author: optionalText(input.author) }),
     ...(input.likedReason === undefined ? {} : { likedReason: optionalText(input.likedReason) }),
     ...(input.transcript === undefined ? {} : { transcript: optionalText(input.transcript) }),
+    ...(input.mediaAssetId === undefined ? {} : { mediaAssetId: input.mediaAssetId }),
   };
   if (Object.keys(values).length === 0) {
     return { reference: current };
@@ -1035,7 +1088,7 @@ async function updateReference(
   const [reference] = await tx
     .update(kbReferences)
     .set(values)
-    .where(eq(kbReferences.entryId, entryId))
+    .where(eq(kbReferences.entryId, entry.id))
     .returning();
   const next = reference ?? current;
   return { reference: next, searchExtra: referenceSearchText(next) };

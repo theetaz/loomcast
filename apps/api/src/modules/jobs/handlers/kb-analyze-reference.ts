@@ -78,9 +78,8 @@ export function createKbAnalyzeReferenceHooks(deps: { db: Database; bus: EventBu
         return;
       }
       const { analysis, summaryMd } = parsed.data;
-      const produced = (parsed.data as { transcript?: unknown }).transcript;
-      const transcript =
-        reference.transcript ?? (typeof produced === "string" && produced !== "" ? produced : null);
+      // Media analysis returns the transcript it made; a pasted transcript is never replaced.
+      const transcript = reference.transcript ?? parsed.data.transcript ?? null;
 
       const [updatedReference] = await tx
         .update(kbReferences)

@@ -41,6 +41,7 @@ export function toKbReferenceDetail(row: KbReferenceRow): KbReferenceDetail {
     transcript: row.transcript,
     analysis: row.analysis,
     analysisStatus: row.analysisStatus,
+    mediaAssetId: row.mediaAssetId,
     analysisJobId: row.analysisJobId,
     analyzedAt: row.analyzedAt?.toISOString() ?? null,
   };
