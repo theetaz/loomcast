@@ -5,7 +5,9 @@ import type { ModuleDeps } from "../../deps";
 import type { AppEnv } from "../../types";
 import { contentServiceFor } from "../content";
 import { serviceFor } from "../content/support";
+import { TaskFailure } from "../scheduler";
 import { type PlannerDeps, type PlanResult, planSeries, planTaskKey, seriesToPlan } from "./plan";
+import { produceForSlot } from "./produce";
 import { createWorkTracker, type WorkTracker } from "./work";
 
 export {
@@ -19,6 +21,7 @@ export {
   RETIRE_REASON,
   seriesToPlan,
 } from "./plan";
+export { type ProduceOutcome, produceForSlot } from "./produce";
 export { type PickTopicInput, pickTopic, RECENT_TOPIC_WINDOW, type TopicUse } from "./topics";
 export { createWorkTracker, type WorkTracker } from "./work";
 
@@ -92,7 +95,8 @@ function createCadenceService(deps: ModuleDeps): CadenceRuntime {
 
 /**
  * Cadence planning: the `cadence.plan` task (hourly for every series, and right after a series,
- * its format or its channels change) turns cadences into items and planned posts.
+ * its format or its channels change) turns cadences into items and planned posts; the
+ * `cadence.produce` task starts production of an item `leadTimeHours` before its slot.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
@@ -127,6 +131,8 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     }
   });
 
+  registerProduceTask(deps);
+
   // Replan a series as soon as it, or its format, changes.
   const unsubscribeSeries = deps.bus.subscribe("series.updated", (event) => {
     cadence.work.run("cadence.replan", () => cadence.replan(event.payload.seriesId));
@@ -149,4 +155,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   app.route("/", router);
   return router;
+}
+
+/** `cadence.produce`: production up to review, for an item that still holds a slot. */
+function registerProduceTask(deps: ModuleDeps): void {
+  deps.scheduler.register("cadence.produce", async ({ payload, logger }) => {
+    const outcome = await produceForSlot(deps, payload.itemId);
+    if (outcome.kind === "failed") {
+      throw new TaskFailure(outcome.code, outcome.message, { retryable: false });
+    }
+    if (outcome.kind !== "started") {
+      logger.info({ itemId: payload.itemId, outcome: outcome.kind }, "cadence.produce skipped");
+    }
+  });
 }
