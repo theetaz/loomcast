@@ -33,6 +33,10 @@ Settings → Members lists demo members. Inviting someone shows a set-password l
 API lives in the page and a reload resets it, so open the link without reloading: for example
 `history.pushState({}, "", link); dispatchEvent(new PopStateEvent("popstate"))` in the console.
 
+The demo projects also have series and content items in every pipeline state
+(`src/mocks/content.ts`). Producing an item walks it through script, storyboard, voice and
+render to review, one version every second or so, with the live events the API sends.
+
 ### Dev proxy
 
 | Path | Target | Notes |
@@ -44,11 +48,12 @@ API lives in the page and a reload resets it, so open the link without reloading
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/review/*`, `_app/settings/*` |
+| `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -132,14 +137,53 @@ and the composer.
   button queues `kb.analyze_reference`, and `analysis-status.ts` combines the stored status
   with `job.updated` for the status pill.
 
+## Library
+
+`features/library` is the Library page (`/library`, every project) and each project's Content
+tab (`/projects/:id/content`), the same view scoped to one project.
+
+- Rows are 38px: title, series, state pill, version, target date, length and last change.
+  Column headers sort the loaded rows; empty values sort last. One title link is in the tab
+  order: arrow keys, Home and End move between rows and Enter opens the item.
+- Filters live in the address, validated by `LibrarySearchSchema` (`search.ts`): `states`
+  (comma-separated pipeline states; none means everything but archived), `series`, `from` and
+  `to` (target days, inclusive, in the browser's time zone), `q` (debounced 200 ms) and `sort`
+  (`title`, `-updated` and so on). Invalid values are dropped, not fatal. They map onto
+  `content.list` with `states` sent comma-separated. A channel filter joins them once posts can
+  be scheduled.
+- `content.item.created` and `content.item.updated` patch every loaded list
+  (`upsertContentItem` in `queries.ts`): an item is replaced, dropped when it no longer matches,
+  or added at the top. Searched lists refetch instead, since only the server knows what a search
+  matches. `content.version.created` refetches the open item.
+- The Board view groups the same rows into one column per state (every state but archived,
+  or the filtered states). It is read-only: items move through production and review, never
+  by dragging. The table or board choice is kept in localStorage (`loomcast.library.view`).
+- Each row and card has quick actions: Produce through review (`content.actions` with
+  `produce` through `review`), Open, and Archive after a confirmation. What is enabled comes
+  from `allowedActions` in the contracts; listed items carry no artifacts, and these actions
+  need none.
+- New idea asks for a title, an optional pitch and series, and, in the library, the project.
+- The command palette searches videos by title and pitch across projects
+  (`features/palette/sources/content.ts`, 150 ms debounce, older requests aborted).
+- Item pages (`/content/:itemId`) and the review queue (`/review`) are placeholders until their
+  screens land; the project's Series tab is one too.
+
 ## Screens and conventions
 
 - Pages use `Page` and `PageHeader`. Lists sit in a card (`rounded-lg bg-card shadow-card`)
   with a 44px header and 40px rows. Every data view has loading (skeleton), empty, error with
   retry, and long-content states; names truncate and slugs hide on phones.
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
-  for labels that need data (see `_app/projects/$projectId/route.tsx`).
+  for labels that need data (see `_app/projects/$projectId/route.tsx`). Builds split every
+  route's component into its own chunk, but `staticData` loads with the app: import crumbs
+  from small modules of their own (`ProjectCrumb.tsx`, `KbEntryCrumb.tsx`, `ContentCrumb.tsx`),
+  never from the page module, or the whole page lands in the entry chunk.
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
+  Its items come from a registry: every file in `src/app/nav/items/` exports one
+  `item: {id, label, icon, order, section?, to?, exact?, badge?}`, so a feature adds itself to
+  the sidebar by adding a file. `section` is `main` (default) or `footer`; an item without `to`
+  shows disabled with a "Soon" badge. The Channels group (`src/app/nav/channels-section.tsx`)
+  lists the planned platforms (Facebook, Instagram, Threads, X) as coming soon.
 - The project page (`features/project`) is a header and tabs over the open tab's route. Tabs
   come from a registry: every file in `features/project/tabs/items/` exports one
   `tab: {id, label, icon, to, order}`, so a feature adds a tab by adding a file. The tab whose

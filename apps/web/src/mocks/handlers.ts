@@ -12,6 +12,7 @@ import {
   UpdateProjectSchema,
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
+import { createContentHandlers } from "./content";
 import { createConversationHandlers } from "./conversations";
 import {
   type MockDb,
@@ -196,6 +197,7 @@ export function createHandlers(db: MockDb) {
     ...createConversationHandlers(db),
     ...createKbHandlers(db),
     ...createUserHandlers(db),
+    ...createContentHandlers(db),
   ];
 }
 

@@ -1,5 +1,7 @@
 import {
   type AccessToken,
+  type ContentItem,
+  type ContentVersion,
   type Conversation,
   type Device,
   type JobSummary,
@@ -12,6 +14,7 @@ import {
   type PairingCode,
   type PasswordTokenPurpose,
   type Project,
+  type Series,
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
   type UserSummary,
@@ -51,6 +54,12 @@ export interface MockDb {
   members: UserSummary[];
   /** Set-password links handed out, newest last. */
   passwordTokens: MockPasswordToken[];
+  /** Series of every project. */
+  series: Series[];
+  /** Content items of every project. */
+  contentItems: ContentItem[];
+  /** Every version of every content item. */
+  contentVersions: ContentVersion[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -89,6 +98,9 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     kbEntries: [],
     members: [],
     passwordTokens: [],
+    series: [],
+    contentItems: [],
+    contentVersions: [],
     ...seed,
     listeners: new Set(),
   };

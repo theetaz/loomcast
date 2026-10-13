@@ -1,6 +1,7 @@
 import { IdSchema } from "@loomcast/contracts";
 import { createFileRoute } from "@tanstack/react-router";
-import { KbEntryCrumb, KbEntryPage } from "@/features/kb/KbEntryPage";
+import { KbEntryCrumb } from "@/features/kb/KbEntryCrumb";
+import { KbEntryPage } from "@/features/kb/KbEntryPage";
 import { ProjectTabBody } from "@/features/project/ProjectLayout";
 
 export const Route = createFileRoute("/_app/projects/$projectId/kb/$entryId")({

@@ -1,4 +1,5 @@
 import { setupWorker } from "msw/browser";
+import { demoContent } from "./content";
 import { demoConversations, resumeQueuedJobs } from "./conversations";
 import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { createHandlers, createStreamHandler } from "./handlers";
@@ -27,6 +28,7 @@ export async function startMockApi() {
     ...(firstProject ? demoConversations(firstProject.id, MOCK_USER.id, now) : {}),
     kbEntries: firstProject ? demoKb(firstProject.id, MOCK_USER.id, now) : [],
     members: demoMembers(now),
+    ...demoContent(seed.projects ?? [], MOCK_USER.id, now),
     simulateProducer: true,
     signedIn: sessionStorage.getItem(SESSION_KEY) === "1",
     onSessionChange: (signedIn) => {

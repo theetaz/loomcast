@@ -16,14 +16,6 @@ import { useTitle } from "@/lib/use-title";
 import { useProject } from "./queries";
 import { ProjectTabs } from "./tabs/ProjectTabs";
 
-export function ProjectCrumb({ idOrSlug }: { idOrSlug: string }) {
-  const query = useProject(idOrSlug);
-  if (query.data) return <>{query.data.name}</>;
-  if (query.isPending)
-    return <Skeleton aria-hidden="true" className="inline-block h-3 w-28 align-middle" />;
-  return <>Project</>;
-}
-
 /**
  * The project page: its header and tabs, with the open tab below. Loading, not-found and error
  * states cover the whole page, so tabs only render once the project is known. Knowledge-base

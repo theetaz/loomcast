@@ -1,6 +1,5 @@
 import type { KbEntryDetail, Project } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
-import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { FileQuestionIcon } from "lucide-react";
@@ -14,14 +13,6 @@ import { DeleteEntryButton, EntryMeta, EntrySkeleton, EntryToolbar, TagChips } f
 import { kbEntryQueryOptions } from "./queries";
 import { ReferenceView } from "./ReferenceView";
 import { TextEntryEditor } from "./TextEntryEditor";
-
-export function KbEntryCrumb({ id }: { id: string }) {
-  const query = useQuery({ ...kbEntryQueryOptions(id), enabled: id !== "" });
-  if (query.data) return <>{query.data.title}</>;
-  if (query.isPending)
-    return <Skeleton aria-hidden="true" className="inline-block h-3 w-28 align-middle" />;
-  return <>Entry</>;
-}
 
 export interface KbEntryPageProps {
   project: Project;

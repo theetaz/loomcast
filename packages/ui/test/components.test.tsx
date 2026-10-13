@@ -37,13 +37,29 @@ describe("StatusPill", () => {
     }
   });
 
-  it("follows the brand prototype colours", () => {
-    expect(statusStyle("pipeline", "idea").tone).toBe("gray");
-    expect(statusStyle("pipeline", "drafting").tone).toBe("amber");
-    expect(statusStyle("pipeline", "rendering").tone).toBe("violet");
-    expect(statusStyle("pipeline", "scheduled").tone).toBe("blue");
-    expect(statusStyle("pipeline", "published").tone).toBe("green");
-    expect(statusStyle("pipeline", "failed").tone).toBe("red");
+  it("maps the pipeline states to their tones and labels", () => {
+    expect(STATUS_STYLES.pipeline).toEqual({
+      idea: { label: "Idea", tone: "gray" },
+      script: { label: "Script", tone: "amber" },
+      storyboard: { label: "Storyboard", tone: "amber" },
+      voice: { label: "Voice", tone: "violet" },
+      render: { label: "Render", tone: "violet" },
+      review: { label: "In review", tone: "amber" },
+      approved: { label: "Approved", tone: "green" },
+      scheduled: { label: "Scheduled", tone: "blue" },
+      published: { label: "Published", tone: "green" },
+      archived: { label: "Archived", tone: "gray" },
+    });
+  });
+
+  it("labels review as waiting for a person", () => {
+    render(<StatusPill kind="pipeline" status="review" />);
+    const pill = screen.getByText("In review");
+    expect(pill.dataset.status).toBe("review");
+    expect(pill.dataset.tone).toBe("amber");
+  });
+
+  it("follows the brand prototype colours for jobs and devices", () => {
     expect(statusStyle("job", "running").tone).toBe("violet");
     expect(statusStyle("device", "online").tone).toBe("green");
   });
