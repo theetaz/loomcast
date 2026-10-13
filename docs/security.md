@@ -102,7 +102,7 @@ All limits are in-memory token buckets per api process (there is one), reset on 
 ## Automated checks
 
 - **Security suite** (`apps/api/test/security/`, run with
-  `pnpm --filter @loomcast/api test -- security`):
+  `pnpm --filter @loomcast/api test security`):
   - the exact policy and headers of each route class, including error responses;
   - production cookie flags on sign-in and sign-out;
   - CSRF on every unsafe route of the contracts (foreign `Origin`, cross-site without `Origin`,
