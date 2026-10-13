@@ -6,6 +6,11 @@ export const queryKeys = {
     list: ["projects", "list"] as const,
     detail: (idOrSlug: string) => ["projects", "detail", idOrSlug] as const,
   },
+  conversations: {
+    all: ["conversations"] as const,
+    list: (projectId: string) => ["conversations", "list", projectId] as const,
+    messages: (conversationId: string) => ["conversations", "messages", conversationId] as const,
+  },
   devices: ["devices"] as const,
   tokens: ["tokens"] as const,
   jobs: {

@@ -11,6 +11,7 @@ import {
   slugify,
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
+import { createConversationHandlers } from "./conversations";
 import {
   type MockDb,
   mockPairingCode,
@@ -160,6 +161,8 @@ export function createHandlers(db: MockDb) {
       token.revokedAt = new Date().toISOString();
       return new HttpResponse(null, { status: 204 });
     }),
+
+    ...createConversationHandlers(db),
   ];
 }
 
