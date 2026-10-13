@@ -123,6 +123,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     clock: deps.clock,
     logger: logger.child({ module: "scheduler" }),
     config: config.scheduler,
+    alert: deps.alert,
   });
   const moduleDeps: ModuleDeps = {
     ...deps,

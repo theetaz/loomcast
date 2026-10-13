@@ -57,6 +57,7 @@ just some of them): the API then starts without object storage, and uploads and 
 | `src/lib/` | Event bus, rate limiter, audit log, crypto, passwords, transactions, errors, logger |
 | `src/lib/storage/` | Object storage: presigned PUT and GET, verification reads, `promoteToPublic` |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
+| `src/modules/scheduler/` | Scheduled task loop, task handlers registry and the admin endpoints |
 | `src/cli/admin.ts` | The admin CLI |
 
 ## Writing a module
@@ -77,7 +78,7 @@ router is mounted. `createApp` already registers every module, so a module never
 - `httpServer`: the Node server when served by `startServer` (the bridge attaches `upgrade`).
 - `storage`: object storage (below). `AppDeps.storage` overrides the S3 client built from config.
 - `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
-- `scheduler`: server-side scheduled tasks. `scheduler.register(kind, handler)` in `register`.
+- `scheduler`: server-side scheduled tasks (below). Register handlers in `register`.
 
 ### Object storage and assets
 
@@ -95,6 +96,41 @@ deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. The recur
 `p/<ulid>/<sha256>.<ext>` and returns its anonymous URL under `PUBLIC_BASE_URL`. Only the publisher
 uses it, for final renders. The CSP allows the S3 endpoint and `PUBLIC_BASE_URL` origins in
 `connect-src`, `img-src` and `media-src`.
+
+### Scheduled tasks
+
+Tasks are server-side work that runs at a set time (cadence planning, production ahead of a slot,
+publishing, status polls, asset cleanup). They never reach the studio agent. Each kind is listed
+in `scheduledTaskRegistry` (`@loomcast/contracts`) with its payload schema, attempts, backoff base
+and lease.
+
+- **Handlers.** A module calls `deps.scheduler.register(kind, handler)` in `register`. The handler
+  receives `{task, payload, attempt, signal, logger, now}`. Pass `signal` to every request: it
+  aborts when the lease is lost or the server stops. It may return `{next: Date, payload?}` to
+  schedule the same kind again under the same dedupe key (completion and the new task are written
+  in one transaction).
+- **Enqueueing.** `deps.scheduler.enqueue(tx?, kind, payload, {runAt, dedupeKey, onDuplicate})`
+  validates the payload (ids only, never secrets). With a dedupe key, a pending task takes the new
+  `runAt` (`onDuplicate: "keep"` leaves it alone).
+- **Loop.** Under `startServer` with `SCHEDULER_ENABLED`, every `SCHEDULER_TICK_MS` the loop claims
+  up to 10 due tasks with `FOR UPDATE SKIP LOCKED` (at most 10 run at once per process), so any
+  number of processes can run it and each task runs once. Leases are renewed every `leaseMs / 2`.
+- **Failures.** Throw `TaskFailure(code, message, {retryable, retryAfterMs})`; its message is shown
+  to admins, so keep secrets out of it. Any other error is stored as `handler_error` with a
+  generic message and logged. A retryable failure waits `min(base · 2^(attempt − 1), 1 h) ± 20%`;
+  after the last attempt the task is `dead` (audit row `scheduler.task.dead`, `task.dead` event
+  and an alert). A non-retryable one is `failed` at once (audit row and alert). Alerts go to
+  `AppDeps.alert` when set, otherwise to an error log line.
+- **Recurring tasks.** `cadence.plan` and `assets.cleanup` run hourly under the dedupe key
+  `recurring:<kind>`, once a handler for them is registered. The loop re-checks every hour that
+  each is queued.
+- **Stopping.** On shutdown the loop stops claiming and waits up to 20 s for running handlers, then
+  aborts them and puts their tasks back to `pending`.
+- **Health.** `deps.scheduler.health()` returns `{status: ok|stalled|disabled|stopped, lastTickAt,
+  inFlight, ...}` for the readiness registry; `queueDepths()` counts tasks per status.
+- **Admin.** `GET /api/scheduler/tasks?status=&kind=&cursor=&limit=` and
+  `POST /api/scheduler/tasks/:id/retry` (a `failed` or `dead` task; 409 otherwise, or when another
+  task holds its dedupe key) for the owner and admins.
 
 ### Authentication
 

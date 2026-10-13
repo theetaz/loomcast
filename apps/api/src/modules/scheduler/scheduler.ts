@@ -28,10 +28,12 @@ import {
   taskLease,
 } from "@loomcast/db";
 import { count } from "drizzle-orm";
+import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
 import { afterCommit, type Executor, transaction } from "../../lib/db";
 import type { Logger } from "../../lib/logger";
+import { toScheduledTask } from "./mappers";
 
 // The scheduler runs server-side tasks at a set time. Modules register a handler per task kind;
 // the loop claims due tasks with `FOR UPDATE SKIP LOCKED`, so any number of API processes can run
@@ -142,6 +144,15 @@ export interface EnqueueOptions {
   onDuplicate?: "reschedule" | "keep";
 }
 
+/** An alert raised when a task ends as `dead` or `failed`. */
+export interface SchedulerAlert {
+  /** Stable key, for de-duplication: `task.dead:<taskId>` or `task.failed:<taskId>`. */
+  key: string;
+  title: string;
+  message: string;
+  data: JsonObject;
+}
+
 export type SchedulerHealthStatus = "ok" | "stalled" | "disabled" | "stopped";
 
 /** For the readiness registry and the ops status page. */
@@ -219,6 +230,8 @@ export interface SchedulerDeps {
   clock: Clock;
   logger: Logger;
   config: { enabled: boolean; tickMs: number };
+  /** Called for dead and failed tasks. Defaults to an error log line. */
+  alert?: (alert: SchedulerAlert) => void | Promise<void>;
   /** Defaults to `<host>:<pid>:<random>`. */
   workerId?: string;
   /** Jitter source of the retry backoff; tests pass a fixed one. */
@@ -263,7 +276,7 @@ function isExecutor(value: unknown): value is Executor {
 }
 
 export function createScheduler(deps: SchedulerDeps): Scheduler {
-  const { db, clock, logger, config } = deps;
+  const { db, bus, clock, logger, config } = deps;
   const workerId = deps.workerId ?? defaultWorkerId();
   const random = deps.random ?? Math.random;
   const registrations = new Map<ScheduledTaskKind, Registration>();
@@ -278,6 +291,66 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
   let lastTickAt: Date | null = null;
   let lastTickError: string | null = null;
   let lastEnsuredAt: number | null = null;
+
+  async function raiseAlert(alert: SchedulerAlert): Promise<void> {
+    try {
+      if (deps.alert === undefined) {
+        logger.error({ alert: alert.key, ...alert.data }, alert.title);
+      } else {
+        await deps.alert(alert);
+      }
+    } catch (error) {
+      logger.error({ err: error, alert: alert.key }, "could not send a scheduler alert");
+    }
+  }
+
+  /** Audit row, `task.dead` event and alert for a task that ended as `dead`. */
+  async function reportDead(task: ScheduledTaskRow): Promise<void> {
+    const data = {
+      kind: task.kind,
+      attempts: task.attempts,
+      code: task.lastError?.code ?? null,
+    } satisfies JsonObject;
+    try {
+      await audit(db, {
+        actorKind: "system",
+        action: "scheduler.task.dead",
+        targetType: "scheduled_task",
+        targetId: task.id,
+        data,
+      });
+    } catch (error) {
+      logger.error({ err: error, taskId: task.id }, "could not audit a dead task");
+    }
+    bus.publish({ type: "task.dead", payload: { task: toScheduledTask(task) } });
+    await raiseAlert({
+      key: `task.dead:${task.id}`,
+      title: "scheduled task is dead",
+      message: `Task ${task.kind} (${task.id}) failed ${task.attempts} time(s) and will not run again until retried.`,
+      data: { taskId: task.id, ...data },
+    });
+  }
+
+  async function reportFailed(task: ScheduledTaskRow): Promise<void> {
+    const data = { kind: task.kind, code: task.lastError?.code ?? null } satisfies JsonObject;
+    try {
+      await audit(db, {
+        actorKind: "system",
+        action: "scheduler.task.failed",
+        targetType: "scheduled_task",
+        targetId: task.id,
+        data,
+      });
+    } catch (error) {
+      logger.error({ err: error, taskId: task.id }, "could not audit a failed task");
+    }
+    await raiseAlert({
+      key: `task.failed:${task.id}`,
+      title: "scheduled task failed",
+      message: `Task ${task.kind} (${task.id}) failed with an error a retry cannot fix.`,
+      data: { taskId: task.id, ...data },
+    });
+  }
 
   function taskError(code: string, message: string): TaskError {
     return {
@@ -394,8 +467,10 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
       log.warn("task lease was lost before the run finished; its outcome is dropped");
       return;
     }
-    if (row.status === "dead" || row.status === "failed") {
-      log.error({ status: row.status, code: row.lastError?.code }, "scheduled task gave up");
+    if (row.status === "dead") {
+      await reportDead(row);
+    } else if (row.status === "failed") {
+      await reportFailed(row);
     }
   }
 
@@ -549,7 +624,8 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
       launch(task);
     }
     for (const task of deadLettered) {
-      logger.error({ taskId: task.id, taskKind: task.kind }, "task dead-lettered at claim");
+      logger.warn({ taskId: task.id, taskKind: task.kind }, "task dead-lettered at claim");
+      await reportDead(task);
     }
     return claimed.length;
   }

@@ -13,7 +13,7 @@ import type { SessionsService } from "./modules/auth/sessions";
 import type { JobHooks } from "./modules/jobs/hooks";
 import type { JobsService } from "./modules/jobs/service";
 import type { KbService } from "./modules/kb/service";
-import type { Scheduler } from "./modules/scheduler/scheduler";
+import type { Scheduler, SchedulerAlert } from "./modules/scheduler/scheduler";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
@@ -35,6 +35,11 @@ export interface AppDeps {
    * may pass their own.
    */
   storage?: Storage;
+  /**
+   * Receives scheduler alerts (dead and failed tasks). Without it they are logged at error level.
+   * The ops module wires the webhook alerts here.
+   */
+  alert?: (alert: SchedulerAlert) => void | Promise<void>;
 }
 
 /** Which studio agents have a live bridge connection. The bridge module replaces the default. */
