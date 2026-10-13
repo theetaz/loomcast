@@ -42,6 +42,13 @@ function redactUrl(value: string): string {
   return changed ? url.toString() : value;
 }
 
+/** `Bearer <token>` keeps its scheme: `Bearer [redacted]`. */
+function redactSecret(value: unknown): string {
+  const scheme =
+    typeof value === "string" ? /^(Bearer|OAuth|Basic) \S/i.exec(value)?.[1] : undefined;
+  return scheme === undefined ? REDACTED : `${scheme} ${REDACTED}`;
+}
+
 function redactValue(value: unknown, depth: number): unknown {
   if (depth > 32) {
     return REDACTED;
@@ -60,7 +67,7 @@ function redactValue(value: unknown, depth: number): unknown {
       }
       result[key] =
         isSensitiveKey(key) && entry !== null && typeof entry !== "boolean"
-          ? REDACTED
+          ? redactSecret(entry)
           : redactValue(entry, depth + 1);
     }
     return result;
@@ -70,7 +77,8 @@ function redactValue(value: unknown, depth: number): unknown {
 
 /**
  * A deep copy of `request` with every credential replaced by `[redacted]`: values under sensitive
- * keys (headers, form fields and JSON fields alike) and sensitive query parameters of URLs.
+ * keys (headers, form fields and JSON fields alike; an authorization scheme such as `Bearer` is
+ * kept) and sensitive query parameters of URLs.
  * Redacting twice changes nothing, so `redactRequest(buildX(...))` equals what the dry-run
  * adapter records.
  */

@@ -1,14 +1,107 @@
+import { type PublisherStatus, routes } from "@loomcast/contracts";
+import { publishAttempts, scheduledPosts } from "@loomcast/db";
+import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
+import { notFound } from "../../lib/errors";
+import { idParam } from "../../lib/http";
 import type { AppEnv } from "../../types";
+import { currentUser } from "../auth/guards";
+import { contentServiceFor } from "../content";
+import { toPublishAttempt } from "./posts";
+import { registerPublisherTasks } from "./tasks";
+
+export {
+  type AdapterRegistry,
+  createDryRunAdapter,
+  DRY_RUN_MEDIA_ORIGIN,
+  dryRunMediaUrl,
+  isLivePlatformAvailable,
+  notConfiguredAdapter,
+  publisherAdapters,
+} from "./adapters";
+export {
+  buildCaption,
+  type CaptionParts,
+  captionLength,
+  type FittedCaption,
+  limitCaption,
+  PLATFORM_CAPTION_LIMITS,
+  X_LINK_LENGTH,
+  xWeightedLength,
+} from "./caption";
+export { createPublishContext } from "./context";
+export { isRetryableCode, PublishFailure, publishError, toPublishError } from "./errors";
+export {
+  checkRateGate,
+  isDryRun,
+  livePublishingBlocker,
+  PLATFORM_DAILY_POST_LIMITS,
+  RATE_WINDOW_MS,
+} from "./gates";
+export { loadScheduledPost, loadScheduledPosts, toPublishAttempt, toScheduledPost } from "./posts";
+export { REDACTED, redactRequest } from "./redact";
+export * from "./requests";
+export {
+  PUBLISHING_PAUSED_RETRY_MS,
+  type PublisherDeps,
+  registerPublisherTasks,
+  statusDedupeKey,
+  statusPollDelayMs,
+} from "./tasks";
+export type * from "./types";
 
 /**
- * Publisher: platform adapters, the `post.publish` and `post.check_status` task handlers and the
- * publisher status endpoint (M4-05).
- * Not implemented yet: the router is mounted empty so `createApp` already registers the module.
+ * Publisher: the `post.publish` and `post.check_status` task handlers, the publisher status and
+ * the attempts of a post. While `PUBLISHING_MODE` is `dry-run` (or the post or its channel is in
+ * dry-run) every post goes through the dry-run adapter, which records the request a live run
+ * would send and contacts nobody.
  */
-export function register(app: Hono<AppEnv>, _deps: ModuleDeps): Hono<AppEnv> {
+export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
+  registerPublisherTasks({
+    db: deps.db,
+    bus: deps.bus,
+    logger: deps.logger.child({ module: "publisher" }),
+    config: deps.config,
+    storage: deps.storage,
+    vault: deps.vault,
+    assets: deps.assets,
+    scheduler: deps.scheduler,
+    content: contentServiceFor(deps),
+    alert: deps.alert,
+  });
+
+  router.get(routes["publisher.status"].path, (c) => {
+    currentUser(c);
+    const status: PublisherStatus = {
+      mode: deps.config.publishing.mode,
+      enabled: deps.config.publishing.enabled,
+      lastTickAt: deps.scheduler.health().lastTickAt,
+    };
+    c.header("Cache-Control", "no-store");
+    return c.json(status, 200);
+  });
+
+  router.get(routes["scheduledPosts.attempts"].path, async (c) => {
+    currentUser(c);
+    const id = idParam(c);
+    const [post] = await deps.db
+      .select({ id: scheduledPosts.id })
+      .from(scheduledPosts)
+      .where(eq(scheduledPosts.id, id));
+    if (post === undefined) {
+      throw notFound("No scheduled post has that id.");
+    }
+    const rows = await deps.db
+      .select()
+      .from(publishAttempts)
+      .where(eq(publishAttempts.postId, id))
+      .orderBy(desc(publishAttempts.attempt));
+    c.header("Cache-Control", "no-store");
+    return c.json({ items: rows.map(toPublishAttempt) }, 200);
+  });
+
   app.route("/", router);
   return router;
 }
