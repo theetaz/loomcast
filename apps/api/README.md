@@ -78,6 +78,10 @@ router is mounted. `createApp` already registers every module, so a module never
   `POST /api/auth/set-password` are public, apply the Origin check and allow 10 requests a minute
   per address. Setting a password ends every session of the account; the user then signs in.
   Disabling a user ends their sessions, MCP and job tokens and unused links.
+- **Job tokens.** When the dispatcher claims a job whose type has `mcpAccess` other than `none`,
+  it mints a job token in the same transaction (bound to the job and its project, with the
+  access level's scopes, expiring after the type's timeout plus one lease) and sends it once in
+  `job.assign.credentials`. Every terminal transition and every re-queue revokes it.
 - **Rate limits.** `createRateLimiter({capacity, intervalMs}, deps.clock)` with `consume(limiter,
   key)` or the `rateLimit(limiter, keyFn)` middleware answers 429 with `Retry-After`.
 

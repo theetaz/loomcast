@@ -61,12 +61,12 @@ describe("dispatcher", () => {
           }),
         ),
       );
-      const claimedIds = claims.flat().map((row) => row.id);
+      const claimedIds = claims.flat().map(({ job }) => job.id);
       expect(new Set(claimedIds).size).toBe(claimedIds.length);
       expect(claimedIds.length).toBeLessThanOrEqual(queued.length);
       for (const [index, rows] of claims.entries()) {
         expect(rows.length).toBeLessThanOrEqual(3);
-        for (const row of rows) {
+        for (const { job: row } of rows) {
           expect(row).toMatchObject({
             status: "dispatched",
             claimedByDevice: devices[index]?.deviceId,
@@ -113,7 +113,7 @@ describe("dispatcher", () => {
       credits: { producer: 5, render: 0 },
       exclude: [a.id],
     });
-    expect(claimed.map((row) => row.id)).toEqual([c.id]);
+    expect(claimed.map(({ job }) => job.id)).toEqual([c.id]);
     expect(
       await dispatcher.claim({
         deviceId: device.deviceId,
@@ -137,7 +137,7 @@ describe("dispatcher", () => {
       jobTypes: ["system.ping", "kb.analyze_reference"],
       credits: { producer: 2, render: 0 },
     });
-    expect(claimed.map((row) => row.id)).toEqual([job.id]);
+    expect(claimed.map(({ job: row }) => row.id)).toEqual([job.id]);
     await testDb.db.delete(jobs);
   });
 
