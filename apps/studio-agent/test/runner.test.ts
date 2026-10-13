@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { inspect } from "node:util";
 import {
   type AgentToServerDraft,
   type AssignedJob,
@@ -8,12 +11,18 @@ import {
   type ServerMessageOf,
 } from "@loomcast/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { type Handler, HandlerRegistry, JobFailure } from "../src/handlers";
+import {
+  type Handler,
+  type HandlerCredentials,
+  HandlerRegistry,
+  JobFailure,
+  REDACTED_JOB_TOKEN,
+} from "../src/handlers";
 import { Journal } from "../src/journal";
-import { silentLogger } from "../src/logger";
+import { createLogger, silentLogger } from "../src/logger";
 import { Outbox } from "../src/outbox";
 import { type BridgeTransport, chunkText, JobRunner, type RunnerOptions } from "../src/runner";
-import { aborted, deferred, ids, tempAgentPaths } from "./helpers";
+import { aborted, deferred, ids, tempAgentPaths, testJobToken } from "./helpers";
 
 class FakeTransport implements BridgeTransport {
   ready = true;
@@ -81,6 +90,7 @@ function setup(
 function assign(
   runner: JobRunner,
   job: Partial<AssignedJob> & { type: JobType },
+  credentials?: ServerMessageOf<"job.assign">["payload"]["credentials"],
 ): ServerMessageOf<"job.assign"> {
   const message: ServerMessageOf<"job.assign"> = {
     v: 1,
@@ -90,6 +100,7 @@ function assign(
     payload: {
       job: { id: ids.job, attempt: 1, payload: {}, projectId: ids.project, ...job },
       leaseMs: 600_000,
+      ...(credentials === undefined ? {} : { credentials }),
     },
   };
   runner.handle(message);
@@ -408,6 +419,152 @@ describe("job runner", () => {
       type: "job.fail",
       payload: { error: { code: "interrupted", retryable: true } },
     });
+  });
+});
+
+describe("job credentials", () => {
+  const SERVER_URL = "https://loomcast.example.com";
+
+  function jobCredentials(token: string, endpoint = "/mcp") {
+    return { mcp: { endpoint, token, expiresAt: new Date(Date.now() + 600_000).toISOString() } };
+  }
+
+  /** A chat handler that records its credentials and tries to leak them everywhere it can. */
+  function leakyChat(seen: HandlerCredentials[]): Handler<"producer.chat"> {
+    return async (ctx) => {
+      seen.push(ctx.credentials);
+      ctx.log.info("credentials received", { credentials: ctx.credentials });
+      ctx.log.info(`inspected ${inspect(ctx.credentials)}`);
+      ctx.emit("status", { state: "running", message: JSON.stringify(ctx.credentials) });
+      return chatResult;
+    };
+  }
+
+  it("resolves the endpoint against the server URL and hands them to the handler", async () => {
+    const token = testJobToken();
+    const seen: HandlerCredentials[] = [];
+    const { runner, transport } = setup(
+      (registry) => registry.register("producer.chat", leakyChat(seen)),
+      { serverUrl: SERVER_URL },
+    );
+    assign(runner, { type: "producer.chat", payload: chatPayload }, jobCredentials(token));
+    expect(await settled(transport)).toMatchObject({ type: "job.complete" });
+
+    const mcp = seen[0]?.mcp;
+    expect(mcp?.url.toString()).toBe("https://loomcast.example.com/mcp");
+    expect(mcp?.token).toBe(token);
+    expect(JSON.stringify(seen[0])).not.toContain(token);
+    expect(JSON.stringify(seen[0])).toContain(REDACTED_JOB_TOKEN);
+    expect(inspect(seen[0], { depth: 5 })).not.toContain(token);
+  });
+
+  it("never writes the token to the logs, the outbox, the journal or the socket", async () => {
+    const token = testJobToken();
+    const lines: string[] = [];
+    const paths = tempAgentPaths();
+    const outboxText: string[] = [];
+    const seen: HandlerCredentials[] = [];
+    const leaky = leakyChat(seen);
+    const { runner, transport } = setup(
+      (registry) =>
+        registry.register("producer.chat", async (ctx) => {
+          const result = await leaky(ctx);
+          // The outbox file of the running job, before it is settled.
+          for (const name of readdirSync(paths.outboxDir)) {
+            outboxText.push(readFileSync(join(paths.outboxDir, name), "utf8"));
+          }
+          return result;
+        }),
+      {
+        serverUrl: SERVER_URL,
+        log: createLogger({ level: "debug", write: (line) => lines.push(line) }),
+      },
+      paths,
+    );
+    const message = assign(
+      runner,
+      { type: "producer.chat", payload: chatPayload },
+      jobCredentials(token),
+    );
+    await settled(transport);
+
+    expect(seen[0]?.mcp?.token).toBe(token);
+    expect(outboxText.join("")).toContain("running");
+    expect(outboxText.join("")).not.toContain(token);
+    expect(readFileSync(paths.journalFile, "utf8")).not.toContain(token);
+    expect(lines.join("")).toContain("credentials received");
+    expect(lines.join("")).not.toContain(token);
+    expect(JSON.stringify(transport.sent)).not.toContain(token);
+    // The assignment itself still holds it; nothing else does.
+    expect(JSON.stringify(message)).toContain(token);
+  });
+
+  it("gives handlers empty credentials when none are sent", async () => {
+    const seen: HandlerCredentials[] = [];
+    const { runner, transport } = setup(
+      (registry) => registry.register("producer.chat", leakyChat(seen)),
+      { serverUrl: SERVER_URL },
+    );
+    assign(runner, { type: "producer.chat", payload: chatPayload });
+    await settled(transport);
+    expect(seen).toEqual([{}]);
+  });
+
+  it("ignores credentials for job types without MCP access or without a server URL", async () => {
+    const seen: HandlerCredentials[] = [];
+    const ping = setup(
+      (registry) =>
+        registry.register("system.ping", async (ctx) => {
+          seen.push(ctx.credentials);
+          return pingHandler(ctx);
+        }),
+      { serverUrl: SERVER_URL },
+    );
+    assign(ping.runner, { type: "system.ping" }, jobCredentials(testJobToken()));
+    expect(await settled(ping.transport)).toMatchObject({ type: "job.complete" });
+
+    const noServer = setup((registry) => registry.register("producer.chat", leakyChat(seen)));
+    assign(
+      noServer.runner,
+      { type: "producer.chat", payload: chatPayload },
+      jobCredentials(testJobToken()),
+    );
+    expect(await settled(noServer.transport)).toMatchObject({ type: "job.complete" });
+    expect(seen).toEqual([{}, {}]);
+  });
+
+  it("rejects an assignment whose endpoint is not a server path", () => {
+    const { runner, transport } = setup(
+      (registry) => registry.register("producer.chat", leakyChat([])),
+      { serverUrl: SERVER_URL },
+    );
+    const token = testJobToken();
+    for (const endpoint of ["//attacker.example/mcp", "https://attacker.example/mcp"]) {
+      const frame = JSON.stringify({
+        v: 1,
+        id: createUlid(),
+        ts: new Date().toISOString(),
+        type: "job.assign",
+        payload: {
+          job: {
+            id: ids.job,
+            type: "producer.chat",
+            attempt: 1,
+            payload: chatPayload,
+            projectId: ids.project,
+          },
+          leaseMs: 600_000,
+          credentials: jobCredentials(token, endpoint),
+        },
+      });
+      const parsed = parseServerMessage(frame);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) {
+        runner.invalidFrame(frame, parsed);
+      }
+    }
+    expect(transport.types()).toEqual(["job.reject", "job.reject"]);
+    expect(JSON.stringify(transport.sent)).not.toContain(token);
   });
 });
 

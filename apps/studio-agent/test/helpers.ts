@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,14 @@ export const ids = {
 
 /** A syntactically valid device token for tests. */
 export const TEST_TOKEN = `lc_dev_${"A1b2C3d4E5".repeat(4)}xyz`;
+
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** A random, syntactically valid job token, generated per test run. */
+export function testJobToken(): string {
+  const secret = [...randomBytes(43)].map((byte) => BASE62[byte % BASE62.length]).join("");
+  return ["lc", "job", secret].join("_");
+}
 
 const homes: string[] = [];
 

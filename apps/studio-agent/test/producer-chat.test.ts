@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type JobEventKind, parseJobResult } from "@loomcast/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { JobContext } from "../src/handlers";
+import { createMcpCredentials, type JobContext } from "../src/handlers";
 import { producerChatHandler } from "../src/jobs/producer-chat";
 import { silentLogger } from "../src/logger";
+import { chatBrief } from "../src/producer/prompts/chat";
 import {
   PRODUCER_ERROR_CODES,
   ProducerError,
@@ -16,7 +17,7 @@ import {
 } from "../src/producer/runtime";
 import { ProducerSessions } from "../src/producer/sessions";
 import { ensureProjectWorkspace, PROJECT_FILE } from "../src/producer/workspace";
-import { ids, tempAgentPaths } from "./helpers";
+import { ids, tempAgentPaths, testJobToken } from "./helpers";
 
 const conversationId = "3e9f5cab-b07d-4f4b-8c6e-5d4a7b8c9da3";
 const messageId = "4fa06dbc-c18e-4a5c-9d7f-6e5b8c9daeb4";
@@ -125,6 +126,30 @@ describe("producer.chat handler", () => {
     expect(events[0]?.data).toEqual({ state: "starting" });
     expect(streamed).toEqual(["rea", "dy"]);
     expect(sessions.get(conversationId)).toBe(NEW_SESSION);
+  });
+
+  it("gives the session the job's MCP access and the project's chat brief", async () => {
+    const runtime = fakeRuntime(() => okResult(NEW_SESSION));
+    const handler = producerChatHandler({
+      runtime,
+      sessions: new ProducerSessions(tempAgentPaths()),
+      workspaceRoot: root,
+    });
+    const mcp = createMcpCredentials(
+      new URL("https://loomcast.example.com/mcp"),
+      testJobToken(),
+      new Date(Date.now() + 600_000).toISOString(),
+    );
+
+    await handler({ ...chatContext().ctx, credentials: { mcp } });
+    await handler(chatContext().ctx);
+
+    expect(runtime.inputs[0]?.jobType).toBe("producer.chat");
+    expect(runtime.inputs[0]?.mcp).toBe(mcp);
+    expect(runtime.inputs[0]?.brief).toBe(chatBrief(ids.project));
+    expect(runtime.inputs[0]?.brief).toContain(ids.project);
+    expect(runtime.inputs[0]?.brief).toContain("mcp__loomcast__kb_save_brainstorm");
+    expect(runtime.inputs[1]?.mcp).toBeUndefined();
   });
 
   it("resumes the session the server sends", async () => {
