@@ -25,6 +25,7 @@ describe("sidebar navigation registry", () => {
       "library",
       "review",
       "calendar",
+      "analytics",
     ]);
     expect(navSection(navItems, "footer").map((item) => item.id)).toEqual(["settings"]);
   });

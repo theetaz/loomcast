@@ -1,0 +1,35 @@
+/*
+ * Chart roles for the analytics screens. The categorical slots are the validated default data-viz
+ * palette (light and dark steps of the same four hues), checked against the card surfaces
+ * (#fff light, #1f1f1e dark): every adjacent pair clears the colour-vision separation target.
+ * Light slots 3 and 4 sit below 3:1 on white, so every chart has a legend, labels and a table view.
+ * Chrome (grid, baseline, axis text) comes from the Loomcast tokens.
+ */
+.lc-viz {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-surface: var(--lc-surface);
+  --viz-grid: var(--lc-border);
+  --viz-baseline: var(--lc-border-strong);
+  --viz-axis: var(--lc-text-3);
+  --viz-crosshair: var(--lc-text-4);
+}
+
+.dark .lc-viz {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+}
+
+/* Windows high contrast: marks take the system text colour; labels and tables carry identity. */
+@media (forced-colors: active) {
+  .lc-viz {
+    --viz-1: CanvasText;
+    --viz-2: CanvasText;
+    --viz-3: CanvasText;
+    --viz-4: CanvasText;
+  }
+}
