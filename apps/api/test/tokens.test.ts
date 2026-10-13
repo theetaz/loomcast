@@ -202,7 +202,10 @@ describe("tokens service", () => {
       user: { id: user.id },
     });
     expect(await tokens.verify(device.secret, "mcp")).toBeNull();
-    expect(await tokens.verify(`${device.secret.slice(0, -1)}x`, "device")).toBeNull();
+    // Change the last character to a different one; a fixed "x" would leave the secret unchanged when
+    // the random secret already ends in "x" (about one run in 62).
+    const tampered = `${device.secret.slice(0, -1)}${device.secret.endsWith("x") ? "y" : "x"}`;
+    expect(await tokens.verify(tampered, "device")).toBeNull();
     expect(await tokens.verify("lc_dev_short", "device")).toBeNull();
 
     const expiring = await tokens.create({
