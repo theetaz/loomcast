@@ -4,12 +4,40 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Weekly, so an advisory published after the last change still fails a run. Only the audit
+  # job runs on the schedule.
+  schedule:
+    - cron: "23 5 * * 1"
 
 permissions:
   contents: read
 
 jobs:
+  # Fails on a high or critical advisory in a production dependency. A reviewed exception goes in
+  # pnpm-workspace.yaml under auditConfig.ignoreGhsas, with a comment naming the advisory, why it
+  # does not apply, and an expiry date (docs/security.md, "Dependency advisories").
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
   verify:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
