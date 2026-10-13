@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  type ApprovalsInbox,
   type CalendarResponse,
   type Channel,
   type ContentItem,
@@ -37,7 +38,10 @@ import {
  * publishes automatically on a daily cadence fills the calendar 14 days ahead as soon as it is
  * linked to a channel; the slot inside the one-hour lead time is produced right away, approved by
  * the system and published by the dry-run publisher at its slot, which records a `dryrun://`
- * permalink and the exact requests a live run would send.
+ * permalink and the exact requests a live run would send. A second series on the same format
+ * publishes to a channel that requires approval: its video waits in the approvals inbox until it
+ * is approved there, then publishes at the same slot. A planned post is dragged to the next day on
+ * the month view of the calendar.
  *
  * The slot is a few minutes ahead, in a time zone other than the browser's, so the run waits for
  * it once; the API runs its scheduler every 500 ms (`SCHEDULER_TICK_MS`). Production uploads media,
@@ -53,6 +57,8 @@ const projectName = `Calendar project ${run}`;
 const formatName = `Daily explainer ${run}`;
 const autoSeriesName = `Daily shorts ${run}`;
 const autoChannelName = `E2E Reels ${run}`;
+const approvalSeriesName = `Reviewed shorts ${run}`;
+const approvalChannelName = `E2E Threads ${run}`;
 const deviceName = `E2E Calendar Studio ${run}`;
 const voiceId = `e2e-voice-${run}`;
 const hashtag = `loomcast${run}`;
@@ -84,10 +90,14 @@ let agent: FakeStudioAgent | null = null;
 let projectId = "";
 let autoSeries: Series;
 let autoChannel: Channel;
+let approvalSeries: Series;
+let approvalChannel: Channel;
 /** The first slot: the next whole minute at least `SLOT_LEAD_MS` ahead. */
 let slotAt: Date;
 /** The post of the first slot on the auto series' channel. */
 let firstPost: ScheduledPost;
+/** The post of the first slot on the channel that requires approval. */
+let approvalPost: ScheduledPost;
 
 /**
  * An API client signed in as the owner. Like the web app, it sends the app's origin and JSON on
@@ -276,15 +286,23 @@ test.beforeAll(async ({ browser }) => {
     data: { name: autoSeriesName, formatId: format.id },
   });
   autoChannel = await createChannel("instagram", autoChannelName, false);
+
+  // The same format on a channel that requires approval: its posts wait for a person.
+  approvalSeries = await call<Series>("POST", `/api/projects/${projectId}/series`, {
+    data: { name: approvalSeriesName, formatId: format.id },
+  });
+  approvalChannel = await createChannel("threads", approvalChannelName, true);
+  await call("PUT", `/api/series/${approvalSeries.id}/channels`, {
+    data: { channels: [{ channelId: approvalChannel.id, enabled: true }] },
+  });
 });
 
 test.afterAll(async () => {
   // Pausing retires the series' remaining ideas and cancels their posts.
-  for (const series of [autoSeries]) {
-    if (series !== undefined)
-      await call<Series>("POST", `/api/series/${series.id}/pause`, {
-        status: 200,
-      });
+  for (const series of [autoSeries, approvalSeries]) {
+    if (series !== undefined) {
+      await call<Series>("POST", `/api/series/${series.id}/pause`, { status: 200 });
+    }
   }
   await agent?.close();
   if (device !== null) {
@@ -374,9 +392,106 @@ test("produces the first slot ahead of time and approves it automatically", asyn
   for (const post of later) expect(productionsOfItem(post.itemId)).toEqual([]);
 });
 
-test("publishes the slot in dry-run and records the exact payload", async () => {
+test("holds a video for a channel that requires approval until it is approved in the inbox", async () => {
+  // The channel's approval overrides the format's automatic publishing.
+  await expect
+    .poll(async () => (await postsOf(approvalSeries.id)).length)
+    .toBe(CADENCE_HORIZON_DAYS);
+  approvalPost = (await postsOf(approvalSeries.id))[0] as ScheduledPost;
+  expect(approvalPost).toMatchObject({
+    channelId: approvalChannel.id,
+    platform: "threads",
+    scheduledAt: slotAt.toISOString(),
+    dryRun: true,
+    publishMode: "approval",
+  });
+  const itemId = approvalPost.itemId;
+  const title = plannedTitle(approvalSeriesName, slotAt);
+
+  // Produced ahead of the slot like any other, it stops in review with its post still planned.
+  await expect
+    .poll(async () => (await itemOf(itemId)).state, { timeout: PRODUCTION_TIMEOUT })
+    .toBe("review");
+  expectNoProductionErrors();
+  expect(productionsOfItem(itemId)).toEqual(FIRST_PASS);
+  const inbox = await call<ApprovalsInbox>("GET", `/api/approvals?projectId=${projectId}`);
+  expect(inbox.items.find((entry) => entry.item.id === itemId)).toMatchObject({
+    deadlineAt: slotAt.toISOString(),
+    posts: [{ id: approvalPost.id, status: "planned", versionId: null }],
+  });
+  expect(await reviewsOf(itemId)).toEqual([]);
+
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name: /^Approvals/ })
+    .click();
+  await expect(page).toHaveURL(/\/approvals/);
+  const waiting = page.getByRole("list", { name: "Videos waiting for approval" });
+  const row = waiting.getByRole("listitem", { name: title });
+  await expect(row).toContainText(approvalSeriesName);
+  await row.getByRole("button", { name: `Approve ${title}` }).click();
+  await expect(row).toBeHidden();
+
+  // The person's approval queues the post on the approved version and schedules the item.
+  await expect.poll(async () => (await itemOf(itemId)).state).toBe("scheduled");
+  const item = await itemOf(itemId);
+  const [review] = await reviewsOf(itemId);
+  expect(review).toMatchObject({
+    decision: "approve",
+    actorKind: "user",
+    versionId: item.currentVersionId,
+  });
+  expect(await postOf(approvalPost)).toMatchObject({
+    status: "queued",
+    versionId: item.currentVersionId,
+  });
+});
+
+test("moves a planned post to the next day by dragging it on the calendar", async () => {
+  const post = (await postsOf(autoSeries.id))[2] as ScheduledPost;
+  expect(post).toMatchObject({ status: "planned", channelId: autoChannel.id });
+  const movedTo = new Date(Date.parse(post.scheduledAt) + DAY_MS).toISOString();
+
+  await page.goto(
+    `/calendar?view=month&series=${autoSeries.id}&date=${browserDay(post.scheduledAt)}`,
+  );
+  const chip = chipOf(post);
+  await expect(chip).toBeVisible();
+  const target = page.locator(`[data-cell="day:${browserDay(post.scheduledAt, 1)}"]`);
+  const box = await target.boundingBox();
+  if (box === null) throw new Error("the next day is not on the board");
+
+  // A pointer drag: press, move past the activation distance, cross to the next day and drop.
+  await chip.hover();
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 12 });
+  await expect(target).toHaveAttribute("data-over", "true");
+  await page.mouse.up();
+
+  // The post lands at once at the same time of day, and the move is stored.
+  await expect(chipOf(post, target)).toBeVisible();
+  await expect.poll(async () => (await postOf(post)).scheduledAt).toBe(movedTo);
+  expect(await postOf(post)).toMatchObject({ status: "planned", versionId: null });
+  await page.reload();
+  await expect(chipOf(post, target)).toBeVisible();
+
+  // The cadence slot it left is open again.
+  const query = new URLSearchParams({
+    from: post.scheduledAt,
+    to: new Date(Date.parse(post.scheduledAt) + MINUTE_MS).toISOString(),
+    seriesIds: autoSeries.id,
+  });
+  const { slots } = await call<CalendarResponse>("GET", `/api/calendar?${query}`);
+  expect(slots).toEqual([
+    { at: post.scheduledAt, seriesId: autoSeries.id, channelId: autoChannel.id },
+  ]);
+});
+
+test("publishes both posts in dry-run at the slot and records the exact payload", async () => {
   const wait = Math.max(0, slotAt.getTime() - Date.now()) + 90_000;
   test.setTimeout(wait + 60_000);
+  await page.goto(`/calendar?series=${autoSeries.id}&date=${browserDay(slotAt)}`);
+  await expect(chipOf(firstPost)).toHaveAttribute("data-status", "queued");
 
   await expect
     .poll(async () => (await postOf(firstPost)).status, { timeout: wait })
@@ -384,7 +499,14 @@ test("publishes the slot in dry-run and records the exact payload", async () => 
   await expectDryRunPublished(firstPost, "instagram");
   expect((await itemOf(firstPost.itemId)).state).toBe("published");
 
-  // The calendar shows it published, live.
+  // The approved video publishes at the same slot.
+  await expect
+    .poll(async () => (await postOf(approvalPost)).status, { timeout: 60_000 })
+    .toBe("published");
+  await expectDryRunPublished(approvalPost, "threads");
+  expect((await itemOf(approvalPost.itemId)).state).toBe("published");
+
+  // The open calendar shows it published, live.
   await expect(chipOf(firstPost)).toHaveAttribute("data-status", "published");
 
   // Nothing ended in the dead-letter list.
