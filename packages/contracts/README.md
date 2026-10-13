@@ -38,6 +38,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
+| `src/pipeline/artifacts.ts` | `ScriptSchema`, `StoryboardSchema` and `VoiceAlignmentSchema`, the artifacts of a content version |
 | `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
 | `src/pipeline/skills.ts` | Skill names and version numbers |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
@@ -147,6 +148,18 @@ A format is versioned; every update stores a new `FormatRules` version. Producti
 | `recipe?` | `{name, version?}` of a recipe skill |
 
 `DEFAULT_FORMAT_RULES` is frozen; copy it before changing it. Style ids such as `vox-explainer` and card ids such as `vox-explainer.t1.section.circle` are checked for shape only (`StyleIdSchema`, `CardIdSchema`, `SlotNameSchema`); the studio runtime checks them against its registry.
+
+### Artifacts
+
+A content version holds a script, a storyboard, a voice take and a render. Producer sessions write the script and storyboard as JSON; the voice step reports word timings. Every artifact fits in one bridge frame.
+
+| Schema | Shape | Rules |
+|---|---|---|
+| `ScriptSchema` | `{title, hook, segments: [{id, text, startMs?, endMs?, onScreenText?}], cta, caption, hashtags, estimatedDurationMs}` | 1 to 60 segments with distinct ids (`ARTIFACT_ID_RE`); segment text 1 to 1,000 characters, on-screen text at most 280; timed segments end after they start and run in order without overlaps; caption at most 2,200 characters; hashtags as in format rules |
+| `StoryboardSchema` | `{styleId, fps: 30, aspect: "9:16", frames: [{id, segmentId, startMs, endMs, cardId, slots, notes?}]}` | 1 to 80 frames with distinct ids, each ending after it starts, in time order without overlaps (gaps allowed); at most 32 slots per frame, each at most 280 characters, and at most 100,000 characters of slot text in total |
+| `VoiceAlignmentSchema` | `{words: [{text, startMs, endMs}]}` | at most 5,000 words in spoken order (`startMs` never decreases), none ending before it starts |
+
+Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fields refuse control characters other than tab and line breaks. Slot text is plain text: the studio runtime escapes it before it reaches a card.
 
 ## Live events
 

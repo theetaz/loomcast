@@ -12,6 +12,7 @@ export * from "./mcp/contract";
 export * from "./mcp/kb-tools";
 export * from "./mcp/project-tools";
 export * from "./mcp/tools";
+export * from "./pipeline/artifacts";
 export * from "./pipeline/format-rules";
 export * from "./pipeline/skills";
 export * from "./pipeline/style";

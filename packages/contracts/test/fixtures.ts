@@ -1,4 +1,13 @@
-import type { JobSummary, KbEntry, Message, Project, ReferenceAnalysis } from "../src";
+import type {
+  JobSummary,
+  KbEntry,
+  Message,
+  Project,
+  ReferenceAnalysis,
+  Script,
+  Storyboard,
+  VoiceAlignment,
+} from "../src";
 
 export const ids = {
   user: "4f6d1c2a-8b3e-4a5f-9c7d-1e2f3a4b5c6d",
@@ -79,6 +88,57 @@ export const analysis: ReferenceAnalysis = {
   cta: "Follow for part two.",
   takeaways: ["Show the result in the first second."],
   applicability: "Fits the Rust series: lead with the compiler output.",
+};
+
+export const script: Script = {
+  title: "Borrowing in one minute",
+  hook: "Rust will not let you hold two pens at once.",
+  segments: [
+    { id: "s1", text: "Rust will not let you hold two pens at once." },
+    {
+      id: "s2",
+      text: "One mutable borrow, or many shared ones.",
+      onScreenText: "&mut or &, never both",
+    },
+    { id: "s3", text: "Follow for part two." },
+  ],
+  cta: "Follow for part two.",
+  caption: "The borrow checker in one rule.",
+  hashtags: ["rustlang", "programming"],
+  estimatedDurationMs: 32_000,
+};
+
+export const storyboard: Storyboard = {
+  styleId: "vox-explainer",
+  fps: 30,
+  aspect: "9:16",
+  frames: [
+    {
+      id: "f1",
+      segmentId: "s1",
+      startMs: 0,
+      endMs: 6_000,
+      cardId: "vox-explainer.t1.section.circle",
+      slots: { kicker: "Rust", headline: "Two pens, one hand" },
+    },
+    {
+      id: "f2",
+      segmentId: "s2",
+      startMs: 6_000,
+      endMs: 14_000,
+      cardId: "vox-explainer.t1.section.markerbox",
+      slots: { line1: "&mut", line2: "or", line3: "&" },
+      notes: "Hold on the rule.",
+    },
+  ],
+};
+
+export const alignment: VoiceAlignment = {
+  words: [
+    { text: "Rust", startMs: 0, endMs: 320 },
+    { text: "will", startMs: 320, endMs: 480 },
+    { text: "not", startMs: 480, endMs: 700 },
+  ],
 };
 
 /** A fresh value per run, so the suite holds no credential-like literals. */
