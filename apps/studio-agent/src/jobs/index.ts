@@ -42,6 +42,18 @@ const optionalHandlers: readonly OptionalHandler[] = [
     "kb.analyze_reference",
     async () => (await import("./kb-analyze-reference")).createKbAnalyzeReferenceHandler,
   ),
+  optionalHandler(
+    "content.write_script",
+    async () => (await import("./content-write-script")).createContentWriteScriptHandler,
+  ),
+  optionalHandler(
+    "content.storyboard",
+    async () => (await import("./content-storyboard")).createContentStoryboardHandler,
+  ),
+  optionalHandler(
+    "content.revise",
+    async () => (await import("./content-revise")).createContentReviseHandler,
+  ),
 ];
 
 /** Builds the fixed allow-list of job handlers. Nothing else can run on this agent. */

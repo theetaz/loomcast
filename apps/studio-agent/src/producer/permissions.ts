@@ -19,16 +19,32 @@ export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
  * The built-in tools of each job type's session. A reference analysis reads an untrusted
  * transcript, so its session can only read and search inside the project workspace: it can neither
  * write files nor reach the web, which leaves an injected instruction no way to send data out.
+ * Production steps read knowledge-base entries, which are untrusted too, and return their work as
+ * the reply, so they get the same read-only tools.
  */
 export const BUILTIN_TOOLS = {
   "producer.chat": PRODUCER_TOOLS,
   "kb.analyze_reference": ["Read", "Glob", "Grep"],
+  "content.write_script": ["Read", "Glob", "Grep"],
+  "content.storyboard": ["Read", "Glob", "Grep"],
+  "content.revise": ["Read", "Glob", "Grep"],
 } as const satisfies Record<ProducerJobType, readonly ProducerTool[]>;
 
 const SESSION_LABELS: Record<ProducerJobType, string> = {
   "producer.chat": "Loomcast producer session",
   "kb.analyze_reference": "reference analysis session, which is read-only",
+  "content.write_script": "script session, which is read-only",
+  "content.storyboard": "storyboard session, which is read-only",
+  "content.revise": "revision session, which is read-only",
 };
+
+/** Sessions whose reads and searches may not leave the project workspace. */
+const CONFINED_READ_JOBS: ReadonlySet<ProducerJobType> = new Set<ProducerJobType>([
+  "kb.analyze_reference",
+  "content.write_script",
+  "content.storyboard",
+  "content.revise",
+]);
 
 /** Tools whose target path must resolve inside the project workspace. */
 const WRITE_TOOLS: ReadonlySet<string> = new Set<ProducerTool>(["Write", "Edit"]);
@@ -78,8 +94,8 @@ export function deniedBuiltinTools(jobType: ProducerJobType): ProducerTool[] {
  * - Write and Edit must target a path that resolves inside the workspace after `realpath`. For a
  *   new file the deepest existing ancestor is resolved, so a symlinked parent cannot escape, and
  *   paths with `..` segments or dangling symlinks are refused outright.
- * - Read, Glob and Grep may not touch the protected directories. In a reference analysis they may
- *   not leave the project workspace at all.
+ * - Read, Glob and Grep may not touch the protected directories. In a reference analysis and in
+ *   production steps they may not leave the project workspace at all.
  */
 export function createToolGuard(options: ToolGuardOptions): CanUseTool {
   return async (toolName, input, context) =>
@@ -104,7 +120,7 @@ export async function checkToolUse(
     return checkWrite(options, toolName, input);
   }
   if (READ_TOOLS.has(toolName)) {
-    return jobType === "kb.analyze_reference"
+    return CONFINED_READ_JOBS.has(jobType)
       ? checkConfinedRead(options, toolName, input)
       : checkRead(options, toolName, input);
   }

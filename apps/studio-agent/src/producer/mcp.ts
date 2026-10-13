@@ -9,13 +9,31 @@ import { type McpToolName, mcpTools } from "@loomcast/contracts";
  */
 export const MCP_SERVER_NAME = "loomcast";
 
-/** The job types whose producer sessions may get the platform's MCP server. */
-export type ProducerJobType = "producer.chat" | "kb.analyze_reference";
+/** The job types that run a producer session, which may get the platform's MCP server. */
+export const PRODUCER_JOB_TYPES = [
+  "producer.chat",
+  "kb.analyze_reference",
+  "content.write_script",
+  "content.storyboard",
+  "content.revise",
+] as const;
+export type ProducerJobType = (typeof PRODUCER_JOB_TYPES)[number];
+
+/** What a production step's session may look up: the item, its format and the knowledge base. */
+const PRODUCTION_READS = [
+  "content.get",
+  "format.get_rules",
+  "kb.search",
+  "kb.get",
+  "project.get",
+] as const satisfies readonly McpToolName[];
 
 /**
  * The platform MCP tools each job type may call. Every other MCP tool, and every other MCP
  * server, is denied. A reference analysis only reads: its transcript is untrusted, so the session
- * must not be able to write to the knowledge base.
+ * must not be able to write to the knowledge base. Production steps only read too: their result
+ * is returned to the studio agent, which hands it to the server, so a session never submits
+ * versions or uploads assets itself.
  */
 export const MCP_TOOL_ALLOW_LIST = {
   "producer.chat": [
@@ -27,6 +45,9 @@ export const MCP_TOOL_ALLOW_LIST = {
     "project.get",
   ],
   "kb.analyze_reference": ["kb.search", "kb.get", "project.get"],
+  "content.write_script": PRODUCTION_READS,
+  "content.storyboard": PRODUCTION_READS,
+  "content.revise": PRODUCTION_READS,
 } as const satisfies Record<ProducerJobType, readonly McpToolName[]>;
 
 /** The runtime's form of a name: every character outside `[A-Za-z0-9_-]` becomes `_`. */

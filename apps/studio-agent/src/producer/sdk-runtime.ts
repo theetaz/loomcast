@@ -9,9 +9,15 @@ import {
 import { BRIDGE_TIMINGS, type JobEventData, MAX_ASSISTANT_TEXT_LENGTH } from "@loomcast/contracts";
 import { AGENT_VERSION } from "../agent-info";
 import { type Logger, silentLogger } from "../logger";
+import type { SkillPackEntry } from "../production/skills";
 import { summarizeToolUse } from "./activity";
 import { deniedMcpTools, mcpServersFor } from "./mcp";
-import { builtinToolsFor, createToolGuard, deniedBuiltinTools } from "./permissions";
+import {
+  builtinToolsFor,
+  createToolGuard,
+  deniedBuiltinTools,
+  type ToolGuardOptions,
+} from "./permissions";
 import { chatBrief } from "./prompts/chat";
 import {
   PRODUCER_ERROR_CODES,
@@ -58,6 +64,7 @@ const REMOVED_TOOLS = ["Bash", "NotebookEdit", "Agent", "Task", "Skill"];
  * - Its tools are limited to the job type's built-in tools; the other producer tools, Bash and
  *   the platform MCP tools the job may not call are removed outright. Every permission prompt
  *   goes to the guard. `allowedTools` stays empty on purpose: an allowed tool would skip the guard.
+ * - The job's skill pack is appended to the system prompt after the brief.
  */
 export class SdkProducerRuntime implements ProducerRuntime {
   readonly #query: QueryFunction;
@@ -76,10 +83,15 @@ export class SdkProducerRuntime implements ProducerRuntime {
 
   /** The options of one turn. Exposed for tests. */
   options(
-    input: Pick<ProducerRunInput, "cwd" | "resumeId" | "jobType" | "mcp" | "brief">,
+    input: Pick<ProducerRunInput, "cwd" | "resumeId" | "jobType" | "mcp" | "brief" | "skills">,
     abort: AbortController,
   ): Options {
     const jobType = input.jobType ?? "producer.chat";
+    const guard: ToolGuardOptions = {
+      workspaceDir: input.cwd,
+      protectedDirs: this.#protectedDirs,
+      jobType,
+    };
     return {
       cwd: input.cwd,
       ...(input.resumeId === undefined ? {} : { resume: input.resumeId }),
@@ -89,7 +101,7 @@ export class SdkProducerRuntime implements ProducerRuntime {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: input.brief ?? PRODUCER_BRIEF,
+        append: withSkillPack(input.brief ?? PRODUCER_BRIEF, input.skills ?? []),
       },
       tools: [...builtinToolsFor(jobType)],
       disallowedTools: [
@@ -98,11 +110,7 @@ export class SdkProducerRuntime implements ProducerRuntime {
         ...deniedMcpTools(jobType),
       ],
       permissionMode: "default",
-      canUseTool: createToolGuard({
-        workspaceDir: input.cwd,
-        protectedDirs: this.#protectedDirs,
-        jobType,
-      }),
+      canUseTool: createToolGuard(guard),
       mcpServers: mcpServersFor(input.mcp),
       strictMcpConfig: true,
       includePartialMessages: true,
@@ -280,6 +288,52 @@ class TurnState {
   #emit(event: ProducerEvent): void {
     this.#input.onEvent(event);
   }
+}
+
+/** The most skill text a session's system prompt gets. */
+export const MAX_SKILL_PACK_CHARS = 120_000;
+
+/**
+ * The brief followed by the skill pack: each skill's description and files, in order. Skills that
+ * no longer fit are named but left out.
+ */
+export function withSkillPack(brief: string, skills: readonly SkillPackEntry[]): string {
+  if (skills.length === 0) {
+    return brief;
+  }
+  const parts = [
+    brief,
+    "",
+    "# Skill pack",
+    "",
+    "Loomcast production skills for this job. Follow them; the format rules and the instructions in the prompt take precedence where they differ.",
+  ];
+  let used = 0;
+  const skipped: string[] = [];
+  for (const skill of skills) {
+    const body = [
+      "",
+      `## Skill: ${skill.name} (${skill.kind}${skill.version === undefined ? "" : `, version ${skill.version}`})`,
+      "",
+      skill.description,
+      ...skill.files.flatMap((file) => [
+        "",
+        `### ${skill.name}/${file.path}`,
+        "",
+        file.content.trimEnd(),
+      ]),
+    ].join("\n");
+    if (used + body.length > MAX_SKILL_PACK_CHARS) {
+      skipped.push(skill.name);
+      continue;
+    }
+    used += body.length;
+    parts.push(body);
+  }
+  if (skipped.length > 0) {
+    parts.push("", `Skills left out for length: ${skipped.join(", ")}.`);
+  }
+  return parts.join("\n");
 }
 
 /**
