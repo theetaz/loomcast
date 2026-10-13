@@ -1,9 +1,9 @@
-import { MIN_SCHEDULE_LEAD_MS, type ScheduledPost } from "@loomcast/contracts";
+import { type CalendarSlot, MIN_SCHEDULE_LEAD_MS, type ScheduledPost } from "@loomcast/contracts";
 import { Tabs, TabsContent } from "@loomcast/ui/components/tabs";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { ErrorState } from "@/components/ErrorState";
 import { Page, PageHeader } from "@/components/PageHeader";
 import { type SeriesOption, useSeriesOptions } from "@/features/library/queries";
@@ -18,6 +18,7 @@ import {
   channelsQueryOptions,
   useFormatZones,
 } from "./queries";
+import { SlotPicker } from "./SlotPicker";
 import { type CalendarSearch, type CalendarView, parseIds } from "./search";
 import { browserTimeZone, calendarPeriod, periodLabel, shiftAnchor, todayIn } from "./time";
 import { useCalendarLive } from "./use-calendar-live";
@@ -58,7 +59,7 @@ export interface CalendarPageProps {
 
 /**
  * Every post on every channel in a week or month. Posts that haven't started publishing can be
- * dragged (or moved with the keyboard) to a new time; open cadence slots are drawn dashed.
+ * dragged (or moved with the keyboard) to a new time; open cadence slots take an approved video.
  */
 export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
   useTitle("Calendar");
@@ -112,6 +113,7 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
     draggingRef,
   );
 
+  const [slot, setSlot] = useState<CalendarSlot | null>(null);
   const onOpenPost = useCallback(
     (post: ScheduledPost) =>
       void navigate({ to: "/content/$itemId", params: { itemId: post.itemId } }),
@@ -130,7 +132,7 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
     <Page className="max-w-[1320px]">
       <PageHeader
         title="Calendar"
-        description="Every post on every channel. Drag a post to move it to a new time."
+        description="Every post on every channel. Drag a post to move it, or fill an open slot."
       />
       <Tabs
         value={view}
@@ -190,12 +192,20 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
               channels={channelsById}
               series={seriesById}
               onOpenPost={onOpenPost}
+              onPickSlot={setSlot}
               onShowDay={onShowDay}
               onDraggingChange={onDraggingChange}
             />
           )}
         </TabsContent>
       </Tabs>
+      <SlotPicker
+        slot={slot}
+        zone={zone}
+        channel={slot ? channelsById.get(slot.channelId) : undefined}
+        series={slot ? seriesById.get(slot.seriesId) : undefined}
+        onClose={() => setSlot(null)}
+      />
     </Page>
   );
 }

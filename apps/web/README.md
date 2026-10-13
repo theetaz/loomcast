@@ -42,8 +42,8 @@ voice and render to review, one version every second or so, with the live events
 The calendar's mock (`src/mocks/calendar.ts`) adds planning channels, links them to the demo
 series and puts posts on the next slots of each series' cadence (from the formats in
 `src/mocks/formats.ts`), leaving a few slots open, with published and missed posts in the past
-(`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get`, rescheduling and `channels.list`,
-and publishes `post.updated` like the scheduler will.
+(`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get`, the scheduled-post
+routes and `channels.list`, and publishes `post.updated` like the scheduler will.
 
 ### Dev proxy
 
@@ -303,6 +303,8 @@ by month.
   `scheduledPosts.reschedule` with `expectedUpdatedAt`. A failure puts the post back
   (`rollbackMove`, which keeps a newer copy from a live event) and shows a toast; a `409` also
   refetches the calendar.
+- Clicking an open slot lists the series' approved videos without an open post on that channel
+  (`content.list` with `states=approved,scheduled`); picking one sends `scheduledPosts.create`.
 - `post.updated` patches every loaded range (moved, added or dropped by range and filter),
   `channel.updated` the channel list and `content.item.updated` the titles and states on chips.
 - Post states use a local mapping (`post-status.tsx`) until `StatusPill` gets a `post` kind.

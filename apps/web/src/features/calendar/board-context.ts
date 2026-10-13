@@ -1,4 +1,4 @@
-import type { Channel, ScheduledPost, Series } from "@loomcast/contracts";
+import type { CalendarSlot, Channel, ScheduledPost, Series } from "@loomcast/contracts";
 import { createContext, useContext } from "react";
 import type { CalendarView } from "./search";
 import type { CellTarget } from "./time";
@@ -27,6 +27,7 @@ export interface BoardContextValue {
   /** Posts whose move is still being saved; they wait before moving again. */
   saving: ReadonlySet<string>;
   onOpenPost: (post: ScheduledPost) => void;
+  onPickSlot: (slot: CalendarSlot) => void;
   onShowDay: (day: string) => void;
 }
 

@@ -22,6 +22,7 @@ export const calendarKeys = {
   all: ["calendar"] as const,
   ranges: ["calendar", "range"] as const,
   range: (key: CalendarQueryKey) => ["calendar", "range", key] as const,
+  approved: (seriesId: string) => ["calendar", "approved", seriesId] as const,
 };
 
 /** Shared with the channel settings screens. */
@@ -75,6 +76,18 @@ function formatsQueryOptions(projectId: string) {
   });
 }
 
+/** Approved items of a series, for filling an open slot. */
+export function approvedItemsQueryOptions(seriesId: string) {
+  return queryOptions({
+    queryKey: calendarKeys.approved(seriesId),
+    queryFn: ({ signal }) =>
+      api.request("content.list", {
+        query: { seriesId, states: "approved,scheduled", limit: 100 },
+        signal,
+      }),
+  });
+}
+
 /** The cadence time zone of each format, by format id, for the given projects. */
 export function useFormatZones(projectIds: readonly string[]): Map<string, string> {
   const lists = useQueries({
@@ -117,6 +130,13 @@ export function updateCalendars(
 /** A post from the API or a live event, applied to every loaded range. */
 export function applyPost(queryClient: QueryClient, post: ScheduledPost) {
   updateCalendars(queryClient, (data, key) => upsertPost(data, post, key));
+}
+
+/** Every post loaded in any range. */
+export function cachedPosts(queryClient: QueryClient): ScheduledPost[] {
+  return queryClient
+    .getQueriesData<CalendarResponse>({ queryKey: calendarKeys.ranges })
+    .flatMap(([, data]) => data?.posts ?? []);
 }
 
 /** Replaces or adds a channel in the cached list. */
@@ -170,6 +190,24 @@ export function useReschedulePost() {
         return;
       }
       toast.error("Couldn't move the post", { description: errorMessage(error) });
+    },
+  });
+}
+
+export interface CreatePostInput {
+  itemId: string;
+  channelId: string;
+  scheduledAt: string;
+}
+
+/** Schedules an approved item into an open slot as a queued post. */
+export function useCreatePost() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreatePostInput) => api.request("scheduledPosts.create", { body }),
+    onSuccess: (post) => {
+      applyPost(queryClient, post);
+      void queryClient.invalidateQueries({ queryKey: ["calendar", "approved"] });
     },
   });
 }

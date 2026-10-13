@@ -4,6 +4,8 @@ import {
   type CalendarSlot,
   type Channel,
   type ContentItem,
+  CreatePostRequestSchema,
+  effectivePublishMode,
   type Format,
   generateSlots,
   MIN_SCHEDULE_LEAD_MS,
@@ -16,6 +18,7 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http } from "msw";
 import type { z } from "zod";
+import { updateContentItem } from "./content";
 import { type MockDb, mockId, publish } from "./db";
 
 // Channels, cadence slots and scheduled posts, following `@loomcast/contracts`. The
@@ -104,6 +107,10 @@ export function mockPost(
 }
 
 // Queries -----------------------------------------------------------------------
+
+function isOpen(post: ScheduledPost): boolean {
+  return post.status === "planned" || post.status === "queued";
+}
 
 function cadenceOf(db: MockDb, series: Series): Format | undefined {
   return db.formats.find((format) => format.id === series.formatId);
@@ -197,6 +204,58 @@ export function createCalendarHandlers(db: MockDb) {
         .map((post) => ({ ...post }));
       const slots = mockSlots(db, { from, to }, { projectId, channelIds, seriesIds });
       return HttpResponse.json({ posts, slots });
+    }),
+
+    http.post(path("scheduledPosts.create"), async ({ request }) => {
+      if (!db.signedIn) return unauthorized();
+      const parsed = CreatePostRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return invalid(parsed.error);
+      const { itemId, channelId, scheduledAt } = parsed.data;
+      const item = db.contentItems.find((entry) => entry.id === itemId);
+      if (!item) return apiError(404, "not_found", "No content item has that id.");
+      const channel = db.channels.find((entry) => entry.id === channelId);
+      if (!channel) return apiError(404, "not_found", "No channel has that id.");
+      if (item.state !== "approved" && item.state !== "scheduled") {
+        return apiError(409, "invalid_transition", "Only approved videos can be scheduled.");
+      }
+      if (channel.status === "disabled") {
+        return apiError(409, "conflict", "The channel is disabled.");
+      }
+      if (Date.parse(scheduledAt) < Date.now() + MIN_SCHEDULE_LEAD_MS) {
+        return apiError(
+          400,
+          "validation_failed",
+          "scheduledAt: Pick a time at least two minutes ahead.",
+        );
+      }
+      if (
+        db.posts.some(
+          (post) => post.itemId === itemId && post.channelId === channelId && isOpen(post),
+        )
+      ) {
+        return apiError(409, "conflict", "This video already has an open post on that channel.");
+      }
+      const series = db.series.find((entry) => entry.id === item.seriesId);
+      const format = series ? cadenceOf(db, series) : undefined;
+      const post = mockPost({
+        item,
+        channel,
+        scheduledAt: new Date(scheduledAt).toISOString(),
+        status: "queued",
+        publishMode: effectivePublishMode(
+          format?.currentVersion.rules.publishMode ?? "approval",
+          channel.requiresApproval,
+        ),
+      });
+      db.posts.push(post);
+      if (item.state === "approved") {
+        const updated = updateContentItem(db, item.id, (entry) => {
+          entry.state = "scheduled";
+        });
+        if (updated) post.item = { ...post.item, state: updated.state };
+      }
+      publish(db, { type: "post.updated", payload: { post: { ...post } } });
+      return HttpResponse.json(post, { status: 201 });
     }),
 
     http.patch(path("scheduledPosts.reschedule"), async ({ params, request }) => {

@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useLiveEvent } from "@/lib/live";
-import { applyChannel, applyPost, updateCalendars } from "./queries";
+import { applyChannel, applyPost, calendarKeys, updateCalendars } from "./queries";
 
 /**
  * Keeps the calendar current with posts and channels changed anywhere: the scheduler, the
@@ -8,7 +8,14 @@ import { applyChannel, applyPost, updateCalendars } from "./queries";
  */
 export function useCalendarLive() {
   const queryClient = useQueryClient();
-  useLiveEvent("post.updated", (event) => applyPost(queryClient, event.payload.post));
+  useLiveEvent("post.updated", (event) => {
+    applyPost(queryClient, event.payload.post);
+    // Approved items gain or lose open posts; the slot picker asks again when it next opens.
+    void queryClient.invalidateQueries({
+      queryKey: [...calendarKeys.all, "approved"],
+      refetchType: "none",
+    });
+  });
   useLiveEvent("channel.updated", (event) => applyChannel(queryClient, event.payload.channel));
   // A post shows its item's title and state.
   useLiveEvent("content.item.updated", (event) => {
