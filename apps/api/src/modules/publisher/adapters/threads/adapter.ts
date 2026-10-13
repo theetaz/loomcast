@@ -22,6 +22,7 @@ import {
   stepOf,
   toGraphRequest,
 } from "../facebook/meta-call";
+import { assertThreadsQuota, ThreadsQuotaSchema } from "./quota";
 import {
   ThreadsContainerSchema,
   ThreadsIdSchema,
@@ -29,10 +30,11 @@ import {
   threadsContainerState,
 } from "./status";
 
-// The live Threads adapter. `publish` sends what `buildThreadsPublish` builds: a VIDEO container
-// from the public copy of the render (`POST /{threads-user-id}/threads {media_type: "VIDEO",
-// video_url, text}`), then the post is pending. `status` sends what `buildThreadsFinish` builds:
-// `GET /{container-id}?fields=status,error_message` until the container is FINISHED, then
+// The live Threads adapter. `publish` sends what `buildThreadsPublish` builds: the 24-hour quota
+// (`GET /{threads-user-id}/threads_publishing_limit?fields=quota_usage,config`), then a VIDEO
+// container from the public copy of the render (`POST /{threads-user-id}/threads {media_type:
+// "VIDEO", video_url, text}`), and the post is pending. `status` sends what `buildThreadsFinish`
+// builds: `GET /{container-id}?fields=status,error_message` until the container is FINISHED, then
 // `POST /{threads-user-id}/threads_publish {creation_id}` and `GET /{media-id}?fields=permalink`.
 // The Threads API takes the token as the `access_token` parameter; the client places it.
 
@@ -88,6 +90,24 @@ export function createThreadsAdapter(options: MetaAdapterOptions): PublisherAdap
         accessToken,
       });
       context.record({ request: plan as unknown as JsonObject });
+
+      // The quota first: a full quota waits rather than creating a container that cannot post.
+      const limit = stepOf(plan.steps, "publishing_limit");
+      const quota = await metaCall(context, options, limit.step, async () =>
+        parseGraph(
+          ThreadsQuotaSchema,
+          await client.request(toGraphRequest(limit, accessToken, context.signal)),
+          "the publishing quota",
+        ),
+      );
+      const usage = quota.data[0];
+      context.record({
+        response: {
+          quota_usage: usage?.quota_usage ?? null,
+          quota_total: usage?.config?.quota_total ?? null,
+        },
+      });
+      assertThreadsQuota(quota);
 
       const create = stepOf(plan.steps, "create_container");
       const container = await metaCall(context, options, create.step, async () =>

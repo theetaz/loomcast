@@ -4,6 +4,13 @@ import { createThreadsAdapter } from "./adapter";
 
 export { createThreadsAdapter } from "./adapter";
 export {
+  assertThreadsQuota,
+  THREADS_QUOTA_RETRY_MS,
+  type ThreadsQuota,
+  ThreadsQuotaSchema,
+  threadsQuotaOf,
+} from "./quota";
+export {
   type ThreadsContainer,
   ThreadsContainerSchema,
   threadsContainerState,
