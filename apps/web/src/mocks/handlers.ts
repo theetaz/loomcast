@@ -9,6 +9,7 @@ import {
   type Project,
   routes,
   slugify,
+  UpdateProjectSchema,
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
 import { createConversationHandlers } from "./conversations";
@@ -23,6 +24,7 @@ import {
   setSignedIn,
   tokenPrefix,
 } from "./db";
+import { createKbHandlers } from "./kb";
 
 /** Hono paths (`:id`) and MSW paths share the same syntax. */
 const path = (name: keyof typeof routes) => `*${routes[name].path}`;
@@ -97,6 +99,34 @@ export function createHandlers(db: MockDb) {
         : apiError(404, "not_found", "No project has that id or slug.");
     }),
 
+    http.patch(path("projects.update"), async ({ params, request }) => {
+      if (!db.signedIn) return unauthorized();
+      const project = findProject(db, String(params.idOrSlug));
+      if (!project) return apiError(404, "not_found", "No project has that id or slug.");
+      const parsed = UpdateProjectSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return apiError(400, "validation_failed", "Check the project details.");
+      const { name, description } = parsed.data;
+      if (name !== undefined) project.name = name;
+      if (description !== undefined) project.description = description || null;
+      project.updatedAt = new Date().toISOString();
+      publish(db, { type: "project.updated", payload: { project: { ...project } } });
+      return HttpResponse.json(project);
+    }),
+
+    http.post(path("projects.archive"), ({ params }) => {
+      if (!db.signedIn) return unauthorized();
+      const project = db.projects.find((item) => item.id === params.id);
+      if (!project) return apiError(404, "not_found", "No project has that id.");
+      if (project.status !== "archived") {
+        const now = new Date().toISOString();
+        project.status = "archived";
+        project.archivedAt = now;
+        project.updatedAt = now;
+        publish(db, { type: "project.updated", payload: { project: { ...project } } });
+      }
+      return HttpResponse.json(project);
+    }),
+
     http.get(path("devices.list"), () =>
       db.signedIn ? HttpResponse.json({ items: db.devices }) : unauthorized(),
     ),
@@ -163,6 +193,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     ...createConversationHandlers(db),
+    ...createKbHandlers(db),
   ];
 }
 
