@@ -163,6 +163,8 @@ tab (`/projects/:id/content`), the same view scoped to one project.
   from `allowedActions` in the contracts; listed items carry no artifacts, and these actions
   need none.
 - New idea asks for a title, an optional pitch and series, and, in the library, the project.
+- The command palette searches videos by title and pitch across projects
+  (`features/palette/sources/content.ts`, 150 ms debounce, older requests aborted).
 - Item pages (`/content/:itemId`) and the review queue (`/review`) are placeholders until their
   screens land; the project's Series tab is one too.
 

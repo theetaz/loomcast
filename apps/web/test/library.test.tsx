@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LIBRARY_VIEW_KEY } from "@/features/library/view-preference";
+import { preloadPalette } from "@/features/palette/load";
 import { mockContentItem, updateContentItem } from "@/mocks/content";
 import { publish } from "@/mocks/db";
 import { recordRequests } from "./support/kb";
@@ -347,5 +348,32 @@ describe("new idea", () => {
       pitch: "One trait, three impls.",
       seriesId: series.errors.id,
     });
+  });
+});
+
+describe("palette", () => {
+  it("finds videos by title and opens them", async () => {
+    await preloadPalette();
+    const { db, items, rust } = librarySetup();
+    const requests = recordRequests();
+    const { user, router } = renderLibrary(db);
+    await table();
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }),
+      );
+    });
+    const palette = await screen.findByRole("dialog", { name: "Search or jump to" });
+    await user.keyboard("borrow");
+    const option = await within(palette).findByRole("option", { name: /Why the borrow checker/ });
+    expect(option).toHaveTextContent(rust.name);
+    expect(option).toHaveTextContent("Idea");
+    expect(
+      requests.filter((request) => request.path === "/api/content" && request.query.get("q")),
+    ).toHaveLength(1);
+
+    await user.click(option);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/content/${items.borrow.id}`));
   });
 });
