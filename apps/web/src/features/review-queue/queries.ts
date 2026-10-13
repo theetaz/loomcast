@@ -42,6 +42,9 @@ export function reviewQueueQueryOptions(projectId: string | null) {
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    // Live events patch the queue only while it is open; decisions taken on an item page in the
+    // meantime are picked up by refetching whenever the queue opens again.
+    staleTime: 0,
   });
 }
 

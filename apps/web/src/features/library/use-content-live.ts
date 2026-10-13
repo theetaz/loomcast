@@ -15,8 +15,9 @@ export function useContentLive() {
     upsertContentItem(queryClient, event.payload.item),
   );
   useLiveEvent("content.version.created", (event) => {
-    void queryClient.invalidateQueries({
-      queryKey: contentKeys.detail(event.payload.version.itemId),
-    });
+    const { itemId } = event.payload.version;
+    void queryClient.invalidateQueries({ queryKey: contentKeys.detail(itemId) });
+    // A new version may bring a new voice take, render or poster for the item's asset lists.
+    void queryClient.invalidateQueries({ queryKey: ["content", "assets", itemId] });
   });
 }
