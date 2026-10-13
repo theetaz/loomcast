@@ -13,6 +13,7 @@ import { HttpError, notFound } from "./lib/errors";
 import {
   createS3Storage,
   createUnconfiguredStorage,
+  presignedUrlOrigin,
   type Storage,
   type StorageConfig,
 } from "./lib/storage";
@@ -20,13 +21,19 @@ import { createAssetsService, register as registerAssets } from "./modules/asset
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
 import { createSessionsService } from "./modules/auth/sessions";
 import { register as registerBridge } from "./modules/bridge";
+import { register as registerContent } from "./modules/content";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
+import { register as registerFormats } from "./modules/formats";
 import { createJobsService, register as registerJobs } from "./modules/jobs";
 import { createJobHooks, subscribeJobStatusHooks } from "./modules/jobs/handlers";
 import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
+import { register as registerProduction } from "./modules/production";
 import { register as registerProjects } from "./modules/projects";
+import { register as registerReviews } from "./modules/reviews";
+import { register as registerSeries } from "./modules/series";
+import { register as registerSkills } from "./modules/skills";
 import { register as registerStream } from "./modules/stream";
 import { createTokensService, register as registerTokens } from "./modules/tokens";
 import type { AppEnv } from "./types";
@@ -71,6 +78,21 @@ export function isPublicApiRoute(method: string, path: string): boolean {
   return PUBLIC_API_ROUTES.some((route) => route.method === method && route.pattern.test(path));
 }
 
+/**
+ * Origins the browser fetches media from: presigned upload and download URLs on the S3 endpoint
+ * (when storage is configured), and published renders under `PUBLIC_BASE_URL`. The CSP adds them
+ * to `connect-src`, `img-src` and `media-src`.
+ */
+export function mediaOrigins(
+  config: Pick<AppDeps["config"], "storage" | "publicBaseUrl">,
+): string[] {
+  const origins = [new URL(config.publicBaseUrl).origin];
+  if (config.storage !== null) {
+    origins.unshift(presignedUrlOrigin(config.storage));
+  }
+  return [...new Set(origins)];
+}
+
 export interface CreateAppOptions {
   /** Extra modules registered after the built-in ones. Tests use it to mount probe routes. */
   modules?: readonly RegisterModule[];
@@ -106,6 +128,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     storage,
     assets,
   };
+  const media = mediaOrigins(config);
 
   const app = new Hono<AppEnv>();
 
@@ -137,9 +160,10 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
+        imgSrc: ["'self'", "data:", "blob:", ...media],
+        mediaSrc: ["'self'", "blob:", ...media],
         fontSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", ...media],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
@@ -189,6 +213,12 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerConversations(app, moduleDeps);
   registerKb(app, moduleDeps);
   registerAssets(app, moduleDeps);
+  registerFormats(app, moduleDeps);
+  registerSeries(app, moduleDeps);
+  registerContent(app, moduleDeps);
+  registerReviews(app, moduleDeps);
+  registerProduction(app, moduleDeps);
+  registerSkills(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
   registerBridge(app, moduleDeps);

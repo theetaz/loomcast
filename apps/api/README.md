@@ -87,7 +87,8 @@ pending uploads older than 24 hours.
 
 `storage.promoteToPublic(key)` copies a private object to the public bucket under
 `p/<ulid>/<sha256>.<ext>` and returns its anonymous URL under `PUBLIC_BASE_URL`. Only the publisher
-uses it, for final renders.
+uses it, for final renders. The CSP allows the S3 endpoint and `PUBLIC_BASE_URL` origins in
+`connect-src`, `img-src` and `media-src`.
 
 ### Authentication
 
