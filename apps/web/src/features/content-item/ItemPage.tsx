@@ -23,12 +23,14 @@ import {
   useFormatTarget,
   versionQueryOptions,
 } from "./queries";
+import { ReviewPanel } from "./ReviewPanel";
 import { ScriptSkeleton, ScriptTab } from "./ScriptTab";
 import { StoryboardTab } from "./StoryboardTab";
 import type { ItemSearch, ItemTab } from "./search";
 import type { ItemTabProps } from "./tab-props";
 import { useItemJob } from "./use-item-job";
 import { VersionTimeline } from "./VersionTimeline";
+import { VideoTab } from "./VideoTab";
 import { VoiceTab } from "./VoiceTab";
 
 const TAB_LABELS: Record<ItemTab, string> = {
@@ -237,6 +239,13 @@ function ItemView({
         </div>
 
         <aside aria-label="Review, versions and chat" className="flex min-w-0 flex-col gap-5">
+          <ReviewPanel
+            item={item}
+            versionNo={currentVersion.versionNo}
+            decisions={decisions}
+            reviews={reviews.data ?? []}
+            commentRef={commentRef}
+          />
           {railCards.map(({ id, component: Card }) => (
             <Card key={id} detail={detail} />
           ))}
@@ -279,7 +288,7 @@ function ItemTabs({
         {tab === "storyboard" ? <StoryboardTab {...props} /> : null}
       </TabsContent>
       <TabsContent value="voice">{tab === "voice" ? <VoiceTab {...props} /> : null}</TabsContent>
-      <TabsContent value="video">{null}</TabsContent>
+      <TabsContent value="video">{tab === "video" ? <VideoTab {...props} /> : null}</TabsContent>
     </>
   );
 }
