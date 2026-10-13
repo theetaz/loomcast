@@ -1,13 +1,13 @@
 import { PassThrough, Readable } from "node:stream";
-import { MCP_TOKEN_RE } from "@loomcast/contracts";
-import { apiTokens, auditLog, sessions, users } from "@loomcast/db";
+import { MCP_TOKEN_RE, PASSWORD_TOKEN_TTL_MS } from "@loomcast/contracts";
+import { apiTokens, auditLog, passwordTokens, sessions, users } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type CliIo, runAdmin } from "../src/cli/admin";
+import { type CliIo, type RunAdminOptions, runAdmin } from "../src/cli/admin";
 import { sha256Hex } from "../src/lib/crypto";
 import { verifyPassword } from "../src/lib/password";
-import { createTestApp, login, send, testIp, testPassword } from "./support";
+import { APP_ORIGIN, createTestApp, login, send, testIp, testPassword } from "./support";
 
 const OWNER_PASSWORD = testPassword("owner");
 const ADMIN_PASSWORD = testPassword("admin");
@@ -37,13 +37,17 @@ function collect(stream: PassThrough): () => string {
 }
 
 /** Runs the admin CLI against the test database with `input` piped to stdin. */
-async function admin(args: string[], input = ""): Promise<Run> {
+async function admin(
+  args: string[],
+  input = "",
+  options: RunAdminOptions = { appOrigin: APP_ORIGIN },
+): Promise<Run> {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const out = collect(stdout);
   const err = collect(stderr);
   const io: CliIo = { stdin: Readable.from([input]), stdout, stderr };
-  const code = await runAdmin(args, io, () => ({ db: testDb.db, close: async () => {} }));
+  const code = await runAdmin(args, io, () => ({ db: testDb.db, close: async () => {} }), options);
   return { code, stdout: out(), stderr: err() };
 }
 
@@ -237,5 +241,96 @@ describe("admin reset-password", () => {
       .where(eq(sessions.userId, user?.id ?? ""));
     expect(left).toHaveLength(0);
     await login(app, "admin@example.test", RESET_PASSWORD, testIp(77));
+  });
+});
+
+describe("admin create --invite", () => {
+  it("prints a one-time set-password link instead of asking for a password", async () => {
+    const started = Date.now();
+    const run = await admin([
+      "create",
+      "--email",
+      "Invited@Example.test",
+      "--name",
+      "Invited",
+      "--role",
+      "admin",
+      "--invite",
+    ]);
+    expect(run.code).toBe(0);
+    expect(run.stderr).toContain("Invited admin invited@example.test");
+    expect(run.stderr).toContain("cannot be shown again");
+    const link = run.stdout.trim();
+    expect(link.startsWith(`${APP_ORIGIN}/set-password#token=`)).toBe(true);
+    const token = new URLSearchParams(new URL(link).hash.slice(1)).get("token") ?? "";
+    expect(run.stderr).not.toContain(token);
+
+    const [user] = await testDb.db
+      .select()
+      .from(users)
+      .where(eq(users.email, "invited@example.test"));
+    expect(user).toMatchObject({ role: "admin", passwordHash: null });
+    const [row] = await testDb.db
+      .select()
+      .from(passwordTokens)
+      .where(eq(passwordTokens.userId, user?.id ?? ""));
+    expect(row).toMatchObject({
+      tokenHash: sha256Hex(token),
+      purpose: "invite",
+      createdBy: null,
+    });
+    expect(row?.expiresAt.getTime()).toBeGreaterThanOrEqual(started + PASSWORD_TOKEN_TTL_MS.invite);
+    const audits = await testDb.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.targetId, user?.id ?? ""));
+    expect(audits.map((entry) => entry.action)).toEqual(["user.invited"]);
+
+    // The link works in the app.
+    const { app } = createTestApp(testDb.db);
+    const chosen = testPassword("invited");
+    const set = await send(app, "POST", "/api/auth/set-password", {
+      body: { token, newPassword: chosen },
+      ip: testIp(91),
+    });
+    expect(set.status).toBe(204);
+    await login(app, "invited@example.test", chosen, testIp(92));
+  });
+
+  it("needs APP_ORIGIN and refuses --invite with a password or on other commands", async () => {
+    const noOrigin = await admin(
+      ["create", "--email", "o@example.test", "--name", "O", "--role", "admin", "--invite"],
+      "",
+      { appOrigin: "" },
+    );
+    expect(noOrigin.code).toBe(1);
+    expect(noOrigin.stderr).toContain("APP_ORIGIN");
+
+    const both = await admin([
+      "create",
+      "--email",
+      "b@example.test",
+      "--name",
+      "B",
+      "--role",
+      "admin",
+      "--invite",
+      "--password-stdin",
+    ]);
+    expect(both.code).toBe(2);
+
+    const token = await admin([
+      "token",
+      "--email",
+      "owner@example.test",
+      "--name",
+      "x",
+      "--scopes",
+      "mcp:read",
+      "--invite",
+    ]);
+    expect(token.code).toBe(2);
+    const left = await testDb.db.select().from(users).where(eq(users.email, "o@example.test"));
+    expect(left).toHaveLength(0);
   });
 });
