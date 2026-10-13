@@ -10,7 +10,7 @@ import {
   type TokenScope,
 } from "@loomcast/contracts";
 import { type ApiTokenRow, apiTokens, type Database, users } from "@loomcast/db";
-import { and, desc, eq, gt, isNull, lte, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
 import type { Clock } from "../../lib/clock";
 import { generatePrefixedToken, sha256Hex } from "../../lib/crypto";
 import type { Executor } from "../../lib/db";
@@ -80,6 +80,8 @@ export interface TokensService {
   revoke(id: string, options?: RevokeOptions): Promise<RevokeResult | null>;
   /** The user's tokens of `kind` that are not revoked, newest first. */
   list(userId: string, kind: TokenKind): Promise<ApiTokenRow[]>;
+  /** Revokes every live token of the user of the given kinds. Returns how many were revoked. */
+  revokeForUser(userId: string, kinds: readonly TokenKind[], executor?: Executor): Promise<number>;
 }
 
 export function toAccessToken(row: ApiTokenRow): AccessToken {
@@ -245,6 +247,24 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
           and(eq(apiTokens.userId, userId), eq(apiTokens.kind, kind), isNull(apiTokens.revokedAt)),
         )
         .orderBy(desc(apiTokens.createdAt));
+    },
+
+    async revokeForUser(userId, kinds, executor = db) {
+      if (kinds.length === 0) {
+        return 0;
+      }
+      const revoked = await executor
+        .update(apiTokens)
+        .set({ revokedAt: clock.now() })
+        .where(
+          and(
+            eq(apiTokens.userId, userId),
+            inArray(apiTokens.kind, [...kinds]),
+            isNull(apiTokens.revokedAt),
+          ),
+        )
+        .returning({ id: apiTokens.id });
+      return revoked.length;
     },
   };
 }

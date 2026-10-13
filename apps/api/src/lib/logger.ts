@@ -18,6 +18,8 @@ const SENSITIVE_KEYS = [
   "passwordHash",
   "token",
   "secret",
+  // Set-password links carry their secret in the URL fragment.
+  "setPasswordUrl",
 ] as const;
 
 function redactPaths(): string[] {

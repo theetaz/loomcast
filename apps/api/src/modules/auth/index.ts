@@ -17,6 +17,8 @@ import { consume, createRateLimiter } from "../../lib/rate-limit";
 import type { AppEnv, AuthUser } from "../../types";
 import { clearSessionCookie, setSessionCookie } from "./cookies";
 import { currentSession, currentUser } from "./guards";
+import { createPasswordTokensService } from "./password-tokens";
+import { addUserRoutes, createUsersService } from "./users";
 
 export {
   type AuthGuards,
@@ -25,7 +27,19 @@ export {
   currentToken,
   currentUser,
 } from "./guards";
+export {
+  createPasswordTokensService,
+  type PasswordTokensService,
+  SET_PASSWORD_PATH,
+  setPasswordUrl,
+} from "./password-tokens";
 export { createSessionsService, type SessionsService } from "./sessions";
+export {
+  createUsersService,
+  toUserSummary,
+  type UserActor,
+  type UsersService,
+} from "./users";
 
 const MINUTE_MS = 60_000;
 
@@ -51,13 +65,18 @@ export function toMe(user: AuthUser): Me {
   };
 }
 
-/** `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`. */
+/**
+ * `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
+ * and the owner's user routes (`/api/users`).
+ */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
-  const { db, clock, config, sessions } = deps;
+  const { db, clock, config, sessions, tokens } = deps;
   const router = new Hono<AppEnv>();
   const loginPerIp = createRateLimiter(LOGIN_LIMITS.perIp, clock);
   const loginPerAccount = createRateLimiter(LOGIN_LIMITS.perAccount, clock);
   const passwordChanges = createRateLimiter(PASSWORD_CHANGE_LIMIT, clock);
+  const passwordTokens = createPasswordTokensService({ db, clock, config });
+  const usersService = createUsersService({ db, clock, sessions, tokens, passwordTokens });
 
   // Public route: the app-level session guard lets it through, so it applies the CSRF check itself.
   router.post(routes["auth.login"].path, deps.auth.csrfGuard, async (c) => {
@@ -175,6 +194,8 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     });
     return c.body(null, 204);
   });
+
+  addUserRoutes(router, deps, usersService);
 
   app.route("/", router);
   return router;
