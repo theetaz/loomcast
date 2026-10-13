@@ -13,6 +13,7 @@ import type { SessionsService } from "./modules/auth/sessions";
 import type { JobHooks } from "./modules/jobs/hooks";
 import type { JobsService } from "./modules/jobs/service";
 import type { KbService } from "./modules/kb/service";
+import type { Scheduler } from "./modules/scheduler/scheduler";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
@@ -59,6 +60,11 @@ export interface ModuleDeps extends AppDeps {
   storage: Storage;
   /** Uploads, verification and downloads of stored files, shared by REST and the MCP tools. */
   assets: AssetsService;
+  /**
+   * Server-side scheduled tasks. Modules register a handler per task kind in `register` and
+   * enqueue tasks (optionally in a transaction). The loop runs only under `startServer`.
+   */
+  scheduler: Scheduler;
 }
 
 /**

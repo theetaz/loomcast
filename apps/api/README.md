@@ -37,6 +37,11 @@ production the repository's `.env` is loaded first; variables already set win.
 | `S3_PUBLIC_BUCKET` | `loomcast-public` | Public-read bucket served at `PUBLIC_BASE_URL` |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | required in production | Object storage keys |
 | `ASSET_VERIFY_MAX_BYTES` | 512 MiB | Largest upload finalize hashes itself when the store kept no checksum |
+| `SCHEDULER_ENABLED` | `true` | Runs the scheduled task loop in this process |
+| `SCHEDULER_TICK_MS` | `5000` | Pause between two claims of due tasks |
+| `PUBLISHING_MODE` | `dry-run` | `dry-run` records what would be posted; `live` posts |
+| `PUBLISHING_ENABLED` | `true` | `false` pauses publishing |
+| `CADENCE_HORIZON_DAYS` | `14` | How many days ahead cadence slots are planned |
 
 Outside production, `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` may all be left out (not
 just some of them): the API then starts without object storage, and uploads and downloads answer
@@ -72,6 +77,7 @@ router is mounted. `createApp` already registers every module, so a module never
 - `httpServer`: the Node server when served by `startServer` (the bridge attaches `upgrade`).
 - `storage`: object storage (below). `AppDeps.storage` overrides the S3 client built from config.
 - `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
+- `scheduler`: server-side scheduled tasks. `scheduler.register(kind, handler)` in `register`.
 
 ### Object storage and assets
 
@@ -82,8 +88,8 @@ is `projects/<projectId>/<kind>/<sha256>.<ext>`, so the same file uploaded again
 returns the existing asset (`upload: null` once it is ready). `POST /api/assets/:id/finalize`
 checks the stored size and the checksum the store verified (or hashes the object, up to
 `ASSET_VERIFY_MAX_BYTES`, when the store kept none), then marks the asset `ready`, or `failed` and
-deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. An hourly timer deletes
-pending uploads older than 24 hours.
+deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. The recurring
+`assets.cleanup` scheduled task (hourly) deletes pending uploads older than 24 hours.
 
 `storage.promoteToPublic(key)` copies a private object to the public bucket under
 `p/<ulid>/<sha256>.<ext>` and returns its anonymous URL under `PUBLIC_BASE_URL`. Only the publisher

@@ -17,8 +17,12 @@ import type { AppEnv } from "./types";
 /** How long open requests may finish after SIGTERM before their sockets are closed. */
 export const DRAIN_TIMEOUT_MS = 10_000;
 
-/** After this long, shutdown gives up waiting and the process exits with an error. */
-const SHUTDOWN_DEADLINE_MS = 20_000;
+/**
+ * After this long, shutdown gives up waiting and the process exits with an error. It covers the
+ * scheduler's wait for running tasks (up to 20 s) and stays under the container's 30 s stop grace
+ * period.
+ */
+const SHUTDOWN_DEADLINE_MS = 28_000;
 
 export interface RunningServer {
   app: Hono<AppEnv>;
@@ -26,8 +30,9 @@ export interface RunningServer {
   /** The bound port; useful with `port: 0`. */
   port: number;
   /**
-   * Graceful shutdown: stop accepting connections, run the lifecycle hooks (bridge sockets, event
-   * streams), let in-flight requests drain for up to `drainTimeoutMs`, then close what is left.
+   * Graceful shutdown: stop accepting connections, run the lifecycle hooks (the scheduler waits up
+   * to 20 s for running tasks; bridge sockets, event streams), let in-flight requests drain for up
+   * to `drainTimeoutMs`, then close what is left.
    */
   close(drainTimeoutMs?: number): Promise<void>;
 }

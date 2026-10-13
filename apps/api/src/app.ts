@@ -32,6 +32,7 @@ import { register as registerMcp } from "./modules/mcp";
 import { register as registerProduction } from "./modules/production";
 import { register as registerProjects } from "./modules/projects";
 import { register as registerReviews } from "./modules/reviews";
+import { createScheduler, register as registerScheduler } from "./modules/scheduler";
 import { register as registerSeries } from "./modules/series";
 import { register as registerSkills } from "./modules/skills";
 import { register as registerStream } from "./modules/stream";
@@ -116,6 +117,13 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     deps.storage ??
     (config.storage === null ? createUnconfiguredStorage() : ownStorage(deps, config.storage));
   const assets = createAssetsService({ ...deps, storage });
+  const scheduler = createScheduler({
+    db: deps.db,
+    bus: deps.bus,
+    clock: deps.clock,
+    logger: logger.child({ module: "scheduler" }),
+    config: config.scheduler,
+  });
   const moduleDeps: ModuleDeps = {
     ...deps,
     sessions,
@@ -127,6 +135,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     presence,
     storage,
     assets,
+    scheduler,
   };
   const media = mediaOrigins(config);
 
@@ -219,6 +228,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerReviews(app, moduleDeps);
   registerProduction(app, moduleDeps);
   registerSkills(app, moduleDeps);
+  registerScheduler(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
   registerBridge(app, moduleDeps);
@@ -226,6 +236,12 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerMcp(app, moduleDeps);
   for (const register of options.modules ?? []) {
     register(app, moduleDeps);
+  }
+
+  // Background work runs only in a served process, after every module registered its handlers.
+  if (deps.httpServer !== undefined && config.scheduler.enabled) {
+    scheduler.start();
+    deps.lifecycle.onClose(() => scheduler.stop());
   }
 
   if (config.isProduction && config.webDistDir !== null) {

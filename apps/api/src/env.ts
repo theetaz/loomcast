@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type PublishingMode, PublishingModeSchema } from "@loomcast/contracts";
 import { z } from "zod";
 import type { StorageConfig } from "./lib/storage/types";
 
@@ -40,6 +41,12 @@ const OriginSchema = z.url({ protocol: /^https?$/ }).transform((value) => new UR
 /** Object storage settings that have no default: all set, or (outside production) all unset. */
 const STORAGE_KEYS = ["S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"] as const;
 
+/** Default pause between scheduler ticks. */
+export const DEFAULT_SCHEDULER_TICK_MS = 5_000;
+
+/** Default number of days ahead the cadence planner fills with slots. */
+export const DEFAULT_CADENCE_HORIZON_DAYS = 14;
+
 const EnvSchema = z
   .object({
     DATABASE_URL: PostgresUrlSchema,
@@ -75,6 +82,26 @@ const EnvSchema = z
     S3_SECRET_KEY: z.string().min(1).optional(),
     /** Largest upload finalize hashes itself when the store did not record its SHA-256. */
     ASSET_VERIFY_MAX_BYTES: z.coerce.number().int().min(0).default(DEFAULT_ASSET_VERIFY_MAX_BYTES),
+    /** Runs the background task loop. Admin endpoints and enqueueing work either way. */
+    SCHEDULER_ENABLED: z.stringbool().default(true),
+    /** Pause between two claims of due tasks. */
+    SCHEDULER_TICK_MS: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(600_000)
+      .default(DEFAULT_SCHEDULER_TICK_MS),
+    /** `dry-run` records what would be posted without calling the platforms; `live` posts. */
+    PUBLISHING_MODE: PublishingModeSchema.default("dry-run"),
+    /** False pauses publishing entirely: due posts wait and retry later. */
+    PUBLISHING_ENABLED: z.stringbool().default(true),
+    /** How many days ahead the cadence planner creates slots. */
+    CADENCE_HORIZON_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(90)
+      .default(DEFAULT_CADENCE_HORIZON_DAYS),
   })
   .superRefine((env, ctx) => {
     const missing = STORAGE_KEYS.filter((key) => env[key] === undefined);
@@ -113,6 +140,24 @@ export interface Config {
   storage: StorageConfig | null;
   /** Largest upload `assets.finalize` hashes itself when the store did not record its SHA-256. */
   assetVerifyMaxBytes: number;
+  scheduler: SchedulerConfig;
+  publishing: PublishingConfig;
+  /** How many days ahead the cadence planner creates slots. */
+  cadenceHorizonDays: number;
+}
+
+export interface SchedulerConfig {
+  /** Runs the background task loop under `startServer`. */
+  enabled: boolean;
+  /** Pause between two claims of due tasks. */
+  tickMs: number;
+}
+
+export interface PublishingConfig {
+  /** `PUBLISHING_MODE`: in `dry-run`, nothing is sent to a platform. */
+  mode: PublishingMode;
+  /** `PUBLISHING_ENABLED`: false pauses publishing. */
+  enabled: boolean;
 }
 
 export class ConfigError extends Error {
@@ -165,6 +210,9 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
             publicBaseUrl: values.PUBLIC_BASE_URL,
           },
     assetVerifyMaxBytes: values.ASSET_VERIFY_MAX_BYTES,
+    scheduler: { enabled: values.SCHEDULER_ENABLED, tickMs: values.SCHEDULER_TICK_MS },
+    publishing: { mode: values.PUBLISHING_MODE, enabled: values.PUBLISHING_ENABLED },
+    cadenceHorizonDays: values.CADENCE_HORIZON_DAYS,
   };
 }
 
