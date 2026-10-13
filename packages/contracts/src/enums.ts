@@ -8,7 +8,11 @@ export const USER_ROLES = ["owner", "admin"] as const;
 export const UserRoleSchema = z.enum(USER_ROLES);
 export type UserRole = (typeof USER_ROLES)[number];
 
-export const TOKEN_KINDS = ["mcp", "device"] as const;
+/**
+ * `mcp`: a user's MCP token. `device`: a studio agent's bridge token. `job`: a short-lived MCP
+ * token minted for one job and handed to its producer session in `job.assign`.
+ */
+export const TOKEN_KINDS = ["mcp", "device", "job"] as const;
 export const TokenKindSchema = z.enum(TOKEN_KINDS);
 export type TokenKind = (typeof TOKEN_KINDS)[number];
 
@@ -33,7 +37,7 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
  * Fixed allow-list of job types. A value is added only together with a migration and an entry in
  * the job registry (`jobRegistry`).
  */
-export const JOB_TYPES = ["system.ping", "producer.chat"] as const;
+export const JOB_TYPES = ["system.ping", "producer.chat", "kb.analyze_reference"] as const;
 export const JobTypeSchema = z.enum(JOB_TYPES);
 export type JobType = (typeof JOB_TYPES)[number];
 

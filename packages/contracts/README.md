@@ -119,16 +119,22 @@ else if (parsed.message.type === "job.assign") run(parsed.message.payload.job);
 - `encode` adds `v`, `id` and `ts`, validates the message and throws `BridgeEncodeError` if it is invalid or over 1 MiB, so a sender never triggers a close on the other side.
 - The parse helpers never throw. A failure carries a `reason` (`too_large`, `invalid_json`, `unsupported_version` or `invalid_message`) and the matching close code: 4426 for an unsupported version, 4400 otherwise.
 - `job.assign` carries the payload as a plain object, and `job.complete` the result. Each side validates them against the job registry, so a bad payload is answered with `job.reject` or a failed job rather than a closed socket.
+- `job.assign` may carry `credentials: {mcp: {endpoint, token, expiresAt}}` for a job whose type has MCP access. `endpoint` is a server path such as `/mcp`, which the agent resolves against its own `serverUrl`; `token` is a job token (`lc_job_…`) that expires at `expiresAt` or when the job ends. The producer session uses it instead of the device token, which it never sees. Credentials are never persisted: the agent keeps them in memory for the running job and never writes them to its config, outbox, journal or logs. Frames without `credentials` still parse.
 - `BRIDGE_TIMINGS` holds the shared intervals: server ping 20 s, job heartbeat 15 s, delta batching 100 ms, accept timeout 30 s, a 10-minute lease that doubles as the disconnect grace period, and the reconnect backoff (1 s to 60 s, reset after 60 s connected).
 
 ## Job registry
 
 `jobRegistry` is the allow-list of job types. Every value of `JOB_TYPES` must have an entry, and the server and the studio agent both refuse anything else.
 
-| Type | Payload | Result | Timeout | Attempts | On lease expiry | Class |
-|---|---|---|---|---|---|---|
-| `system.ping` | `{}` | `{agentVersion, runtime: {node, platform}, producerAvailable}` | 30 s | 3 | `requeue` | `producer` |
-| `producer.chat` | `{conversationId, projectId, messageId, text, producerSessionId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` |
+| Type | Payload | Result | Timeout | Attempts | On lease expiry | Class | MCP access |
+|---|---|---|---|---|---|---|---|
+| `system.ping` | `{}` | `{agentVersion, runtime: {node, platform}, producerAvailable}` | 30 s | 3 | `requeue` | `producer` | `none` |
+| `producer.chat` | `{conversationId, projectId, messageId, text, producerSessionId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` | `read_write` |
+| `kb.analyze_reference` | `{projectId, entryId, url, platform, transcript, likedReason?}` | `{analysis: ReferenceAnalysis, summaryMd}` (summary at most 4,000 characters) | 15 min | 2 | `requeue` | `producer` | `read` |
+
+`mcpAccess` says whether a job's producer session may call the MCP server. For `read` and `read_write` the server mints a job token with the scopes in `MCP_ACCESS_SCOPES` (`mcp:read`, plus `mcp:write` for `read_write`), bound to the job's project, and sends it in `job.assign`. For `none` it sends no credentials.
+
+`kb.analyze_reference` works only from the transcript the user supplied. Nothing is downloaded, and the transcript is untrusted text.
 
 Use `isJobType`, `parseJobPayload(type, payload)`, `parseJobResult(type, result)` and `allowsEventKind(type, kind)` rather than reading schemas by hand; they keep the payload and result types tied to the job type.
 
@@ -150,7 +156,7 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 - Emails are trimmed and lowercased by `EmailSchema`. New passwords are 12 to 256 characters.
 - Slugs: lowercase ASCII letters and digits joined by single hyphens, at most 64 characters, and never shaped like a UUID. `slugify` returns an empty string when the input has nothing usable, so the caller picks a fallback.
 - Pairing codes: `XXXX-XXXX` over an alphabet without 0, 1, I and O. Input is trimmed and uppercased.
-- Tokens: `lc_mcp_` or `lc_dev_` followed by 43 base62 characters (32 random bytes, zero-padded).
+- Tokens: `lc_mcp_` (MCP), `lc_dev_` (device) or `lc_job_` (job-scoped MCP) followed by 43 base62 characters (32 random bytes, zero-padded).
 - Knowledge base: titles at most 200 characters; bodies and transcripts at most 200,000 (`MAX_KB_BODY_LENGTH`, `MAX_TRANSCRIPT_LENGTH`). Transcripts must not contain control characters other than tab and line breaks, or lone surrogates, so the largest one still fits in a bridge frame.
 - Tags: at most 20 per entry, without repeats, each matching `^[a-z0-9][a-z0-9-]{0,39}$` after trimming and lowercasing.
 - Set-password tokens: 32 to 128 URL-safe characters (`PASSWORD_TOKEN_RE`).

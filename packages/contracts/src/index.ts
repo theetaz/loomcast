@@ -7,6 +7,7 @@ export * from "./jobs/concurrency";
 export * from "./jobs/durable-events";
 export * from "./jobs/registry";
 export * from "./kb/analysis";
+export * from "./mcp/contract";
 export * from "./mcp/project-tools";
 export * from "./util/reference-url";
 export * from "./util/slug";

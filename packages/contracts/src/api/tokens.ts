@@ -6,6 +6,7 @@ import { McpTokenScopeSchema, type TokenKind, TokenKindSchema, TokenScopeSchema 
 export const TOKEN_PREFIXES = {
   mcp: "lc_mcp_",
   device: "lc_dev_",
+  job: "lc_job_",
 } as const satisfies Record<TokenKind, string>;
 
 /** 32 random bytes in base62, left-padded with `0` to a fixed 43 characters. */
@@ -13,9 +14,12 @@ export const TOKEN_SECRET_LENGTH = 43;
 
 export const MCP_TOKEN_RE = /^lc_mcp_[0-9A-Za-z]{43}$/;
 export const DEVICE_TOKEN_RE = /^lc_dev_[0-9A-Za-z]{43}$/;
+/** A job-scoped MCP token: bound to one job and its project, and expiring with the job. */
+export const JOB_TOKEN_RE = /^lc_job_[0-9A-Za-z]{43}$/;
 
 export const McpTokenSecretSchema = z.string().regex(MCP_TOKEN_RE);
 export const DeviceTokenSecretSchema = z.string().regex(DEVICE_TOKEN_RE);
+export const JobTokenSecretSchema = z.string().regex(JOB_TOKEN_RE);
 
 export const TOKEN_NAME_MAX_LENGTH = 100;
 

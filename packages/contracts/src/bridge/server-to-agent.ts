@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JobTokenSecretSchema } from "../api/tokens";
 import { IdSchema, JsonObjectSchema, TimestampSchema } from "../common";
 import { JobTypeSchema } from "../enums";
 import { bridgeMessage } from "./envelope";
@@ -38,11 +39,43 @@ export const AssignedJobSchema = z.object({
 });
 export type AssignedJob = z.infer<typeof AssignedJobSchema>;
 
+/**
+ * An absolute path on the server, such as `/mcp`. The agent resolves it against its own
+ * `serverUrl`, so credentials are only ever sent back to the server that issued them: a scheme, a
+ * host (`//host`) or a backslash is rejected.
+ */
+export const ServerPathSchema = z
+  .string()
+  .max(200)
+  .regex(/^\/(?!\/)[A-Za-z0-9._~/-]*$/, { message: "Expected a path such as /mcp" });
+
+/**
+ * Credentials for one job, sent only when the job type's `mcpAccess` is not `none`.
+ *
+ * `mcp.token` is a job token (`lc_job_…`) scoped to the job's project with the scopes of its
+ * `mcpAccess`, and it expires at `expiresAt` or when the job ends, whichever is first. The producer
+ * session uses it instead of the device token, which it never sees.
+ *
+ * Credentials are never persisted: the agent keeps them in memory for the running job only and
+ * never writes them to its config, outbox, journal or logs. A job that is assigned again gets
+ * fresh credentials in the new `job.assign`.
+ */
+export const JobCredentialsSchema = z.object({
+  mcp: z.object({
+    endpoint: ServerPathSchema,
+    token: JobTokenSecretSchema,
+    expiresAt: TimestampSchema,
+  }),
+});
+export type JobCredentials = z.infer<typeof JobCredentialsSchema>;
+
+/** `credentials` is optional, so frames from servers that send none still parse. */
 export const JobAssignSchema = bridgeMessage(
   "job.assign",
   z.object({
     job: AssignedJobSchema,
     leaseMs: durationMs,
+    credentials: JobCredentialsSchema.optional(),
   }),
 );
 
