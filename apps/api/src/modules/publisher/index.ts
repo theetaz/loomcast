@@ -11,6 +11,7 @@ import { flagNeedsReauth } from "../channels/reauth";
 import { contentServiceFor } from "../content";
 import { publisherAdapters } from "./adapters";
 import { createFacebookAdapter, type MetaAdapterOptions } from "./adapters/facebook";
+import { createThreadsAdapter } from "./adapters/threads";
 import { toPublishAttempt } from "./posts";
 import { registerPublisherTasks } from "./tasks";
 
@@ -85,6 +86,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     adapters: {
       ...publisherAdapters,
       facebook: createFacebookAdapter(meta),
+      threads: createThreadsAdapter(meta),
     },
   });
 
