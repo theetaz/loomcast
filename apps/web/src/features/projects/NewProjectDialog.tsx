@@ -24,21 +24,33 @@ import { toast } from "sonner";
 import { errorMessage } from "@/lib/api";
 import { useCreateProject } from "./queries";
 
-/** Wraps a trigger button. The form starts empty every time the dialog opens. */
-export function NewProjectDialog({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [formKey, setFormKey] = useState(0);
+export interface NewProjectDialogProps {
+  /** The trigger button. Leave it out when the dialog is opened from elsewhere. */
+  children?: ReactNode;
+  /** Controls the dialog from outside, as the command palette does. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
 
-  const onOpenChange = (next: boolean) => {
-    if (next) setFormKey((key) => key + 1);
-    setOpen(next);
+/** Wraps a trigger button, or is controlled. The form starts empty every time the dialog opens. */
+export function NewProjectDialog({
+  children,
+  open: controlled,
+  onOpenChange,
+}: NewProjectDialogProps) {
+  const [uncontrolled, setUncontrolled] = useState(false);
+  const open = controlled ?? uncontrolled;
+  const setOpen = (next: boolean) => {
+    if (controlled === undefined) setUncontrolled(next);
+    onOpenChange?.(next);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+    <Dialog open={open} onOpenChange={setOpen}>
+      {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-[460px]">
-        <NewProjectForm key={formKey} onCreated={() => setOpen(false)} />
+        {/* The content unmounts once the dialog has closed, so each opening starts empty. */}
+        <NewProjectForm onCreated={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );
