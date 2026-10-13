@@ -6,13 +6,14 @@ import {
   routes,
   type UserSummary,
 } from "@loomcast/contracts";
-import { type Database, type UserRow, users } from "@loomcast/db";
-import { asc, eq, sql } from "drizzle-orm";
+import { type Database, devices, type UserRow, users } from "@loomcast/db";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { audit } from "../../lib/audit";
+import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
-import { isUniqueViolation, type Transaction, transaction } from "../../lib/db";
+import { afterCommit, isUniqueViolation, type Transaction, transaction } from "../../lib/db";
 import { conflict, forbidden, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, readJson } from "../../lib/http";
 import type { AppEnv, AuthUser } from "../../types";
@@ -22,11 +23,12 @@ import type { PasswordTokensService } from "./password-tokens";
 import type { SessionsService } from "./sessions";
 
 /**
- * Token kinds a disabled user loses. Device tokens stay with their device (devices are shared by
- * every signed-in user and are revoked from the devices page); `tokens.verify` already refuses the
- * tokens of a disabled user.
+ * Token kinds a disabled user loses. `tokens.verify` already refuses every token of a disabled
+ * user, but only when it is next checked; revoking them makes the end final. The user's device
+ * tokens go with the devices they paired, which are revoked too, so their live bridge
+ * connections close at once instead of on the next reconnect.
  */
-const TOKEN_KINDS_REVOKED_ON_DISABLE = ["mcp", "job"] as const;
+const TOKEN_KINDS_REVOKED_ON_DISABLE = ["mcp", "job", "device"] as const;
 
 export function toUserSummary(row: UserRow): UserSummary {
   return {
@@ -75,14 +77,17 @@ export interface UsersService {
    */
   resetLink(userId: string, actor: UserActor): Promise<UserWithLink | null>;
   /**
-   * Disables an account and ends its sessions, MCP and job tokens and unused links. The owner
-   * cannot be disabled. Null when there is no such account.
+   * Disables an account and ends its sessions, MCP and job tokens and unused links, and revokes
+   * the devices it paired (their bridge connections close). The owner cannot be disabled. Null
+   * when there is no such account.
    */
   disable(userId: string, actor: UserActor): Promise<DisableResult | null>;
 }
 
 export interface UsersServiceDeps {
   db: Database;
+  /** `device.revoked` closes the bridge connection of each device a disabled user paired. */
+  bus: EventBus;
   clock: Clock;
   sessions: SessionsService;
   tokens: Pick<TokensService, "revokeForUser">;
@@ -115,7 +120,7 @@ function actorUserId(actor: UserActor): string | null {
 const ACTOR_VIA = { user: "web", token: "mcp", system: "cli" } as const;
 
 export function createUsersService(deps: UsersServiceDeps): UsersService {
-  const { db, clock, sessions, tokens, passwordTokens } = deps;
+  const { db, bus, clock, sessions, tokens, passwordTokens } = deps;
 
   async function inviteIn(
     tx: Transaction,
@@ -238,9 +243,10 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
         if (user.disabledAt !== null) {
           return { user, changed: false };
         }
+        const now = clock.now();
         const [disabled] = await tx
           .update(users)
-          .set({ disabledAt: clock.now() })
+          .set({ disabledAt: now })
           .where(eq(users.id, user.id))
           .returning();
         if (disabled === undefined) {
@@ -253,12 +259,38 @@ export function createUsersService(deps: UsersServiceDeps): UsersService {
           tx,
         );
         const linksVoided = await passwordTokens.voidUnused(user.id, tx);
+        const devicesRevoked = await tx
+          .update(devices)
+          .set({ revokedAt: now })
+          .where(and(eq(devices.createdBy, user.id), isNull(devices.revokedAt)))
+          .returning({ id: devices.id, tokenId: devices.tokenId, lastSeenAt: devices.lastSeenAt });
         await audit(tx, {
           ...actorFields(actor),
           action: "user.disabled",
           targetType: "user",
           targetId: user.id,
-          data: { sessionsEnded, tokensRevoked, linksVoided },
+          data: {
+            sessionsEnded,
+            tokensRevoked,
+            linksVoided,
+            devicesRevoked: devicesRevoked.map((device) => device.id),
+          },
+        });
+        afterCommit(tx, () => {
+          for (const device of devicesRevoked) {
+            bus.publish({
+              type: "device.revoked",
+              payload: { deviceId: device.id, tokenId: device.tokenId },
+            });
+            bus.publish({
+              type: "device.status",
+              payload: {
+                deviceId: device.id,
+                online: false,
+                lastSeenAt: device.lastSeenAt?.toISOString() ?? null,
+              },
+            });
+          }
         });
         return { user: disabled, changed: true };
       });
