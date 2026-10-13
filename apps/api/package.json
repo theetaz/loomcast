@@ -22,6 +22,7 @@
     "@hono/node-server": "catalog:",
     "@loomcast/contracts": "workspace:*",
     "@loomcast/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "catalog:",
     "@node-rs/argon2": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
