@@ -1,5 +1,6 @@
 import type { Database } from "@loomcast/db";
 import type { EventBus, Unsubscribe } from "../../../lib/bus";
+import { createProductionJobHooks } from "../../production/hooks";
 import type { JobHooks } from "../hooks";
 import { createKbAnalyzeReferenceHooks } from "./kb-analyze-reference";
 import { createProducerChatHooks } from "./producer-chat";
@@ -20,6 +21,9 @@ export function createJobHooks(deps: JobHandlerDeps): JobHooks {
   return {
     "producer.chat": createProducerChatHooks(deps),
     "kb.analyze_reference": createKbAnalyzeReferenceHooks(deps),
+    // content.write_script, content.storyboard, content.voice, content.render, content.revise
+    ...createProductionJobHooks(deps),
+    // skills.sync has no server-side side effects: the studio agent only pulls published skills.
   };
 }
 
