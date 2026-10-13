@@ -12,6 +12,7 @@ import { contentServiceFor } from "../content";
 import { publisherAdapters } from "./adapters";
 import { createFacebookAdapter, type MetaAdapterOptions } from "./adapters/facebook";
 import { createThreadsAdapter } from "./adapters/threads";
+import { createXAdapter, storageMediaSource } from "./adapters/x";
 import { toPublishAttempt } from "./posts";
 import { registerPublisherTasks } from "./tasks";
 
@@ -39,6 +40,7 @@ export { isRetryableCode, PublishFailure, publishError, toPublishError } from ".
 export {
   checkRateGate,
   isDryRun,
+  type LiveGateSettings,
   livePublishingBlocker,
   PLATFORM_DAILY_POST_LIMITS,
   RATE_WINDOW_MS,
@@ -87,6 +89,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       ...publisherAdapters,
       facebook: createFacebookAdapter(meta),
       threads: createThreadsAdapter(meta),
+      // Refuses every post with `not_configured` unless `FEATURE_X_PUBLISHING` is on and the X
+      // client credentials are set; otherwise it reads the rotating token pair from the vault
+      // and streams the render from the private bucket.
+      x: createXAdapter({
+        platforms: deps.config.platforms,
+        tokens: { db: deps.db, vault: deps.vault },
+        media: storageMediaSource({ storage: deps.storage, assets: deps.assets }),
+        onCredentialsRefused: async ({ channelId, error, reason }) => {
+          await flagNeedsReauth(deps, logger, { channelId, error, reason });
+        },
+      }),
     },
   });
 

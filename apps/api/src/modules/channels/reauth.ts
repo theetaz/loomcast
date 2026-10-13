@@ -86,7 +86,7 @@ export async function flagNeedsReauth(
           : { platformCode: input.error.platformCode }),
       },
     });
-    const channel = toChannel(row, deps.config.publishing.mode);
+    const channel = toChannel(row, deps.config);
     afterCommit(tx, () => deps.bus.publish({ type: "channel.updated", payload: { channel } }));
     return current;
   });

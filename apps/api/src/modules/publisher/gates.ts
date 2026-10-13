@@ -8,19 +8,27 @@ import { publishAttempts, scheduledPosts } from "@loomcast/db";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import type { Executor } from "../../lib/db";
 import { isLivePlatformAvailable } from "./adapters";
+import type { XPlatforms } from "./adapters/x";
 
 // The gates a post passes before anything is sent. The dry-run gate decides whether a post may go
 // live at all; the rate gate keeps live posting under each platform's daily publishing limit.
 
+/** The server settings the live gate reads: the publishing mode and the platform switches. */
+export interface LiveGateSettings {
+  publishing: { mode: PublishingMode };
+  platforms: XPlatforms;
+}
+
 /**
- * Why a channel cannot publish live, or null when it can: the platform must have a live adapter,
- * the channel must be connected and active, and the server must publish live.
+ * Why a channel cannot publish live, or null when it can: the platform must have a live adapter
+ * (X only while its feature flag is on), the channel must be connected and active, and the server
+ * must publish live.
  */
 export function livePublishingBlocker(
   channel: { platform: Platform; status: ChannelStatus; connected: boolean },
-  mode: PublishingMode,
+  settings: LiveGateSettings,
 ): LivePublishingBlocker | null {
-  if (!isLivePlatformAvailable(channel.platform)) {
+  if (!isLivePlatformAvailable(channel.platform, settings.platforms)) {
     return "platform_unavailable";
   }
   if (!channel.connected) {
@@ -29,7 +37,7 @@ export function livePublishingBlocker(
   if (channel.status !== "active") {
     return "not_active";
   }
-  if (mode !== "live") {
+  if (settings.publishing.mode !== "live") {
     return "publishing_dry_run";
   }
   return null;

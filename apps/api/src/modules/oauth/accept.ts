@@ -109,7 +109,7 @@ export async function acceptConnection(
     if (row === undefined) {
       throw new Error("the channel vanished");
     }
-    const channel = toChannel(row, deps.config.publishing.mode);
+    const channel = toChannel(row, deps.config);
     afterCommit(tx, () => deps.bus.publish({ type: "channel.updated", payload: { channel } }));
     result.push(channel);
   }

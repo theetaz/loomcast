@@ -18,14 +18,18 @@ import {
   refreshThreadsToken,
 } from "../../lib/meta-graph";
 import { VaultError } from "../../lib/vault";
-import { publishError } from "../publisher/errors";
+import { freshXAccessToken, usableXApp, type XClient, xClientFor } from "../publisher/adapters/x";
+import { PublishFailure, publishError } from "../publisher/errors";
 import { TaskFailure } from "../scheduler/scheduler";
 import { readChannelSecret, sealChannelSecret } from "./credentials";
 import { channelColumns, toChannel } from "./mappers";
 import { flagNeedsReauth } from "./reauth";
 
 // The daily credential sweeps. `channel.refresh_token` renews credentials that expire soon
-// (Threads: within 15 days of their 60); `channel.verify` asks the platform whether each
+// (Threads: within 15 days of their 60; X: within 10 minutes of their two hours, or already
+// expired, which rotates the single-use refresh token so it never lapses; X only while
+// `FEATURE_X_PUBLISHING` is on and its client is set, and never a call to X otherwise);
+// `channel.verify` asks the platform whether each
 // channel's credentials still work. A payload with `channelId` handles that channel alone; without
 // one the task sweeps every connected channel and queues the next sweep a day later. A refused
 // credential flags the channel `needs_reauth` with an alert; a transient failure is retried.
@@ -168,6 +172,75 @@ export function providerOf(platform: Platform): OAuthProvider {
 export function registerRefreshTask(deps: ModuleDeps): void {
   const { db, vault, scheduler, bus, config } = deps;
   const threadsClient: GraphClient = createThreadsGraphClient(config.platforms);
+  let xClient: XClient | null = null;
+
+  /** Publishes the channel as it now is, after a refresh outside a transaction of ours. */
+  async function emitChannel(channelId: string): Promise<void> {
+    const [row] = await db.select(channelColumns).from(channels).where(eq(channels.id, channelId));
+    if (row !== undefined) {
+      bus.publish({ type: "channel.updated", payload: { channel: toChannel(row, config) } });
+    }
+  }
+
+  /**
+   * Rotates an X channel's token pair through the X adapter's token store, which locks the row,
+   * spends the single-use refresh token and stores the new pair in one transaction.
+   */
+  async function refreshX(
+    channel: SweepChannel,
+    logger: Logger,
+    signal: AbortSignal,
+    now: Date,
+  ): Promise<ChannelCheck> {
+    const app = usableXApp(config.platforms);
+    if (app === null) {
+      return "skipped";
+    }
+    xClient ??= xClientFor(config.platforms);
+    try {
+      const fresh = await freshXAccessToken(
+        { db, vault },
+        { client: xClient, app, channelId: channel.id, now, signal },
+      );
+      if (!fresh.refreshed) {
+        return "skipped";
+      }
+    } catch (error) {
+      if (error instanceof VaultError) {
+        await flagNeedsReauth(deps, logger, {
+          channelId: channel.id,
+          reason: "unreadable_credentials",
+          error: publishError("auth", "The stored credentials cannot be read; reconnect.", {
+            retryable: false,
+          }),
+        });
+        return "needs_reauth";
+      }
+      if (error instanceof PublishFailure) {
+        if (error.error.code === "not_configured") {
+          // Disconnected meanwhile.
+          return "skipped";
+        }
+        await flagNeedsReauth(deps, logger, {
+          channelId: channel.id,
+          reason: "refresh_refused",
+          error: error.error,
+        });
+        return "needs_reauth";
+      }
+      if (error instanceof MetaGraphError && refusesCredentials(error)) {
+        await flagNeedsReauth(deps, logger, {
+          channelId: channel.id,
+          reason: "refresh_refused",
+          error: error.error,
+        });
+        return "needs_reauth";
+      }
+      throw error instanceof MetaGraphError ? taskFailureOf(error) : error;
+    }
+    await emitChannel(channel.id);
+    return "ok";
+  }
 
   async function refreshOne(
     channel: SweepChannel,
@@ -177,12 +250,17 @@ export function registerRefreshTask(deps: ModuleDeps): void {
   ): Promise<ChannelCheck> {
     const provider = providerOf(channel.platform);
     const lead = TOKEN_REFRESH_LEAD_MS[provider];
-    // Meta Page credentials do not expire; X refreshes through its own provider.
-    if (provider !== "threads" || lead === null || channel.tokenExpiresAt === null) {
+    // Meta Page credentials do not expire.
+    if (provider === "meta" || lead === null || channel.tokenExpiresAt === null) {
       return "skipped";
     }
     if (channel.tokenExpiresAt.getTime() - now.getTime() > lead) {
       return "skipped";
+    }
+    // An X access token lives two hours, so it has usually expired by the sweep: the refresh
+    // token renews it, and only a refused refresh needs the account reconnected.
+    if (provider === "x") {
+      return refreshX(channel, logger, signal, now);
     }
     if (channel.tokenExpiresAt.getTime() <= now.getTime()) {
       await flagNeedsReauth(deps, logger, {
@@ -262,7 +340,7 @@ export function registerRefreshTask(deps: ModuleDeps): void {
         .from(channels)
         .where(eq(channels.id, channel.id));
       if (row !== undefined) {
-        const view = toChannel(row, config.publishing.mode);
+        const view = toChannel(row, config);
         afterCommit(tx, () => bus.publish({ type: "channel.updated", payload: { channel: view } }));
       }
     });

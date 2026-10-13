@@ -70,7 +70,7 @@ export function registerVerifyTask(deps: ModuleDeps): void {
           .from(channels)
           .where(eq(channels.id, channel.id));
         if (row !== undefined) {
-          const view = toChannel(row, config.publishing.mode);
+          const view = toChannel(row, config);
           afterCommit(tx, () =>
             bus.publish({ type: "channel.updated", payload: { channel: view } }),
           );
