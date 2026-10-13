@@ -1,0 +1,110 @@
+# Loomcast production compose project. It shares its host with other applications, so every
+# service is memory-capped, publishes only on 127.0.0.1 and runs with a minimal privilege set.
+#
+# Run (the deploy script does this with the extracted copy of this file):
+#   docker compose -p loomcast -f compose.prod.yml --env-file /opt/loomcast/env/compose.env up -d --wait
+#
+# Interpolation variables come from compose.env (see env/compose.env.example). Service settings
+# come from api.env and postgres.env in LOOMCAST_ENV_DIR. The README next to this file explains
+# each file.
+
+name: loomcast
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging: *logging
+
+services:
+  api:
+    <<: *hardening
+    image: ghcr.io/theetaz/loomcast:${LOOMCAST_TAG:?set LOOMCAST_TAG in compose.env}
+    init: true
+    env_file:
+      - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/api.env${LOOMCAST_ENV_SUFFIX:-}
+    environment:
+      # Fixed here so the port mapping below always matches; everything else is in api.env.
+      # API_HOST stays unset: in production the api listens on every interface of the container.
+      NODE_ENV: production
+      API_PORT: "8790"
+      # Keep the heap well under mem_limit so V8 collects garbage before the kernel kills it.
+      NODE_OPTIONS: --enable-source-maps --max-old-space-size=${API_HEAP_MB:-448}
+    ports:
+      - "127.0.0.1:${LOOMCAST_HTTP_PORT:?set LOOMCAST_HTTP_PORT in compose.env}:8790"
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    mem_limit: ${API_MEM:-640m}
+    memswap_limit: ${API_MEM:-640m}
+    cpus: 1.0
+    pids_limit: 256
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8790/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+      - egress
+
+  postgres:
+    <<: *hardening
+    image: postgres:17-alpine
+    # The image's postgres user (uid 70) owns the data directory, so no root step is needed.
+    user: postgres
+    env_file:
+      - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/postgres.env${LOOMCAST_ENV_SUFFIX:-}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=40
+      - -c
+      - work_mem=4MB
+    shm_size: 128m
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+      - /var/run/postgresql:size=1m,mode=1777,nosuid,nodev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    # No ports: only the api reaches it, over the internal backend network.
+    networks:
+      - backend
+
+networks:
+  # No route out of the host: postgres lives only here.
+  backend:
+    internal: true
+  # Outbound access for the api (object storage, publishing APIs, alert webhooks).
+  egress: {}
+
+volumes:
+  pgdata:
