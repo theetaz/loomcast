@@ -51,11 +51,14 @@ const pingResult = {
 describe("studio agent over the bridge", () => {
   it("says hello and runs an assigned system.ping", async () => {
     const paths = tempAgentPaths();
-    const handlers = await createHandlers({
-      config: testConfig(),
-      paths,
-      log: silentLogger,
-    });
+    const handlers = await createHandlers(
+      {
+        config: testConfig(),
+        paths,
+        log: silentLogger,
+      },
+      [],
+    );
     start(handlers, paths);
 
     const hello = await bridge.waitFor("hello");

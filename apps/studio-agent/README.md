@@ -73,7 +73,7 @@ Jobs that were running when the agent stopped are reported as `interrupted` on t
 | Job type | Handler |
 |---|---|
 | `system.ping` | Reports the agent version, the Node runtime and whether the producer is available |
-| `producer.chat` | Added with the producer runtime; until then it is not advertised and assignments are rejected |
+| `producer.chat` | Runs one conversation turn in a producer session confined to the project workspace, resuming the previous session when it exists and streaming text and tool activity back. If the producer runtime fails to load, the job type is not advertised |
 
 Handlers are registered in `src/jobs/index.ts`. The runner validates every payload and result against the contracts job registry, rejects unknown job types, enforces the per-class credits and the registry timeout, and aborts a job on `job.cancel`.
 
