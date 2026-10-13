@@ -23,10 +23,14 @@ const count = z.number().int().min(0);
 
 /** The `data` schema of each durable event kind. */
 export const JOB_EVENT_DATA = {
-  /** A coarse progress step of the handler, such as `starting` or `running`. */
+  /**
+   * A coarse progress step of the handler, such as `starting` or `rendering`. `progress` is the
+   * share done, from 0 to 1, when the handler can tell (renders report every 10%).
+   */
   status: z.object({
     state: z.string().min(1).max(64),
     message: z.string().max(1_000).optional(),
+    progress: z.number().min(0).max(1).optional(),
   }),
   /** The producer session the job runs in, sent as soon as it is known. */
   session: z.object({

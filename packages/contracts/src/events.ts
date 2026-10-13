@@ -30,13 +30,17 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
   ),
   /** Any change of a job's status. */
   liveEvent("job.updated", z.object({ job: JobSummarySchema })),
-  /** Progress of a running job, such as a tool use. `kind` names the activity, e.g. the tool. */
+  /**
+   * Progress of a running job, such as a tool use. `kind` names the activity, e.g. the tool.
+   * `progress` (0 to 1) is set when the job reports how far it is, such as a render.
+   */
   liveEvent(
     "job.activity",
     z.object({
       jobId: IdSchema,
       kind: z.string(),
       summary: z.string(),
+      progress: z.number().min(0).max(1).optional(),
     }),
   ),
   liveEvent(

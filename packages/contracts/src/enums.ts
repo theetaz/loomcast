@@ -37,7 +37,17 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
  * Fixed allow-list of job types. A value is added only together with a migration and an entry in
  * the job registry (`jobRegistry`).
  */
-export const JOB_TYPES = ["system.ping", "producer.chat", "kb.analyze_reference"] as const;
+export const JOB_TYPES = [
+  "system.ping",
+  "producer.chat",
+  "kb.analyze_reference",
+  "content.write_script",
+  "content.storyboard",
+  "content.revise",
+  "content.voice",
+  "content.render",
+  "skills.sync",
+] as const;
 export const JobTypeSchema = z.enum(JOB_TYPES);
 export type JobType = (typeof JOB_TYPES)[number];
 

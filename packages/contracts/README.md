@@ -30,11 +30,12 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
 | `src/jobs/concurrency.ts` | Concurrency classes and the credits shape |
 | `src/jobs/durable-events.ts` | Durable job event kinds and the `data` schema of each |
-| `src/jobs/registry.ts` | `jobRegistry`, the job allow-list, with payload and result schemas, timeouts and retry policy per type |
+| `src/jobs/registry.ts` | `jobRegistry`, the job allow-list, with payload and result schemas, timeouts and retry policy per type, and `FormatSnapshotSchema` |
 | `src/mcp/contract.ts` | `McpToolContract`, `MCP_PATH`, the job-token policies and project bindings |
 | `src/mcp/project-tools.ts` | `projectTools`: `project.create`, `project.get` and `project.list` |
 | `src/mcp/kb-tools.ts` | `kbTools`: the `kb.*` tools |
 | `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
+| `src/mcp/pipeline-tools.ts` | `pipelineTools`: format, content, asset and skill tools |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
@@ -221,7 +222,7 @@ Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fiel
 | `conversation.message.created` | `{message}` |
 | `conversation.message.delta` | `{conversationId, jobId, text}` (ephemeral streaming text) |
 | `job.updated` | `{job}` (a `JobSummary`) |
-| `job.activity` | `{jobId, kind, summary}` |
+| `job.activity` | `{jobId, kind, summary, progress?}` (`progress` from 0 to 1) |
 | `device.status` | `{deviceId, online, lastSeenAt}` |
 | `project.created`, `project.updated` | `{project}` |
 | `kb.entry.created`, `kb.entry.updated` | `{entry}` (a `KbEntry`, without transcript or analysis) |
@@ -262,12 +263,20 @@ else if (parsed.message.type === "job.assign") run(parsed.message.payload.job);
 | Type | Payload | Result | Timeout | Attempts | On lease expiry | Class | MCP access |
 |---|---|---|---|---|---|---|---|
 | `system.ping` | `{}` | `{agentVersion, runtime: {node, platform}, producerAvailable}` | 30 s | 3 | `requeue` | `producer` | `none` |
-| `producer.chat` | `{conversationId, projectId, messageId, text, producerSessionId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` | `read_write` |
-| `kb.analyze_reference` | `{projectId, entryId, url, platform, transcript, likedReason?}` | `{analysis: ReferenceAnalysis, summaryMd}` (summary at most 4,000 characters) | 15 min | 2 | `requeue` | `producer` | `read` |
+| `producer.chat` | `{conversationId, projectId, messageId, text, producerSessionId?, contentItemId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` | `read_write` |
+| `kb.analyze_reference` | `{projectId, entryId, url, platform, transcript?, mediaAssetId?, likedReason?}` (a transcript or media) | `{analysis: ReferenceAnalysis, summaryMd, transcript?}` (summary at most 4,000 characters) | 15 min | 2 | `requeue` | `producer` | `read` |
+| `content.write_script` | content fields | `{script, notes?}` | 20 min | 2 | `requeue` | `producer` | `read_write` |
+| `content.storyboard` | content fields | `{storyboard}` | 20 min | 2 | `requeue` | `producer` | `read_write` |
+| `content.revise` | content fields, `reviewId?`, `instructions?` | `{script?, storyboard?, summary}` (at least one artifact) | 20 min | 1 | `fail` | `producer` | `read_write` |
+| `content.voice` | content fields, `voice: {voiceId, speed?}` | `{voiceAssetId, durationMs, alignment}` | 10 min | 3 | `requeue` | `render` | `read_write` |
+| `content.render` | content fields, `voiceAssetId` | `{renderAssetId, posterAssetId, durationMs, width, height}` | 45 min | 2 | `requeue` | `render` | `read_write` |
+| `skills.sync` | `{names?}` (all skills when left out) | `{synced: [{name, version}]}` | 5 min | 3 | `requeue` | `render` | `read` |
 
 `mcpAccess` says whether a job's producer session may call the MCP server. For `read` and `read_write` the server mints a job token with the scopes in `MCP_ACCESS_SCOPES` (`mcp:read`, plus `mcp:write` for `read_write`), bound to the job's project, and sends it in `job.assign`. For `none` it sends no credentials.
 
-`kb.analyze_reference` works only from the transcript the user supplied. Nothing is downloaded, and the transcript is untrusted text.
+`kb.analyze_reference` works from the transcript the user supplied, or from media the user uploaded (`mediaAssetId`, a `reference_media` asset), which the agent fetches through `asset.get_url`, transcribes and returns as `transcript`. The reference URL is never fetched, and transcripts are untrusted text.
+
+The content fields of every production job are `{projectId, itemId, versionId, format: {formatVersionId, rules}}`: the item, the version the job starts from, and a snapshot of the format rules (`FormatSnapshotSchema`; `formatVersionId` is null for an item without a series). Artifacts are never in the payload; the job reads them with `content.get` and uploads media with `content.upload_asset`. `content.revise` carries the owner's request as `instructions` (a review comment, with `reviewId`), which the producer may treat as trusted. Producer steps may emit `status`, `session`, `tool.activity`, `usage` and `log` events; voice, render and sync emit `status` and `log`. A `status` event may carry `progress` from 0 to 1 (renders report every 10%), which the server forwards as `job.activity.progress`.
 
 Use `isJobType`, `parseJobPayload(type, payload)`, `parseJobResult(type, result)` and `allowsEventKind(type, kind)` rather than reading schemas by hand; they keep the payload and result types tied to the job type.
 
@@ -275,10 +284,10 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`mcpTools` (the union of `projectTools`, `kbTools` and `adminTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools` and `pipelineTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
 - `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
-- `projectBinding: "input"`: the input names one project, directly or through an entry. The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
+- `projectBinding: "input"`: the input names one project, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
 - `projectBinding: "none"`: the input names no project. With a job token, results cover only the job's project.
 
 | Tool | Scope | Job tokens | Project | Input | Output |
@@ -293,6 +302,19 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 | `kb.get` | `mcp:read` | allow | input | `{entryId}` | `{entry: KbEntryDetail}` |
 | `kb.save_session_summary` | `mcp:write` | deny | input | `{projectId?, sessionId, summaryMd, cwd?}` | `{entryId}` |
 | `admin.create_user` | `mcp:admin` | deny | none | `{email, name, role}` | `{userId, setPasswordUrl, expiresAt}` (never a password) |
+| `format.get_rules` | `mcp:read` | allow | input | `{seriesId}` | `{formatId, name, formatVersionId, version, rules}` |
+| `content.create_idea` | `mcp:write` | allow | input | `{projectId, seriesId?, title, pitch, topic?}` | `{itemId}` |
+| `content.get` | `mcp:read` | allow | input | `{itemId, versionId?}` | `{item, version, format: {formatVersionId, rules} \| null}` |
+| `content.submit_for_review` | `mcp:write` | allow | input | `{itemId, baseVersionId?, script?, storyboard?, caption?, notes?}` (a script or storyboard) | `{versionId, versionNo, state}` |
+| `content.upload_asset` | `mcp:write` | allow | input | `{itemId, kind, filename, mime, bytes, sha256}` | `{asset, upload: {url, method, headers, expiresAt} \| null}` |
+| `content.finalize_asset` | `mcp:write` | allow | input | `{assetId, probe?, alignment?}` | `{asset}` |
+| `asset.get_url` | `mcp:read` | allow | input | `{assetId, disposition?}` | `{url, expiresAt, asset: AssetDetail}` |
+| `skill.pull` | `mcp:read` | allow | none | `{name?, version?}` | `{skills: [{name, kind, version, checksum, files}]}` |
+| `skill.publish` | `mcp:write` | deny | none | `{name, kind, files, changelog?}` | `{name, version, checksum, created}` |
+
+- `content.submit_for_review` moves the item to the stage its artifacts reach (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is refused instead of overwritten.
+- `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
+- `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
 
 ## Limits and formats
 

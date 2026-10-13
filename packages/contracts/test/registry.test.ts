@@ -1,7 +1,10 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  ALIGNMENT_MAX_WORDS,
   allowsEventKind,
+  BRIDGE_LIMITS,
   CONCURRENCY_CLASSES,
+  DEFAULT_FORMAT_RULES,
   isJobType,
   JOB_EVENT_KINDS,
   JOB_TYPES,
@@ -16,7 +19,16 @@ import {
   projectTools,
   TOKEN_SCOPES,
 } from "../src";
-import { analysis, ids, project } from "./fixtures";
+import { alignment, analysis, ids, project, script, storyboard } from "./fixtures";
+
+const PRODUCTION_JOB_TYPES = [
+  "content.write_script",
+  "content.storyboard",
+  "content.revise",
+  "content.voice",
+  "content.render",
+  "skills.sync",
+] as const;
 
 const chatPayload = {
   conversationId: ids.conversation,
@@ -51,6 +63,12 @@ describe("job registry", () => {
       "system.ping": "none",
       "producer.chat": "read_write",
       "kb.analyze_reference": "read",
+      "content.write_script": "read_write",
+      "content.storyboard": "read_write",
+      "content.revise": "read_write",
+      "content.voice": "read_write",
+      "content.render": "read_write",
+      "skills.sync": "read",
     });
     expect(MCP_ACCESS_SCOPES).toEqual({
       none: [],
@@ -85,6 +103,12 @@ describe("job registry", () => {
       parseJobPayload("producer.chat", { ...chatPayload, text: "x".repeat(20_001) }).success,
     ).toBe(false);
     expect(parseJobPayload("producer.chat", { text: "hi" }).success).toBe(false);
+    expect(
+      parseJobPayload("producer.chat", { ...chatPayload, contentItemId: ids.item }).success,
+    ).toBe(true);
+    expect(
+      parseJobPayload("producer.chat", { ...chatPayload, contentItemId: "item-1" }).success,
+    ).toBe(false);
   });
 
   it("validates results per job type", () => {
@@ -134,6 +158,16 @@ describe("job registry", () => {
       expect(
         parseJobPayload("kb.analyze_reference", {
           ...payload,
+          transcript: undefined,
+          mediaAssetId: ids.asset,
+        }).success,
+      ).toBe(true);
+      expect(
+        parseJobPayload("kb.analyze_reference", { ...payload, mediaAssetId: ids.asset }).success,
+      ).toBe(true);
+      expect(
+        parseJobPayload("kb.analyze_reference", {
+          ...payload,
           transcript: "x".repeat(MAX_TRANSCRIPT_LENGTH + 1),
         }).success,
       ).toBe(false);
@@ -149,6 +183,9 @@ describe("job registry", () => {
       const result = { analysis, summaryMd: "**Hook:** result first." };
 
       expect(parseJobResult("kb.analyze_reference", result).success).toBe(true);
+      expect(
+        parseJobResult("kb.analyze_reference", { ...result, transcript: "Spoken words." }).success,
+      ).toBe(true);
       expect(
         parseJobResult("kb.analyze_reference", { ...result, summaryMd: "x".repeat(4_001) }).success,
       ).toBe(false);
@@ -173,6 +210,161 @@ describe("job registry", () => {
       string | undefined
     >();
     expectTypeOf<JobResult<"kb.analyze_reference">["summaryMd"]>().toEqualTypeOf<string>();
+    expectTypeOf<JobPayload<"kb.analyze_reference">["transcript"]>().toEqualTypeOf<
+      string | undefined
+    >();
+    expectTypeOf<JobPayload<"content.voice">["voice"]["voiceId"]>().toEqualTypeOf<string>();
+    expectTypeOf<JobResult<"content.render">["posterAssetId"]>().toEqualTypeOf<string>();
+    expectTypeOf<JobResult<"skills.sync">["synced"][number]["version"]>().toEqualTypeOf<number>();
+  });
+
+  describe("production jobs", () => {
+    const base = {
+      projectId: ids.project,
+      itemId: ids.item,
+      versionId: ids.version,
+      format: { formatVersionId: ids.formatVersion, rules: DEFAULT_FORMAT_RULES },
+    };
+
+    it("follows the job table", () => {
+      const table = Object.fromEntries(
+        PRODUCTION_JOB_TYPES.map((type) => {
+          const { concurrencyClass, timeoutMs, retry } = jobRegistry[type];
+          return [
+            type,
+            [concurrencyClass, timeoutMs / 60_000, retry.maxAttempts, retry.onLeaseExpiry],
+          ];
+        }),
+      );
+
+      expect(table).toEqual({
+        "content.write_script": ["producer", 20, 2, "requeue"],
+        "content.storyboard": ["producer", 20, 2, "requeue"],
+        "content.revise": ["producer", 20, 1, "fail"],
+        "content.voice": ["render", 10, 3, "requeue"],
+        "content.render": ["render", 45, 2, "requeue"],
+        "skills.sync": ["render", 5, 3, "requeue"],
+      });
+    });
+
+    it("lets producer steps stream tool activity but not chat replies", () => {
+      for (const type of [
+        "content.write_script",
+        "content.storyboard",
+        "content.revise",
+      ] as const) {
+        expect(allowsEventKind(type, "tool.activity")).toBe(true);
+        expect(allowsEventKind(type, "assistant.message")).toBe(false);
+      }
+      for (const type of ["content.voice", "content.render", "skills.sync"] as const) {
+        expect([...jobRegistry[type].durableEventKinds].sort()).toEqual(["log", "status"]);
+      }
+    });
+
+    it("carries ids and a format snapshot, never artifacts", () => {
+      expect(parseJobPayload("content.write_script", base).success).toBe(true);
+      expect(parseJobPayload("content.storyboard", base).success).toBe(true);
+      expect(
+        parseJobPayload("content.write_script", {
+          ...base,
+          format: { formatVersionId: null, rules: DEFAULT_FORMAT_RULES },
+        }).success,
+      ).toBe(true);
+      expect(parseJobPayload("content.write_script", { ...base, format: undefined }).success).toBe(
+        false,
+      );
+      expect(
+        parseJobPayload("content.write_script", {
+          ...base,
+          format: {
+            ...base.format,
+            rules: { ...DEFAULT_FORMAT_RULES, lengthSec: { min: 9, max: 6 } },
+          },
+        }).success,
+      ).toBe(false);
+      expect(parseJobPayload("content.storyboard", { ...base, script }).data).not.toHaveProperty(
+        "script",
+      );
+    });
+
+    it("validates voice, render and revise payloads", () => {
+      expect(
+        parseJobPayload("content.voice", { ...base, voice: { voiceId: "voice-1", speed: 1.1 } })
+          .success,
+      ).toBe(true);
+      expect(parseJobPayload("content.voice", base).success).toBe(false);
+      expect(
+        parseJobPayload("content.voice", { ...base, voice: { voiceId: "voice-1", speed: 2 } })
+          .success,
+      ).toBe(false);
+      expect(parseJobPayload("content.render", { ...base, voiceAssetId: ids.voice }).success).toBe(
+        true,
+      );
+      expect(parseJobPayload("content.render", base).success).toBe(false);
+      expect(parseJobPayload("content.revise", base).success).toBe(true);
+      expect(
+        parseJobPayload("content.revise", {
+          ...base,
+          reviewId: ids.review,
+          instructions: "Open on the error message.",
+        }).success,
+      ).toBe(true);
+      expect(parseJobPayload("content.revise", { ...base, instructions: " " }).success).toBe(false);
+    });
+
+    it("validates production results", () => {
+      expect(parseJobResult("content.write_script", { script }).success).toBe(true);
+      expect(
+        parseJobResult("content.write_script", { script: { ...script, segments: [] } }).success,
+      ).toBe(false);
+      expect(parseJobResult("content.storyboard", { storyboard }).success).toBe(true);
+      expect(parseJobResult("content.revise", { script, summary: "Shorter hook." }).success).toBe(
+        true,
+      );
+      expect(parseJobResult("content.revise", { summary: "Nothing changed." }).success).toBe(false);
+      expect(
+        parseJobResult("content.voice", { voiceAssetId: ids.voice, durationMs: 41_000, alignment })
+          .success,
+      ).toBe(true);
+      expect(
+        parseJobResult("content.render", {
+          renderAssetId: ids.render,
+          posterAssetId: ids.poster,
+          durationMs: 41_000,
+          width: 1080,
+          height: 1920,
+        }).success,
+      ).toBe(true);
+      expect(
+        parseJobResult("content.render", { renderAssetId: ids.render, durationMs: 41_000 }).success,
+      ).toBe(false);
+    });
+
+    it("syncs all skills or the named ones", () => {
+      expect(parseJobPayload("skills.sync", {}).success).toBe(true);
+      expect(parseJobPayload("skills.sync", { names: ["scriptwriting"] }).success).toBe(true);
+      expect(parseJobPayload("skills.sync", { names: [] }).success).toBe(false);
+      expect(parseJobPayload("skills.sync", { names: ["a", "a"] }).success).toBe(false);
+      expect(parseJobPayload("skills.sync", { names: ["../a"] }).success).toBe(false);
+      expect(
+        parseJobResult("skills.sync", { synced: [{ name: "scriptwriting", version: 3 }] }).success,
+      ).toBe(true);
+      expect(parseJobResult("skills.sync", { synced: [{ name: "x", version: 0 }] }).success).toBe(
+        false,
+      );
+    });
+
+    it("keeps a voice result within one bridge frame", () => {
+      const words = Array.from({ length: ALIGNMENT_MAX_WORDS }, (_, index) => ({
+        text: "pneumonoultramicroscopic",
+        startMs: index * 100,
+        endMs: index * 100 + 90,
+      }));
+      const result = { voiceAssetId: ids.voice, durationMs: 600_000, alignment: { words } };
+
+      expect(parseJobResult("content.voice", result).success).toBe(true);
+      expect(JSON.stringify(result).length).toBeLessThan(BRIDGE_LIMITS.maxPayloadBytes);
+    });
   });
 });
 

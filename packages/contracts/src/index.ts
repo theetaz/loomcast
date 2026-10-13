@@ -10,6 +10,7 @@ export * from "./kb/analysis";
 export * from "./mcp/admin-tools";
 export * from "./mcp/contract";
 export * from "./mcp/kb-tools";
+export * from "./mcp/pipeline-tools";
 export * from "./mcp/project-tools";
 export * from "./mcp/tools";
 export * from "./pipeline/artifacts";

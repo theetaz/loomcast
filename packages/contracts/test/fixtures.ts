@@ -33,6 +33,7 @@ export const ids = {
   format: "5e4d3c2b-1a09-4f8e-9d7c-6b5a49382716",
   formatVersion: "3b4c5d6e-7f80-4192-a3b4-c5d6e7f80912",
   skill: "1f2e3d4c-5b6a-4798-8a9b-0c1d2e3f4a5b",
+  asset: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
 } as const;
 
 export const at = "2026-10-12T09:30:00.000Z";

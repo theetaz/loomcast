@@ -122,6 +122,36 @@ export const AssetDetailSchema = AssetSchema.extend({
 });
 export type AssetDetail = z.infer<typeof AssetDetailSchema>;
 
+/** The file an upload describes, shared by `assets.createUpload` and `content.upload_asset`. */
+export const UploadFileFields = {
+  kind: AssetKindSchema,
+  filename: AssetFilenameSchema,
+  mime: AssetMimeTypeSchema,
+  bytes: z.number().int().min(1),
+  sha256: Sha256HexSchema,
+};
+
+/** Checks the MIME type against the kind and the size against the kind's cap. */
+export function checkUploadFile(
+  upload: { kind: AssetKind; mime: string; bytes: number },
+  ctx: z.RefinementCtx,
+): void {
+  if (!isAssetMimeTypeFor(upload.kind, upload.mime)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `A ${upload.kind} asset cannot be ${upload.mime}`,
+      path: ["mime"],
+    });
+  }
+  if (upload.bytes > ASSET_KIND_MAX_BYTES[upload.kind]) {
+    ctx.addIssue({
+      code: "custom",
+      message: `A ${upload.kind} asset is at most ${ASSET_KIND_MAX_BYTES[upload.kind]} bytes`,
+      path: ["bytes"],
+    });
+  }
+}
+
 /**
  * Asks for an upload. The MIME type must suit the kind (`ASSET_KIND_MIME_TYPES`) and the size its
  * cap (`ASSET_KIND_MAX_BYTES`). `itemId` must belong to `projectId`.
@@ -130,28 +160,9 @@ export const CreateUploadRequestSchema = z
   .object({
     projectId: IdSchema,
     itemId: IdSchema.optional(),
-    kind: AssetKindSchema,
-    filename: AssetFilenameSchema,
-    mime: AssetMimeTypeSchema,
-    bytes: z.number().int().min(1),
-    sha256: Sha256HexSchema,
+    ...UploadFileFields,
   })
-  .superRefine((upload, ctx) => {
-    if (!isAssetMimeTypeFor(upload.kind, upload.mime)) {
-      ctx.addIssue({
-        code: "custom",
-        message: `A ${upload.kind} asset cannot be ${upload.mime}`,
-        path: ["mime"],
-      });
-    }
-    if (upload.bytes > ASSET_KIND_MAX_BYTES[upload.kind]) {
-      ctx.addIssue({
-        code: "custom",
-        message: `A ${upload.kind} asset is at most ${ASSET_KIND_MAX_BYTES[upload.kind]} bytes`,
-        path: ["bytes"],
-      });
-    }
-  });
+  .superRefine(checkUploadFile);
 export type CreateUploadRequest = z.infer<typeof CreateUploadRequestSchema>;
 
 /**
