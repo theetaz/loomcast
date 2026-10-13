@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { projects } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { generatePrefixedToken } from "../src/lib/crypto";
-import { MCP_RATE_LIMIT, MCP_SERVER_NAME } from "../src/modules/mcp";
+import { MCP_JOB_RATE_LIMIT, MCP_RATE_LIMIT, MCP_SERVER_NAME } from "../src/modules/mcp";
 import { createTokensService } from "../src/modules/tokens/service";
 import {
   bearer,
   connectClient,
+  issueJobToken,
   issueToken,
   type McpTestServer,
   rpc,
@@ -143,5 +145,29 @@ describe("mcp endpoint", () => {
     server.clock.advance(MCP_RATE_LIMIT.intervalMs / MCP_RATE_LIMIT.capacity);
     const refilled = await rpc(server.url, ping, bearer(limited.secret));
     expect(refilled.status).toBe(200);
+  });
+
+  it("limits each job token to 240 requests a minute", async () => {
+    expect(MCP_JOB_RATE_LIMIT.capacity).toBe(240);
+    const [project] = await testDb.db
+      .insert(projects)
+      .values({ slug: `limit-${randomUUID().slice(0, 8)}`, name: "Limits", createdBy: userId })
+      .returning();
+    if (project === undefined) {
+      throw new Error("project was not inserted");
+    }
+    const scopes = ["mcp:read"] as const;
+    const limited = await issueJobToken(testDb.db, { userId, projectId: project.id, scopes });
+    const other = await issueJobToken(testDb.db, { userId, projectId: project.id, scopes });
+    for (let i = 0; i < MCP_JOB_RATE_LIMIT.capacity; i += 1) {
+      const response = await rpc(server.url, ping, bearer(limited.secret));
+      expect(response.status).toBe(200);
+    }
+    const refused = await rpc(server.url, ping, bearer(limited.secret));
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("1");
+
+    const unaffected = await rpc(server.url, ping, bearer(other.secret));
+    expect(unaffected.status).toBe(200);
   });
 });
