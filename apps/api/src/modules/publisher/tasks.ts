@@ -141,6 +141,7 @@ function mediaOf(render: AssetRow, posterAssetId: string | null): PublishMedia {
     width: render.width ?? probe?.width ?? null,
     height: render.height ?? probe?.height ?? null,
     posterAssetId,
+    probe: probe ?? null,
   };
 }
 

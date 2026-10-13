@@ -1,4 +1,10 @@
-import type { JsonObject, Platform, PublishError, PublishRequest } from "@loomcast/contracts";
+import type {
+  AssetProbe,
+  JsonObject,
+  Platform,
+  PublishError,
+  PublishRequest,
+} from "@loomcast/contracts";
 import type { Logger } from "../../lib/logger";
 import type { FittedCaption } from "./caption";
 import type { MediaFacts } from "./requests/types";
@@ -54,6 +60,8 @@ export interface PublishMedia extends MediaFacts {
   width: number | null;
   height: number | null;
   posterAssetId: string | null;
+  /** What the studio agent probed at upload (codecs, frame rate, bit rate), when it sent one. */
+  probe?: AssetProbe | null;
 }
 
 /** What an adapter call gets. Built by the publisher for each `publish`, `validate` and `status`. */
