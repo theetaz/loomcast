@@ -1,5 +1,7 @@
 import type { JobEventData } from "@loomcast/contracts";
 import { JobFailure } from "../handlers";
+import type { CommandScope } from "../production/command-guard";
+import type { SkillPackEntry } from "../production/skills";
 import type { ProducerJobType, ProducerMcpAccess } from "./mcp";
 
 /** The durable event kinds a producer runtime reports while a turn runs. */
@@ -33,6 +35,10 @@ export interface ProducerRunInput {
   readonly mcp?: ProducerMcpAccess;
   /** Appended to the preset system prompt. Defaults to the chat brief. */
   readonly brief?: string;
+  /** Skills appended to the system prompt after the brief, in order. */
+  readonly skills?: readonly SkillPackEntry[];
+  /** Where a storyboard session's allow-listed commands may look. Without it Bash is denied. */
+  readonly commandScope?: CommandScope;
   /** Receives durable events in order. */
   readonly onEvent: (event: ProducerEvent) => void;
   /** Receives streamed assistant text, already batched. */

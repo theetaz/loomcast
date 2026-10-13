@@ -1,4 +1,5 @@
 import {
+  type HookCallback,
   type Options,
   type SDKAssistantMessage,
   type SDKAssistantMessageError,
@@ -9,9 +10,16 @@ import {
 import { BRIDGE_TIMINGS, type JobEventData, MAX_ASSISTANT_TEXT_LENGTH } from "@loomcast/contracts";
 import { AGENT_VERSION } from "../agent-info";
 import { type Logger, silentLogger } from "../logger";
+import type { SkillPackEntry } from "../production/skills";
 import { summarizeToolUse } from "./activity";
 import { deniedMcpTools, mcpServersFor } from "./mcp";
-import { builtinToolsFor, createToolGuard, deniedBuiltinTools } from "./permissions";
+import {
+  builtinToolsFor,
+  checkToolUse,
+  createToolGuard,
+  deniedBuiltinTools,
+  type ToolGuardOptions,
+} from "./permissions";
 import { chatBrief } from "./prompts/chat";
 import {
   PRODUCER_ERROR_CODES,
@@ -44,8 +52,11 @@ export interface SdkProducerRuntimeOptions {
 /** The default brief: the chat brief without a project. */
 export const PRODUCER_BRIEF = chatBrief();
 
-/** Tools removed outright, in addition to limiting the base set to the producer tools. */
-const REMOVED_TOOLS = ["Bash", "NotebookEdit", "Agent", "Task", "Skill"];
+/**
+ * Tools removed outright, in addition to limiting the base set to the job type's tools. Bash is
+ * removed through `deniedBuiltinTools` for every job type that does not get it.
+ */
+const REMOVED_TOOLS = ["NotebookEdit", "Agent", "Task", "Skill"];
 
 /**
  * Runs producer turns through the producer runtime package.
@@ -55,9 +66,14 @@ const REMOVED_TOOLS = ["Bash", "NotebookEdit", "Agent", "Task", "Skill"];
  * - It loads no user or project settings (`settingSources: []`) and no MCP configuration from
  *   disk (`strictMcpConfig`). The only MCP server is the platform's, attached with the job token
  *   when the job has MCP access.
- * - Its tools are limited to the job type's built-in tools; the other producer tools, Bash and
- *   the platform MCP tools the job may not call are removed outright. Every permission prompt
- *   goes to the guard. `allowedTools` stays empty on purpose: an allowed tool would skip the guard.
+ * - Its tools are limited to the job type's built-in tools; the other producer tools, Bash
+ *   (except in storyboard sessions) and the platform MCP tools the job may not call are removed
+ *   outright. Every permission prompt goes to the guard. `allowedTools` stays empty on purpose:
+ *   an allowed tool would skip the guard.
+ * - The same guard also runs as a `PreToolUse` hook, which fires for every tool call before the
+ *   runtime's own permission rules. A call the guard denies is denied there even if the runtime
+ *   would have approved it without asking, and an allowed Bash call runs in its rewritten form.
+ * - The job's skill pack is appended to the system prompt after the brief.
  */
 export class SdkProducerRuntime implements ProducerRuntime {
   readonly #query: QueryFunction;
@@ -76,10 +92,19 @@ export class SdkProducerRuntime implements ProducerRuntime {
 
   /** The options of one turn. Exposed for tests. */
   options(
-    input: Pick<ProducerRunInput, "cwd" | "resumeId" | "jobType" | "mcp" | "brief">,
+    input: Pick<
+      ProducerRunInput,
+      "cwd" | "resumeId" | "jobType" | "mcp" | "brief" | "skills" | "commandScope"
+    >,
     abort: AbortController,
   ): Options {
     const jobType = input.jobType ?? "producer.chat";
+    const guard: ToolGuardOptions = {
+      workspaceDir: input.cwd,
+      protectedDirs: this.#protectedDirs,
+      jobType,
+      commandScope: input.commandScope,
+    };
     return {
       cwd: input.cwd,
       ...(input.resumeId === undefined ? {} : { resume: input.resumeId }),
@@ -89,7 +114,7 @@ export class SdkProducerRuntime implements ProducerRuntime {
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: input.brief ?? PRODUCER_BRIEF,
+        append: withSkillPack(input.brief ?? PRODUCER_BRIEF, input.skills ?? []),
       },
       tools: [...builtinToolsFor(jobType)],
       disallowedTools: [
@@ -98,11 +123,8 @@ export class SdkProducerRuntime implements ProducerRuntime {
         ...deniedMcpTools(jobType),
       ],
       permissionMode: "default",
-      canUseTool: createToolGuard({
-        workspaceDir: input.cwd,
-        protectedDirs: this.#protectedDirs,
-        jobType,
-      }),
+      canUseTool: createToolGuard(guard),
+      hooks: { PreToolUse: [{ hooks: [preToolUseGuard(guard)] }] },
       mcpServers: mcpServersFor(input.mcp),
       strictMcpConfig: true,
       includePartialMessages: true,
@@ -280,6 +302,91 @@ class TurnState {
   #emit(event: ProducerEvent): void {
     this.#input.onEvent(event);
   }
+}
+
+/**
+ * The guard as a `PreToolUse` hook. It denies whatever the guard denies, before the runtime's own
+ * permission rules run. An allowed Bash call is approved with the guard's rewritten input; every
+ * other allowed call continues to the normal permission flow, which ends in `canUseTool`.
+ */
+export function preToolUseGuard(options: ToolGuardOptions): HookCallback {
+  return async (input) => {
+    if (input.hook_event_name !== "PreToolUse") {
+      return { continue: true };
+    }
+    const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
+    const result = await checkToolUse(options, input.tool_name, toolInput, input.mcp_server);
+    if (result.behavior === "deny") {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: result.message,
+        },
+      };
+    }
+    if (input.tool_name === "Bash") {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          permissionDecisionReason: "An allow-listed command, rewritten by the studio agent",
+          updatedInput: result.updatedInput ?? toolInput,
+        },
+      };
+    }
+    return { continue: true };
+  };
+}
+
+/** The most skill text a session's system prompt gets. */
+export const MAX_SKILL_PACK_CHARS = 120_000;
+
+/**
+ * The brief followed by the skill pack: each skill's description and files, in order. Skills that
+ * no longer fit are named but left out.
+ */
+export function withSkillPack(brief: string, skills: readonly SkillPackEntry[]): string {
+  if (skills.length === 0) {
+    return brief;
+  }
+  const parts = [
+    brief,
+    "",
+    "# Skill pack",
+    "",
+    "Loomcast production skills for this job. Follow them; the format rules and the instructions in the prompt take precedence where they differ.",
+  ];
+  let used = 0;
+  const skipped: string[] = [];
+  for (const skill of skills) {
+    const body = [
+      "",
+      `## Skill: ${skill.name} (${skill.kind}${skill.version === undefined ? "" : `, version ${skill.version}`})`,
+      "",
+      skill.description,
+      ...skill.files.flatMap((file) => [
+        "",
+        `### ${skill.name}/${file.path}`,
+        "",
+        file.content.trimEnd(),
+      ]),
+    ].join("\n");
+    if (used + body.length > MAX_SKILL_PACK_CHARS) {
+      skipped.push(skill.name);
+      continue;
+    }
+    used += body.length;
+    parts.push(body);
+  }
+  if (skipped.length > 0) {
+    parts.push("", `Skills left out for length: ${skipped.join(", ")}.`);
+  }
+  return parts.join("\n");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -25,8 +25,14 @@ describe("job handlers", () => {
   it("registers system.ping and the producer jobs by default", async () => {
     const registry = await createHandlers(deps);
     expect(registry.types().sort()).toEqual([
+      "content.render",
+      "content.revise",
+      "content.storyboard",
+      "content.voice",
+      "content.write_script",
       "kb.analyze_reference",
       "producer.chat",
+      "skills.sync",
       "system.ping",
     ]);
     const result = await registry.get("system.ping")?.(pingContext([]));
