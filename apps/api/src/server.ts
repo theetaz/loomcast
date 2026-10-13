@@ -86,7 +86,8 @@ export async function startServer(
   };
 }
 
-async function main(): Promise<void> {
+/** Process entry: loads the config, starts the server and installs the shutdown handlers. */
+export async function main(): Promise<void> {
   let config: Config;
   try {
     config = loadConfig();

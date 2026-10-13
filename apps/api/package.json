@@ -11,6 +11,7 @@
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "build": "tsdown",
     "start": "node dist/server.mjs",
+    "start:prod": "node dist/cli/migrate-and-start.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "admin": "tsx src/cli/admin.ts",
