@@ -14,6 +14,7 @@ import {
   TASK_BACKOFF_MAX_MS,
   TASK_STATUSES,
   TERMINAL_TASK_STATUSES,
+  TOKEN_REFRESH_LEAD_MS,
   taskRetryDelayMs,
 } from "../src";
 import { at, ids } from "./fixtures";
@@ -66,6 +67,9 @@ describe("scheduled task registry", () => {
 
   it("recognises task kinds", () => {
     expect(isScheduledTaskKind("post.publish")).toBe(true);
+    expect(isScheduledTaskKind("channel.refresh_token")).toBe(true);
+    expect(isScheduledTaskKind("channel.verify")).toBe(true);
+    expect(isScheduledTaskKind("insights.pull")).toBe(true);
     expect(isScheduledTaskKind("post.delete")).toBe(false);
     expect(isScheduledTaskKind("system.ping")).toBe(false);
   });
@@ -83,11 +87,28 @@ describe("scheduled task registry", () => {
       false,
     );
     expect(parseScheduledTaskPayload("assets.cleanup", {}).success).toBe(true);
+    for (const kind of ["channel.refresh_token", "channel.verify"] as const) {
+      expect(parseScheduledTaskPayload(kind, {}).success, kind).toBe(true);
+      expect(parseScheduledTaskPayload(kind, { channelId: ids.channel }).success, kind).toBe(true);
+      expect(parseScheduledTaskPayload(kind, { channelId: "channel-1" }).success, kind).toBe(false);
+    }
+    expect(parseScheduledTaskPayload("insights.pull", { postId: ids.post }).success).toBe(true);
+    expect(parseScheduledTaskPayload("insights.pull", {}).success).toBe(false);
 
     const parsed = parseScheduledTaskPayload("post.publish", { postId: ids.post });
     if (!parsed.success) throw parsed.error;
     expectTypeOf(parsed.data).toEqualTypeOf<ScheduledTaskPayload<"post.publish">>();
     expect(parsed.data.postId).toBe(ids.post);
+  });
+});
+
+describe("token refresh lead times", () => {
+  it("refreshes threads 15 days and x 10 minutes ahead, and never meta", () => {
+    expect(TOKEN_REFRESH_LEAD_MS).toEqual({
+      meta: null,
+      threads: 15 * 24 * 60 * 60_000,
+      x: 10 * 60_000,
+    });
   });
 });
 
