@@ -18,6 +18,7 @@ export {
 } from "./caller";
 export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server";
 export {
+  createAdminTools,
   createKbTools,
   createMcpTools,
   createProjectTools,
@@ -104,7 +105,10 @@ export function registerMcpRoutes(
     logger.debug({ tokenId: caller.token.id }, "mcp request");
     try {
       await server.connect(transport);
-      return await transport.handleRequest(c.req.raw);
+      const response = await transport.handleRequest(c.req.raw);
+      // Results can carry one-time links (`admin.create_user`): keep them out of every cache.
+      response.headers.set("Cache-Control", "no-store");
+      return response;
     } finally {
       await server.close();
     }

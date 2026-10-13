@@ -135,6 +135,30 @@ regenerate it with `UPDATE_MCP_DOCS=1 pnpm --filter @loomcast/api exec vitest ru
 
 <!-- tool-reference:start -->
 
+### `admin.create_user`
+
+Invite a user. Returns a one-time link where the user sets a password, and when it expires.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | string | yes | at most 254 characters |
+| `name` | string | yes | 1 to 120 characters |
+| `role` | "owner" \| "admin" | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `userId` | string (uuid) | yes |  |
+| `setPasswordUrl` | string (uri) | yes |  |
+| `expiresAt` | string (date-time) | yes |  |
+
 ### `kb.add_decision`
 
 Record a decision with its rationale in a project's decision log, optionally replacing an earlier decision.
