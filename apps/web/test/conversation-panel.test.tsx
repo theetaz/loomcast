@@ -103,7 +103,7 @@ const composer = () => screen.getByRole("textbox", { name: "Message the studio a
 describe("conversation panel", () => {
   it("lists conversations, opens the latest and renders its messages", async () => {
     const { db, project } = setup();
-    const { user, router } = renderPanel(db, `/projects/${project.slug}`);
+    const { user, router } = renderPanel(db, `/projects/${project.slug}/chat`);
 
     const nav = await screen.findByRole("navigation", { name: "Conversations" });
     const links = await within(nav).findAllByRole("link");
@@ -125,7 +125,7 @@ describe("conversation panel", () => {
 
   it("shows an empty state, and the first message starts a conversation", async () => {
     const { db, project } = setup({ conversations: false });
-    const { user } = renderPanel(db, `/projects/${project.id}`);
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
 
     expect(await screen.findByText("Start a conversation")).toBeInTheDocument();
     await user.type(composer(), "Plan the first short");
@@ -140,7 +140,7 @@ describe("conversation panel", () => {
   it("shows the error and retries", async () => {
     const { db, project } = setup();
     let fail = true;
-    const { user } = renderPanel(db, `/projects/${project.id}`, [
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
       http.get("*/api/projects/:projectId/conversations", () =>
         fail
           ? HttpResponse.json({ error: { code: "internal", message: "Boom" } }, { status: 500 })
@@ -161,7 +161,7 @@ describe("conversation panel", () => {
       release = resolve;
     });
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}`, [
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
       http.post("*/api/conversations/:id/messages", async () => {
         await held;
         return undefined;
@@ -206,7 +206,7 @@ describe("conversation panel", () => {
 
   it("animates a message sent with the pointer", async () => {
     const { db, project } = setup();
-    const { user } = renderPanel(db, `/projects/${project.id}`);
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
     await ready();
 
     await user.type(composer(), "Clicked");
@@ -218,7 +218,7 @@ describe("conversation panel", () => {
 
   it("streams the reply and follows the job to the end", async () => {
     const { db, project, conversation } = setup();
-    renderPanel(db, `/projects/${project.id}`);
+    renderPanel(db, `/projects/${project.id}/chat`);
     await ready();
 
     const job = mockJob({ projectId: project.id, conversationId: conversation.id });
@@ -285,7 +285,7 @@ describe("conversation panel", () => {
   it("cancels a queued reply", async () => {
     const { db, project } = setup();
     const posted = recordPosts(/\/cancel$/);
-    const { user } = renderPanel(db, `/projects/${project.id}`);
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
     await ready();
 
     await user.type(composer(), "Never mind");
@@ -301,7 +301,7 @@ describe("conversation panel", () => {
   it("retries a failed reply with the same text and a new client message id", async () => {
     const { db, project } = setup();
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}`);
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
     await ready();
 
     await user.type(composer(), "Draft the captions");
@@ -335,7 +335,7 @@ describe("conversation panel", () => {
     const { db, project } = setup();
     let fail = true;
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}`, [
+    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
       http.post("*/api/conversations/:id/messages", () =>
         fail ? HttpResponse.error() : undefined,
       ),
@@ -357,7 +357,7 @@ describe("conversation panel", () => {
 
   it("reads the messages again after the live stream reconnects", async () => {
     const { db, project, conversation } = setup();
-    const { stream } = renderPanel(db, `/projects/${project.id}`);
+    const { stream } = renderPanel(db, `/projects/${project.id}/chat`);
     await ready();
 
     // Stored while the stream was down: no event arrives for it.

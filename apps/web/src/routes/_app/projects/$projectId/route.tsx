@@ -1,8 +1,11 @@
 import { IdSchema } from "@loomcast/contracts";
 import { createFileRoute } from "@tanstack/react-router";
-import { ProjectCrumb, ProjectPage } from "@/features/projects/ProjectPage";
+import { ProjectCrumb, ProjectLayout } from "@/features/project/ProjectLayout";
 
-/** `?conversation=<id>` opens that conversation in the panel; anything else is dropped. */
+/**
+ * `?conversation=<id>` opens that conversation in the Chat tab; anything else is dropped. It is
+ * declared here, on the layout, because the conversation panel reads it from this route.
+ */
 interface ProjectSearch {
   conversation?: string;
 }
@@ -18,5 +21,5 @@ export const Route = createFileRoute("/_app/projects/$projectId")({
 
 function ProjectRoute() {
   const { projectId } = Route.useParams();
-  return <ProjectPage idOrSlug={projectId} />;
+  return <ProjectLayout idOrSlug={projectId} />;
 }

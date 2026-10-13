@@ -44,7 +44,7 @@ takes the studio agent offline so new messages wait (set it back to `true` to ru
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `devices`, `home`, `shell`, `conversation` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -88,7 +88,7 @@ useLiveReconnect(() => void refetchMessages());
 
 ## Conversations
 
-`features/conversation` is the panel on the project page: the conversation list (a column
+`features/conversation` is the project page's Chat tab: the conversation list (a column
 from 768px, a picker below), the open conversation (`?conversation=<id>`, else the latest),
 and the composer.
 
@@ -110,9 +110,14 @@ and the composer.
   with a 44px header and 40px rows. Every data view has loading (skeleton), empty, error with
   retry, and long-content states; names truncate and slugs hide on phones.
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
-  for labels that need data (see `_app/projects/$projectId.tsx`).
+  for labels that need data (see `_app/projects/$projectId/route.tsx`).
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
-- The project page's conversation panel is described under Conversations above.
+- The project page (`features/project`) is a header and tabs over the open tab's route. Tabs
+  come from a registry: every file in `features/project/tabs/items/` exports one
+  `tab: {id, label, icon, to, order}`, so a feature adds a tab by adding a file. The tab whose
+  path is the longest prefix of the location is active. Overview (the project root) holds the
+  description editor, stats, recent activity and archiving; Chat is the conversation panel.
+  A link to the project root with `?conversation=` opens the Chat tab.
 - Settings: `settings/devices` pairs studio agents with single-use codes and shows live
   online status; `settings/tokens` manages access tokens and shows each secret exactly once,
   never keeping it in the query cache.
