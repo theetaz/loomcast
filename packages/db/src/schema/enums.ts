@@ -12,6 +12,7 @@ import {
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
   PLATFORMS,
+  POST_STATUSES,
   PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
@@ -52,3 +53,4 @@ export const assetStatus = pgEnum("asset_status", ASSET_STATUSES);
 export const skillKind = pgEnum("skill_kind", SKILL_KINDS);
 export const platform = pgEnum("platform", PLATFORMS);
 export const channelStatus = pgEnum("channel_status", CHANNEL_STATUSES);
+export const postStatus = pgEnum("post_status", POST_STATUSES);

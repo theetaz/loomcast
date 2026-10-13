@@ -12,6 +12,7 @@ import {
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
   PLATFORMS,
+  POST_STATUSES,
   PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
@@ -377,6 +378,7 @@ describe("pg enums", () => {
     skill_kind: SKILL_KINDS,
     platform: PLATFORMS,
     channel_status: CHANNEL_STATUSES,
+    post_status: POST_STATUSES,
   };
 
   it("hold exactly the contracts values, in order", async () => {
