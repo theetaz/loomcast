@@ -268,6 +268,7 @@ describe("calendar and publishing routes", () => {
       "approvals.inbox",
       "calendar.get",
       "channels.create",
+      "channels.disconnect",
       "channels.list",
       "channels.update",
       "publisher.status",

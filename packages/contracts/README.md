@@ -24,7 +24,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 |---|---|
 | `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
-| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
+| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), connecting channels through a platform sign-in (`oauth.ts`), server features (`system.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
 | `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
@@ -65,7 +65,7 @@ const body = route.body.parse({ text, clientMessageId });
 type Reply = RouteResponse<"messages.post">; // { message, job }
 ```
 
-- `response: null` means the route answers `204 No Content`.
+- `response: null` means the route answers `204 No Content`, or `302 Found` for the two sign-in routes (`oauth.start`, `oauth.callback`), which the browser opens with a full-page navigation rather than `fetch`.
 - `auth: "session"` routes use the cookie session; unsafe methods also pass the CSRF guard. Every route uses one of `GET`, `POST`, `PUT`, `PATCH` and `DELETE`. `auth: "none"` routes are public and rate-limited: login, the two set-password routes and device pairing.
 - The `users.*` routes are owner-only.
 - Register `kb.search` (`GET /api/kb/search`) before the `/api/kb/:id` routes.
@@ -337,6 +337,7 @@ Channels publish to `PLATFORMS`: `facebook` (Page Reels), `instagram` (Reels), `
 | `TASK_STATUSES` | `pending`, `running`, `succeeded`, `failed` (gave up with an error no retry fixes), `dead` (every attempt failed; waits for a manual retry) |
 | `PUBLISH_MODES` | `auto`, `approval` |
 | `PUBLISHING_MODES` | `dry-run`, `live`: the server's `PUBLISHING_MODE` |
+| `OAUTH_PROVIDERS` | `meta` (Facebook Pages and their Instagram accounts), `threads`, `x` (behind `xPublishing`) |
 
 `OPEN_POST_STATUSES` (`planned`, `queued`) are the posts that wait for their time. `RESCHEDULABLE_POST_STATUSES` adds `failed` and `missed`; publishing, published and cancelled posts cannot move. `TERMINAL_TASK_STATUSES` are `succeeded`, `failed` and `dead`.
 
@@ -364,6 +365,7 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 | `channels.list` `GET /api/channels` | | `{items: Channel[]}` |
 | `channels.create` `POST /api/channels` | `{platform, displayName, requiresApproval?}` | `Channel` (201): a planning channel, `disconnected`, dry-run on |
 | `channels.update` `PATCH /api/channels/:id` | `{displayName?, dryRun?, requiresApproval?}` | `Channel`, or `409 dry_run_locked` |
+| `channels.disconnect` `DELETE /api/channels/:id/connection` | | `Channel`, `disconnected` with dry-run on and its credentials wiped |
 | `series.channels` `GET /api/series/:id/channels` | | `SeriesChannels` `{seriesId, channels: [{channelId, enabled}]}` |
 | `series.setChannels` `PUT /api/series/:id/channels` | `{channels: [{channelId, enabled}]}` (replaces the set, at most 50) | `SeriesChannels` |
 | `calendar.get` `GET /api/calendar` | `?from=&to=&projectId=&seriesIds=a,b&channelIds=a,b` (at most 62 days) | `{posts: ScheduledPost[], slots: [{at, seriesId, channelId, postId?}]}` |
@@ -381,6 +383,25 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 - New and moved posts must be at least `MIN_SCHEDULE_LEAD_MS` (2 minutes) ahead, and only `RESCHEDULABLE_POST_STATUSES` move.
 - Calendar ranges are `[from, to)`, end after they start and span at most `MAX_CALENDAR_RANGE_DAYS` (62); `checkCalendarRange` checks any `{from, to}` schema. Slots without `postId` are open.
 - The approvals inbox sorts items by `deadlineAt` (the earliest open post; null last), then `updatedAt`.
+
+### Connecting channels
+
+A sign-in with a provider connects real accounts. Tokens never leave the server: no shape below has a field for them, and parsing drops unknown fields.
+
+| Route | Request | Response |
+|---|---|---|
+| `oauth.start` `GET /api/oauth/:provider/start` | `?redirectTo=` (an app path) | `302` to the platform's consent dialog |
+| `oauth.callback` `GET /api/oauth/:provider/callback` | `?code=&state=` or `?error=&error_reason=&error_description=` from the platform | `302` to `/settings/channels/connect?connection=<id>`, or `?error=<OAuthConnectError>&provider=` |
+| `oauth.connection` `GET /api/oauth/connections/:id` | | `ConnectionCandidates`; `410 connection_expired` once expired or used |
+| `oauth.accept` `POST /api/oauth/connections/:id/accept` | `{accountIds}` (1 to 100, no repeats) | `{channels: Channel[]}`; `410 connection_expired` |
+| `system.features` `GET /api/system/features` | | `SystemFeatures` `{xPublishing}` |
+
+- Open the sign-in with `location.assign(oauthStartPath(provider, {redirectTo}))`. Both sign-in routes are session routes: the session cookie is `SameSite=Lax`, so the platform's redirect back carries it, and the callback checks that the sign-in belongs to the same user. A sign-in lasts `OAUTH_STATE_TTL_MS` (10 minutes) and is used once.
+- `OAUTH_PROVIDER_PLATFORMS` lists what each provider connects (`meta`: `facebook`, `instagram`); `oauthProviderForPlatform(platform)` picks the provider for a Reconnect button.
+- `ConnectionCandidates` is `{id, provider, expiresAt, accounts}`. Each account is `{id, platform, externalId, name, username?, parentId, alreadyConnected}`; `id` is `candidateAccountId(platform, externalId)`, and `parentId` names the Facebook Page an Instagram account publishes through. A pending connection lasts `OAUTH_CONNECTION_TTL_MS` (30 minutes).
+- Accepting creates `active` channels with dry-run on, or refreshes the credentials of channels that are `alreadyConnected`. Accepting an Instagram account connects its Page too.
+- `OAUTH_CONNECT_ERRORS`: `access_denied`, `invalid_state`, `provider_error`, `no_accounts`, `not_configured` (no app credentials, or `x` while `xPublishing` is off). `OAuthConnectSearchSchema` parses the connect page's search params.
+- `Channel.lastVerifiedAt` (the last daily check that found the credentials valid) and `Channel.lastError` (a `PublishError`, such as the `auth` error that set `needs_reauth`) are optional until the server sends them.
 
 ### Cadence slots
 

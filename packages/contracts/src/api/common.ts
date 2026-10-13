@@ -23,6 +23,8 @@ export const API_ERROR_CODES = [
   "dry_run_locked",
   /** The post is publishing, published or cancelled and cannot change (409). */
   "post_not_editable",
+  /** The pending channel connection expired or was already accepted (410). */
+  "connection_expired",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
