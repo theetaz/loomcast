@@ -11,7 +11,15 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { migrate } from "@loomcast/db";
 import { Client, escapeIdentifier } from "pg";
-import { apiEnvironment, DATABASE_PREFIX, e2eSettings, REPO_ROOT } from "./env.ts";
+import {
+  apiEnvironment,
+  DATABASE_PREFIX,
+  e2eSettings,
+  REPO_ROOT,
+  STORAGE_KEYS,
+  storageAvailable,
+  storageEnvironment,
+} from "./env.ts";
 
 /** Scratch databases older than this are left over from an aborted run and are dropped. */
 const STALE_AFTER_S = 6 * 60 * 60;
@@ -56,12 +64,28 @@ async function createDatabase(): Promise<void> {
   log(`database ${settings.databaseName} created and migrated`);
 }
 
-function startApi(): ChildProcess {
+/**
+ * The API's environment. With object storage (the local SeaweedFS, see `storageAvailable`) the
+ * API presigns uploads to it; without, the S3 settings are removed so it starts without storage.
+ */
+async function environment(): Promise<NodeJS.ProcessEnv> {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...apiEnvironment(settings) };
+  if (await storageAvailable()) {
+    Object.assign(env, storageEnvironment());
+    log(`object storage at ${env.S3_ENDPOINT}`);
+  } else {
+    for (const key of STORAGE_KEYS) delete env[key];
+    log("no object storage: the pipeline spec is skipped");
+  }
+  return env;
+}
+
+function startApi(env: NodeJS.ProcessEnv): ChildProcess {
   const require = createRequire(join(REPO_ROOT, "apps/api/package.json"));
   const tsxCli = require.resolve("tsx/cli");
   return spawn(process.execPath, [tsxCli, "src/server.ts"], {
     cwd: join(REPO_ROOT, "apps/api"),
-    env: { ...process.env, ...apiEnvironment(settings) },
+    env,
     stdio: ["ignore", "inherit", "inherit"],
   });
 }
@@ -90,14 +114,16 @@ function stop(code: number): Promise<void> {
 process.once("SIGTERM", () => void stop(0));
 process.once("SIGINT", () => void stop(0));
 
+let apiEnv: NodeJS.ProcessEnv = {};
 try {
   await createDatabase();
+  apiEnv = await environment();
 } catch (error) {
-  log(`could not prepare the database: ${(error as Error).message}`);
+  log(`could not prepare the API: ${(error as Error).message}`);
   await stop(1);
 }
 
-api = startApi();
+api = startApi(apiEnv);
 api.once("exit", (code, signal) => {
   if (stopping === null) {
     log(`the API exited unexpectedly (code ${code}, signal ${signal})`);
