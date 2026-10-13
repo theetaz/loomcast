@@ -8,6 +8,7 @@ import type { AppEnv } from "../../types";
 import { currentToken } from "../auth/guards";
 import { CALLER_RESOLVERS, type CallerResolver, requireMcpCaller, resolveCaller } from "./caller";
 import { createMcpServer } from "./server";
+import { createMcpTools, registerTools, type ToolDefinition } from "./tools";
 
 export {
   CALLER_RESOLVERS,
@@ -16,6 +17,13 @@ export {
   type McpCaller,
 } from "./caller";
 export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server";
+export {
+  createMcpTools,
+  defineTool,
+  McpToolError,
+  TOOL_CALL_AUDIT_ACTION,
+  type ToolDefinition,
+} from "./tools";
 
 /** Tool calls and other MCP requests allowed per token: a burst of 120, refilling over a minute. */
 export const MCP_RATE_LIMIT: RateLimitOptions = { capacity: 120, intervalMs: 60_000 };
@@ -28,6 +36,8 @@ export interface McpRouteOptions {
   path?: string;
   /** Token kinds accepted. Defaults to `CALLER_RESOLVERS`. */
   resolvers?: readonly CallerResolver[];
+  /** Tools served. Defaults to `createMcpTools(deps)`. */
+  tools?: readonly ToolDefinition[];
 }
 
 /**
@@ -50,6 +60,7 @@ export function registerMcpRoutes(
 ): Hono<AppEnv> {
   const path = options.path ?? MCP_PATH;
   const resolvers = options.resolvers ?? CALLER_RESOLVERS;
+  const tools = options.tools ?? createMcpTools(deps);
   const limiter = createRateLimiter(MCP_RATE_LIMIT, deps.clock);
   const router = new Hono<AppEnv>();
 
@@ -68,13 +79,15 @@ export function registerMcpRoutes(
 
   router.post(path, async (c) => {
     const caller = await resolveCaller(c, deps, resolvers);
+    const logger = c.get("logger");
     const server = createMcpServer();
+    registerTools(server, tools, { caller, logger, db: deps.db });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
       maxRequestBodySize: MCP_BODY_LIMIT_BYTES,
     });
-    c.get("logger").debug({ tokenId: caller.token.id }, "mcp request");
+    logger.debug({ tokenId: caller.token.id }, "mcp request");
     try {
       await server.connect(transport);
       return await transport.handleRequest(c.req.raw);

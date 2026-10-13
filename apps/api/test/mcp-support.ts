@@ -2,7 +2,7 @@ import type { TokenScope } from "@loomcast/contracts";
 import type { Database } from "@loomcast/db";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AppDeps } from "../src/deps";
+import type { AppDeps, RegisterModule } from "../src/deps";
 import { createEventBus } from "../src/lib/bus";
 import { createLifecycle } from "../src/lib/lifecycle";
 import { createLogger } from "../src/lib/logger";
@@ -22,7 +22,10 @@ export interface McpTestServer {
 }
 
 /** The API served over real HTTP on a free port, so the MCP client speaks to it as in production. */
-export async function startMcpTestServer(db: Database): Promise<McpTestServer> {
+export async function startMcpTestServer(
+  db: Database,
+  modules: readonly RegisterModule[] = [],
+): Promise<McpTestServer> {
   const logger = createLogger({ level: "silent" });
   const clock = createTestClock();
   const deps: AppDeps = {
@@ -33,7 +36,7 @@ export async function startMcpTestServer(db: Database): Promise<McpTestServer> {
     config: testConfig({ trustProxy: false }),
     lifecycle: createLifecycle(logger),
   };
-  const running = await startServer(deps, { port: 0, host: "127.0.0.1" });
+  const running = await startServer(deps, { port: 0, host: "127.0.0.1", modules });
   const origin = `http://127.0.0.1:${running.port}`;
   return {
     deps,
