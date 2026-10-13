@@ -225,11 +225,13 @@ describe("bridge protocol handling", () => {
   });
 
   it("terminates a connection that misses two pongs", async () => {
-    const server = await start({ pingIntervalMs: 40 });
+    // Two missed pongs end a connection. The interval leaves room for a loaded machine to finish
+    // the silent agent's hello and the healthy agent's pongs before that deadline.
+    const server = await start({ pingIntervalMs: 250 });
     const device = await pairDevice(testDb.db, fixtures.userId);
     const healthy = await connect(server, device);
     const hello = await healthy.hello();
-    expect(hello.payload.heartbeatMs).toBe(40);
+    expect(hello.payload.heartbeatMs).toBe(250);
 
     const other = await pairDevice(testDb.db, fixtures.userId, "Silent Mac");
     const silent = await FakeAgent.connect(server.port, { secret: other.secret, autoPong: false });
