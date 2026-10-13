@@ -183,7 +183,7 @@ describe("series detail", () => {
   });
 
   it("takes its side cards from the registry, cadence first", () => {
-    expect(seriesCards.map((card) => card.id)).toEqual(["cadence", "format"]);
-    expect(seriesCards.map((card) => card.order)).toEqual([10, 20]);
+    expect(seriesCards.map((card) => card.id)).toEqual(["cadence", "format", "channels"]);
+    expect(seriesCards.map((card) => card.order)).toEqual([10, 20, 30]);
   });
 });

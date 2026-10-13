@@ -21,6 +21,7 @@ import {
   type PublisherStatus,
   type Review,
   type ScheduledPost,
+  type ScheduledTask,
   type Series,
   type SeriesChannels,
   TOKEN_PREFIXES,
@@ -87,6 +88,8 @@ export interface MockDb {
   livePosts: MockLivePost[];
   /** The server's publishing switches; dry-run and enabled when left out. */
   publisher?: PublisherStatus;
+  /** Scheduled tasks, as the scheduler admin routes list them. */
+  tasks: ScheduledTask[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -136,6 +139,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     seriesChannels: [],
     posts: [],
     livePosts: [],
+    tasks: [],
     ...seed,
     listeners: new Set(),
   };
