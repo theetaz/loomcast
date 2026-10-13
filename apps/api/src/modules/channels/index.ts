@@ -13,10 +13,11 @@ import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { audit } from "../../lib/audit";
 import { afterCommit, type Executor, type Transaction, transaction } from "../../lib/db";
-import { conflict, HttpError, notFound, validationFailed } from "../../lib/errors";
+import { conflict, forbidden, HttpError, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, readJson } from "../../lib/http";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
+import { isLivePlatformAvailable } from "../publisher/adapters";
 import { channelColumns, toChannel } from "./mappers";
 import { ensureChannelSweeps, registerRefreshTask } from "./tasks";
 import { registerVerifyTask } from "./verify";
@@ -33,8 +34,9 @@ const channelNotFound = () => notFound("No channel has that id.");
 const seriesNotFound = () => notFound("No series has that id.");
 
 /**
- * Channel endpoints: list channels, add a planning channel, update one (name, approval, dry-run
- * switch), and the channels of a series. Switching dry-run off answers `409 dry_run_locked` with
+ * Channel endpoints: list channels, add a planning channel (`403 forbidden` for X while X
+ * publishing is not usable), update one (name, approval, dry-run switch), and the channels of a
+ * series. Switching dry-run off answers `409 dry_run_locked` with
  * the blocker in `details.reason` unless the channel is active and connected, its platform can
  * publish live, and the server's `PUBLISHING_MODE` is `live`. Every change is audited and
  * published as `channel.updated`. Credentials never leave the server: responses are built from
@@ -82,6 +84,10 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   router.post(routes["channels.create"].path, async (c) => {
     const user = currentUser(c);
     const input = await readJson(c, CreateChannelRequestSchema);
+    // X channels exist only while X publishing is usable (`FEATURE_X_PUBLISHING` on, client set).
+    if (!isLivePlatformAvailable(input.platform, deps.config.platforms)) {
+      throw forbidden("X publishing is turned off on this server.");
+    }
     const channel = await transaction(db, async (tx) => {
       const [row] = await tx
         .insert(channels)
