@@ -4,6 +4,7 @@ import type { Hono } from "hono";
 import type { Config } from "./env";
 import type { EventBus } from "./lib/bus";
 import type { Clock } from "./lib/clock";
+import type { HealthRegistry } from "./lib/health";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { Storage } from "./lib/storage";
@@ -50,6 +51,11 @@ export interface Presence {
 
 /** What every module's `register` receives: the app deps plus the shared services and guards. */
 export interface ModuleDeps extends AppDeps {
+  /**
+   * Readiness checks behind `/readyz` (database, object storage, scheduler). A module that owns
+   * another dependency registers its check here in `register`.
+   */
+  health: HealthRegistry;
   sessions: SessionsService;
   tokens: TokensService;
   jobs: JobsService;
