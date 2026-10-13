@@ -13,7 +13,10 @@ import {
   type KbTagCount,
   type ListKbQuery,
   MAX_KB_BODY_LENGTH,
+  normalizeReferenceUrl,
   parseKbEntryData,
+  type ReferenceAnalysis,
+  type ReferencePlatform,
   type UpdateKbEntry,
 } from "@loomcast/contracts";
 import {
@@ -32,6 +35,12 @@ import type { EventBus } from "../../lib/bus";
 import { afterCommit, type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, notFound, validationFailed } from "../../lib/errors";
 import { type EntryRow, entryColumns, toKbEntry, toKbEntryDetail } from "./mappers";
+import {
+  defaultReferenceTitle,
+  optionalText,
+  referenceDedupeKey,
+  referenceSearchText,
+} from "./references";
 import { normalizeTags } from "./tags";
 
 /**
@@ -71,15 +80,24 @@ export interface NewDecisionEntry extends CommonEntryFields {
   supersedes?: string;
 }
 
+/**
+ * A reference link. The URL is normalised (`normalizeReferenceUrl`) and never fetched: nothing
+ * about the video is downloaded, previewed or embedded.
+ */
 export interface NewReferenceEntry extends Omit<CommonEntryFields, "title"> {
   kind: "reference";
-  /** As typed by the user; it is normalised and never fetched. */
+  /** As typed by the user. */
   url: string;
+  /** Detected from the URL when omitted. */
+  platform?: ReferencePlatform;
   /** Defaults to a title built from the platform and author. */
   title?: string;
   author?: string;
   likedReason?: string;
+  /** Untrusted text supplied by the user. */
   transcript?: string;
+  /** An analysis made elsewhere, for example by a producer session through MCP. */
+  analysis?: ReferenceAnalysis;
 }
 
 /** What `create` accepts: the web app's `CreateKbEntry` and the MCP tools' inputs fit it. */
@@ -310,12 +328,32 @@ export function createKbService(deps: KbServiceDeps): KbService {
     values: Omit<NewKbEntryRow, "createdBy" | "createdByTokenId" | "createdVia">,
     actor: KbActor,
   ): Promise<EntryRow> {
+    const row = await tryInsertEntry(tx, values, actor);
+    if (row === null) {
+      throw new Error("knowledge base entry was not inserted");
+    }
+    return row;
+  }
+
+  /**
+   * Like `insertEntry`, but a `dedupeKey` already used by a live entry of the project inserts
+   * nothing and returns null.
+   */
+  async function tryInsertEntry(
+    tx: Transaction,
+    values: Omit<NewKbEntryRow, "createdBy" | "createdByTokenId" | "createdVia">,
+    actor: KbActor,
+  ): Promise<EntryRow | null> {
     const [row] = await tx
       .insert(kbEntries)
       .values({ ...values, ...authorship(actor), updatedAt: insertedAt })
+      .onConflictDoNothing({
+        target: [kbEntries.projectId, kbEntries.dedupeKey],
+        where: sql`dedupe_key is not null and deleted_at is null`,
+      })
       .returning(entryColumns);
     if (row === undefined) {
-      throw new Error("knowledge base entry was not inserted");
+      return null;
     }
     await audit(tx, {
       ...auditActor(actor),
@@ -431,6 +469,78 @@ export function createKbService(deps: KbServiceDeps): KbService {
     return toKbEntryDetail(row, null);
   }
 
+  async function createReference(
+    tx: Transaction,
+    projectId: string,
+    input: NewReferenceEntry,
+    actor: KbActor,
+  ): Promise<KbEntryDetail> {
+    let normalized: ReturnType<typeof normalizeReferenceUrl>;
+    try {
+      normalized = normalizeReferenceUrl(input.url);
+    } catch {
+      throw validationFailed([{ path: "url", message: "Enter an http or https link" }]);
+    }
+    const platform = input.platform ?? normalized.platform;
+    const author = optionalText(input.author);
+    const likedReason = optionalText(input.likedReason);
+    const transcript = optionalText(input.transcript);
+    const analysis = input.analysis ?? null;
+    const dedupeKey = referenceDedupeKey(normalized.url);
+
+    const row = await tryInsertEntry(
+      tx,
+      {
+        projectId,
+        kind: "reference",
+        title: optionalText(input.title) ?? defaultReferenceTitle(platform, author),
+        bodyMd: "",
+        tags: normalizeTags(input.tags ?? []),
+        data: {},
+        sourceUrl: normalized.url,
+        conversationId: input.conversationId ?? null,
+        dedupeKey,
+        searchExtra: referenceSearchText({ author, likedReason, transcript, analysis }),
+      },
+      actor,
+    );
+    if (row === null) {
+      const [existing] = await tx
+        .select({ id: kbEntries.id })
+        .from(kbEntries)
+        .where(
+          and(
+            eq(kbEntries.projectId, projectId),
+            eq(kbEntries.dedupeKey, dedupeKey),
+            isNull(kbEntries.deletedAt),
+          ),
+        )
+        .limit(1);
+      throw conflict("This reference is already saved in the project.", {
+        reason: "duplicate",
+        entryId: existing?.id ?? null,
+      });
+    }
+    const [reference] = await tx
+      .insert(kbReferences)
+      .values({
+        entryId: row.id,
+        url: normalized.url,
+        platform,
+        author,
+        likedReason,
+        transcript,
+        analysis,
+        analysisStatus: analysis === null ? "none" : "done",
+        analyzedAt: analysis === null ? null : sql`now()`,
+      })
+      .returning();
+    if (reference === undefined) {
+      throw new Error("reference was not inserted");
+    }
+    return toKbEntryDetail(row, reference);
+  }
+
   async function get(id: string, executor: Executor = db): Promise<KbEntryDetail | null> {
     if (!IdSchema.safeParse(id).success) {
       return null;
@@ -460,7 +570,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
           case "decision":
             return createDecision(tx, projectId, input, actor);
           case "reference":
-            throw validationFailed([{ path: "kind", message: "References are not supported yet" }]);
+            return createReference(tx, projectId, input, actor);
         }
       });
     },
@@ -772,8 +882,25 @@ function decisionData(current: JsonObject, input: UpdateKbEntry): JsonObject | n
 async function updateReference(
   tx: Transaction,
   entryId: string,
-  _input: UpdateKbEntry,
+  input: UpdateKbEntry,
 ): Promise<{ reference: KbReferenceRow | null; searchExtra?: string }> {
   const current = await loadReference(tx, entryId);
-  return { reference: current };
+  if (current === null) {
+    return { reference: null };
+  }
+  const values = {
+    ...(input.author === undefined ? {} : { author: optionalText(input.author) }),
+    ...(input.likedReason === undefined ? {} : { likedReason: optionalText(input.likedReason) }),
+    ...(input.transcript === undefined ? {} : { transcript: optionalText(input.transcript) }),
+  };
+  if (Object.keys(values).length === 0) {
+    return { reference: current };
+  }
+  const [reference] = await tx
+    .update(kbReferences)
+    .set(values)
+    .where(eq(kbReferences.entryId, entryId))
+    .returning();
+  const next = reference ?? current;
+  return { reference: next, searchExtra: referenceSearchText(next) };
 }
