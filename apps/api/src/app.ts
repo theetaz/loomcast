@@ -19,6 +19,7 @@ import {
   type StorageConfig,
 } from "./lib/storage";
 import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
+import { register as registerAnalytics } from "./modules/analytics";
 import { register as registerApprovals } from "./modules/approvals";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
@@ -268,6 +269,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerApprovals(app, moduleDeps);
   registerPublisher(app, moduleDeps);
   registerInsights(app, moduleDeps);
+  registerAnalytics(app, moduleDeps);
   registerScheduler(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
