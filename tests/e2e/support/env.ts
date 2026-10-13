@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** The repository root. */
@@ -119,6 +119,100 @@ export function e2eSettings(): E2eSettings {
     ownerPassword: env[KEYS.ownerPassword] ?? "",
   };
 }
+
+/**
+ * Whether the run uses object storage, from `LOOMCAST_E2E_S3`:
+ * - `auto` (default): the local SeaweedFS when it answers, otherwise the pipeline spec is skipped;
+ * - `required`: the store must answer (CI sets this), otherwise the run fails;
+ * - `off`: the API runs without storage and the pipeline spec is skipped.
+ */
+export type StorageMode = "auto" | "required" | "off";
+
+export function storageMode(): StorageMode {
+  const value = process.env.LOOMCAST_E2E_S3 ?? "auto";
+  if (value === "auto" || value === "required" || value === "off") {
+    return value;
+  }
+  throw new Error(`LOOMCAST_E2E_S3 must be auto, required or off (got "${value}")`);
+}
+
+const SEAWEEDFS_CONFIG = fileURLToPath(
+  new URL("../../../infra/seaweedfs/s3.json", import.meta.url),
+);
+
+/**
+ * The keys of the local store: `S3_ACCESS_KEY` and `S3_SECRET_KEY` when set, otherwise the
+ * development identity in `infra/seaweedfs/s3.json` (the file the local stack and CI start the
+ * store with), so the suite never holds a key of its own.
+ */
+function storageKeys(): { accessKey: string; secretKey: string } {
+  const accessKey = process.env.S3_ACCESS_KEY;
+  const secretKey = process.env.S3_SECRET_KEY;
+  if (accessKey && secretKey) {
+    return { accessKey, secretKey };
+  }
+  const config = JSON.parse(readFileSync(SEAWEEDFS_CONFIG, "utf8")) as {
+    identities: { credentials?: { accessKey: string; secretKey: string }[] }[];
+  };
+  const credentials = config.identities.find((identity) => identity.credentials?.length)
+    ?.credentials?.[0];
+  if (credentials === undefined) {
+    throw new Error(`no S3 credentials in ${SEAWEEDFS_CONFIG}`);
+  }
+  return credentials;
+}
+
+/** The S3 endpoint of the run: `S3_ENDPOINT`, or the local SeaweedFS. */
+export function storageEndpoint(): string {
+  return process.env.S3_ENDPOINT || "http://127.0.0.1:59000";
+}
+
+/** True when something answers HTTP at the store's endpoint within a second and a half. */
+async function storageReachable(endpoint: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${endpoint}/`, { signal: AbortSignal.timeout(1_500) });
+    await response.body?.cancel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether this run has object storage. In `required` mode an unreachable store is an error; in
+ * `auto` mode it means no storage.
+ */
+export async function storageAvailable(): Promise<boolean> {
+  const mode = storageMode();
+  if (mode === "off") {
+    return false;
+  }
+  const reachable = await storageReachable(storageEndpoint());
+  if (!reachable && mode === "required") {
+    throw new Error(
+      `LOOMCAST_E2E_S3=required but nothing answers at ${storageEndpoint()}. Start the object ` +
+        "store (docker compose up -d s3 s3-init) or unset LOOMCAST_E2E_S3.",
+    );
+  }
+  return reachable;
+}
+
+/** The API's object storage settings for the local store, with the media buckets of the stack. */
+export function storageEnvironment(): Record<string, string> {
+  const { accessKey, secretKey } = storageKeys();
+  return {
+    S3_ENDPOINT: storageEndpoint(),
+    S3_REGION: process.env.S3_REGION || "auto",
+    S3_FORCE_PATH_STYLE: "true",
+    S3_BUCKET: process.env.S3_BUCKET || "loomcast-media",
+    S3_PUBLIC_BUCKET: process.env.S3_PUBLIC_BUCKET || "loomcast-public",
+    S3_ACCESS_KEY: accessKey,
+    S3_SECRET_KEY: secretKey,
+  };
+}
+
+/** The S3 settings the API must not inherit when the run has no storage. */
+export const STORAGE_KEYS = ["S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"] as const;
 
 /** The environment the API runs with: the scratch database and the web origin. */
 export function apiEnvironment(settings: E2eSettings): Record<string, string> {

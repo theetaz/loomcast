@@ -2,7 +2,7 @@
 
 This guide sets up the whole system on one machine: Postgres and object storage in Docker, the
 API and the web app from source, a studio agent paired with them, and an MCP client. It ends
-with the acceptance runbooks of milestones 1 and 2.
+with the acceptance runbooks of milestones 1 to 3.
 
 ## Requirements
 
@@ -11,13 +11,15 @@ with the acceptance runbooks of milestones 1 and 2.
 - Docker with Compose.
 - For the studio agent's producer sessions: the producer runtime signed in on the workstation.
   Without it, use the [fake studio agent](#a-studio-agent-without-a-producer-runtime).
+- For voice and render jobs (milestone 3): ffmpeg, a render browser and the TTS provider key.
+  See [Production on the workstation](#production-on-the-workstation-m3).
 
 ## Ports
 
 | Service | Address | Started by |
 |---|---|---|
 | Postgres 17 | `127.0.0.1:55434` (user, password and database `loomcast`) | `pnpm stack:up` |
-| Object storage (SeaweedFS, S3 API) | `127.0.0.1:59000`, bucket `loomcast-media` | `pnpm stack:up` |
+| Object storage (SeaweedFS, S3 API) | `127.0.0.1:59000`, buckets `loomcast-media` (private) and `loomcast-public` | `pnpm stack:up` |
 | API | `http://127.0.0.1:8790` | `pnpm dev` |
 | Web app (Vite) | `http://localhost:5173` | `pnpm dev` |
 
@@ -43,8 +45,8 @@ in `.env.example` match the Compose stack. The ones that matter here:
 | `TEST_DATABASE_ADMIN_URL` | the `postgres` database on port 55434 | unit and end-to-end tests, which create their own databases |
 | `APP_ORIGIN` | `http://localhost:5173` | API: unsafe requests must come from this origin |
 | `API_PORT` | `8790` | API |
-| `PUBLIC_BASE_URL` | a placeholder | API (published media, later milestones) |
-| `S3_*` | the SeaweedFS endpoint and its development keys | object storage (later milestones) |
+| `PUBLIC_BASE_URL` | the local public bucket | API (published media, milestone 4) |
+| `S3_*` | the SeaweedFS endpoint and its development keys | API: presigned uploads and downloads of voice takes, renders, posters and reference media |
 
 Variables already set in the environment win over `.env`.
 
@@ -113,8 +115,10 @@ covers the built binary and the launchd service. The protocol is described in
 ### A studio agent without a producer runtime
 
 The end-to-end package includes a fake studio agent that pairs, connects and answers every chat
-message with a streamed echo. It is useful for UI work on a machine without the producer
-runtime:
+message with a streamed echo. It also answers production jobs with fixtures (a fixed script and
+storyboard, and synthetic bytes uploaded as the voice take, render and poster), so an idea can
+be produced through review without a producer runtime, the TTS provider or a renderer. It is
+useful for UI work on a machine without them:
 
 ```bash
 pnpm --filter @loomcast/e2e fake-agent --server http://localhost:5173 --code ABCD-EFGH
@@ -175,15 +179,21 @@ pnpm --filter @loomcast/e2e exec playwright install chromium   # once
 pnpm test:e2e
 ```
 
-The smoke (`tests/e2e`) needs only Postgres from the stack. It picks two free ports, creates a
-scratch database `loomcast_e2e_<time>_<random>`, migrates it, starts the API and the Vite dev
-server, creates an owner with `pnpm admin:create`, and drives both runbooks in Chromium with the
-fake studio agent:
+The smoke (`tests/e2e`) needs Postgres and object storage from the stack. It picks two free
+ports, creates a scratch database `loomcast_e2e_<time>_<random>`, migrates it, starts the API
+(with the local SeaweedFS when it answers) and the Vite dev server, creates an owner with
+`pnpm admin:create`, and drives the runbooks in Chromium with the fake studio agent:
 
 - `specs/kb.spec.ts` (M2): write a brainstorm and find it with ⌘K, have a chat turn save a
   brainstorm over MCP with its job token while the Knowledge tab is open, analyze a reference
   from its transcript, file a session summary with the session-end hook, and invite a user over
   the API who sets a password and signs in. It revokes the device it paired when it ends.
+- `specs/pipeline.spec.ts` (M3): publish a skill over MCP and watch the agent sync it, create a
+  series whose new format gets a voice, add an idea and produce it through review, check the
+  script, storyboard, voice and video tabs, request changes and get version 9 back in review,
+  and approve it from the review queue with every version kept. The fake agent reads the item
+  over MCP with its job tokens and uploads synthetic media through presigned PUTs to the local
+  store. It revokes its device when it ends.
 - `specs/smoke.spec.ts` (M1): sign in, create a project, queue a message in its Chat tab with no
   agent, pair through the dialog's code, watch the reply stream in, resume the producer session,
   go offline and back, call the MCP tools with a token from Settings, and sign out.
@@ -191,10 +201,15 @@ fake studio agent:
 When it ends it stops both servers and drops the database; databases left by an aborted run are
 dropped by a later run after six hours.
 
+- `LOOMCAST_E2E_S3` picks the object storage: `auto` (default) uses the local store when it
+  answers at `S3_ENDPOINT` (default `http://127.0.0.1:59000`) and skips the pipeline spec
+  otherwise; `required` fails the run instead (CI); `off` skips it. The keys come from `S3_*` or
+  `infra/seaweedfs/s3.json`.
 - Set `LOOMCAST_E2E_LOG_LEVEL=info` to see the API's log.
 - Failures leave a trace and a screenshot in `tests/e2e/test-results/`; open a trace with
   `pnpm --filter @loomcast/e2e exec playwright show-trace <path>/trace.zip`.
-- In CI, `.github/workflows/e2e.yml` runs the smoke on pull requests and uploads the report.
+- In CI, `.github/workflows/e2e.yml` starts SeaweedFS, runs the smoke on pull requests with
+  `LOOMCAST_E2E_S3=required` and uploads the report.
 
 ## M1 acceptance runbook
 
@@ -266,6 +281,59 @@ the session-end hook. It is done when this passes on the workstation, on top of 
 `pnpm test:e2e` checks steps 1 to 5 with the fake studio agent, whose analysis is a fixed sample
 rather than a producer session's.
 
+## Production on the workstation (M3)
+
+Milestone 3 adds the production pipeline: series and formats, script, storyboard, voice and
+render jobs on the studio agent, the item page with its review panel, and the review queue. The
+[pipeline guide](pipeline.md) explains the states, actions and autopilot; the
+[studio runtime guide](studio-runtime.md) explains rendering. On top of the M1 setup:
+
+1. **The TTS provider key**, for voice jobs and media transcription. Store it for the studio
+   agent at the hidden prompt, then restart `pnpm agent run`:
+
+   ```bash
+   pnpm agent secrets set voice-provider-key
+   pnpm agent status        # "Voice provider key: set"
+   ```
+
+   It is kept in `~/.config/loomcast-agent/secrets.env` (mode 0600). The provider key variable in
+   `studio/.env` (see `studio/.env.example`) works too, as a fallback.
+2. **Render tools.** Check them with the studio's pinned HyperFrames CLI, telemetry off:
+
+   ```bash
+   export HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_NO_AUTO_INSTALL=1
+   pnpm --filter @loomcast/studio exec hyperframes doctor
+   pnpm --filter @loomcast/studio test:smoke    # a five-second render; skipped with the reason if a tool is missing
+   ```
+
+   This is `npx hyperframes doctor` run as the pinned version; do not use `npx`, which may fetch
+   another one. Renders need ffmpeg, ffprobe and a render browser (`HYPERFRAMES_BROWSER_PATH`, or
+   the CLI's cache); nothing downloads a browser on its own.
+3. **Skills.** Publish the studio's producer skills; the agent syncs them into
+   `~/Loomcast/skills/`:
+
+   ```bash
+   pnpm --filter @loomcast/api run skills:seed -- ../../studio/skills
+   ```
+
+4. **A voice in the format.** New formats have no voice; paste the TTS provider's voice ID into
+   **Voice ID** in the format editor, or production stops before the voice step.
+
+Uploads go straight from the agent (and the browser, for reference media) to object storage with
+presigned URLs, so `pnpm stack:up` must be running. The local media bucket accepts browser
+uploads from `http://localhost:5173` only (`infra/seaweedfs/s3-init.sh`).
+
+## M3 acceptance runbook
+
+Milestone 3 is done when, on the workstation, an idea in a real format goes through script,
+storyboard, voice and render via the studio agent, the review screen plays the result, a request
+for changes produces a revised version, approval works and every version is kept. The steps,
+including the one-time Mac setup (owner checkpoint C6), are in the
+[M3 acceptance runbook](runbooks/m3-acceptance.md).
+
+`pnpm test:e2e` checks the same flow with the fake studio agent, whose script, storyboard and
+media are fixtures rather than a producer session's, the TTS provider's and a render's.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -295,4 +363,8 @@ rather than a producer session's.
 | An MCP tool call returns `forbidden: …` | The token lacks the tool's scope, for example `mcp:write` for `project.create`. Create a token with that scope |
 | Tests fail with "TEST_DATABASE_ADMIN_URL is not set" | Copy `.env.example` to `.env` or export the variable |
 | `pnpm test:e2e` cannot launch Chromium | Run `pnpm --filter @loomcast/e2e exec playwright install chromium` |
+| `pnpm test:e2e` skips the pipeline spec | Nothing answered at the object store. Run `pnpm stack:up` (or `docker compose up -d s3 s3-init`) |
+| Uploads or media links answer 503 `storage_unavailable` | The API started without `S3_*`. Copy them from `.env.example` and restart `pnpm dev` |
+| Production stops before the voice with `voice_not_configured` | The format has no voice ID. Set one in the format editor and produce again |
+| A voice or render job fails | See the [studio runtime troubleshooting](studio-runtime.md#troubleshooting) |
 | Old `t_*`, `loomcast_template_*` or `loomcast_e2e_*` databases pile up | Test runs drop their own databases; a crashed run may leave some. They are safe to drop when no tests are running (templates first need `alter database <name> is_template false`) |
