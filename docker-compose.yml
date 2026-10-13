@@ -45,24 +45,22 @@ services:
       retries: 30
       start_period: 10s
 
-  # One-shot: creates the private loomcast-media bucket if it is missing, then lists buckets. Safe to re-run.
+  # One-shot: creates the private loomcast-media bucket (with a CORS rule for browser uploads from
+  # the web app) and the public-read loomcast-public bucket, then lists buckets. Safe to re-run.
   s3-init:
     image: amazon/aws-cli:2.31.0
-    entrypoint: ["/bin/sh", "-ec"]
-    command:
-      - |
-        aws configure set default.s3.addressing_style path
-        if aws s3api head-bucket --bucket loomcast-media >/dev/null 2>&1; then
-          echo "bucket loomcast-media already exists"
-        else
-          aws s3api create-bucket --bucket loomcast-media
-        fi
-        aws s3 ls
+    entrypoint: ["/bin/sh"]
+    command: ["/s3-init.sh"]
+    volumes:
+      - ./infra/seaweedfs/s3-init.sh:/s3-init.sh:ro
     environment:
       AWS_ENDPOINT_URL: http://s3:8333
       AWS_ACCESS_KEY_ID: loomcast-dev-access
       AWS_SECRET_ACCESS_KEY: loomcast-dev-secret
       AWS_DEFAULT_REGION: us-east-1
+      S3_BUCKET: loomcast-media
+      S3_PUBLIC_BUCKET: loomcast-public
+      UPLOAD_ORIGIN: http://localhost:5173
     depends_on:
       s3:
         condition: service_healthy
