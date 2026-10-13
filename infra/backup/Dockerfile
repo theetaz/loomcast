@@ -8,10 +8,11 @@ FROM postgres:17-alpine
 
 RUN apk add --no-cache age aws-cli bash curl jq
 
-COPY lib.sh backup.sh aws-config /usr/local/lib/loomcast-backup/
+COPY lib.sh backup.sh restore.sh aws-config /usr/local/lib/loomcast-backup/
 RUN cd /usr/local/lib/loomcast-backup \
-  && chown -R root:root . && chmod 0755 . backup.sh && chmod 0644 lib.sh aws-config \
+  && chown -R root:root . && chmod 0755 . backup.sh restore.sh && chmod 0644 lib.sh aws-config \
   && ln -s /usr/local/lib/loomcast-backup/backup.sh /usr/local/bin/backup.sh \
+  && ln -s /usr/local/lib/loomcast-backup/restore.sh /usr/local/bin/restore.sh \
   # The bind-mounted host directory replaces this in production; it keeps a plain
   # `docker run` working. 0711: the api may read last-success.json but not list backups.
   && install -d -o postgres -g postgres -m 0711 /backups
