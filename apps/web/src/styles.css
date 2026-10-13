@@ -1,0 +1,15 @@
+/*
+ * Loomcast web app styles. The ui package brings Tailwind, the Geist fonts,
+ * the brand tokens and the motion rules; `@source` lets Tailwind see the
+ * classes its components use. Paths are relative to this file.
+ */
+@import "@loomcast/ui/styles.css";
+@source "../../../packages/ui/src";
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100svh;
+  }
+}
