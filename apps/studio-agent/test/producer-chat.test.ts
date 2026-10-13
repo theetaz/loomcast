@@ -82,6 +82,7 @@ function chatContext(
         ...payload,
       } as JobContext<"producer.chat">["job"]["payload"],
     },
+    credentials: {},
     emit: (kind, data) => {
       events.push({ kind, data });
     },

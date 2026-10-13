@@ -23,7 +23,14 @@ import {
 } from "@loomcast/contracts";
 import { z } from "zod";
 import type { ServerJobMessage } from "./connection";
-import { type Handler, type HandlerRegistry, type JobContext, JobFailure } from "./handlers";
+import {
+  createMcpCredentials,
+  type Handler,
+  type HandlerCredentials,
+  type HandlerRegistry,
+  type JobContext,
+  JobFailure,
+} from "./handlers";
 import type { JobOutcome, Journal, JournalEntry } from "./journal";
 import type { Logger } from "./logger";
 import type { Outbox } from "./outbox";
@@ -45,6 +52,12 @@ export interface RunnerOptions {
   /** Jobs allowed to run at once per concurrency class. */
   readonly concurrency: Credits;
   readonly log: Logger;
+  /**
+   * The paired server's URL. Job credentials name a server path, which is resolved against it, so
+   * a job token is only ever sent back to the server that issued it. Without it, credentials are
+   * ignored.
+   */
+  readonly serverUrl?: string;
   readonly heartbeatMs?: number;
   readonly streamBatchMs?: number;
   /** Overrides the registry timeout of a job type. */
@@ -96,6 +109,7 @@ export class JobRunner {
   readonly #transport: BridgeTransport;
   readonly #concurrency: Credits;
   readonly #log: Logger;
+  readonly #serverUrl: string | undefined;
   readonly #heartbeatMs: number;
   readonly #streamBatchMs: number;
   readonly #timeoutMs: (type: JobType) => number;
@@ -112,6 +126,7 @@ export class JobRunner {
     this.#transport = options.transport;
     this.#concurrency = options.concurrency;
     this.#log = options.log;
+    this.#serverUrl = options.serverUrl;
     this.#heartbeatMs = options.heartbeatMs ?? BRIDGE_TIMINGS.jobHeartbeatMs;
     this.#streamBatchMs = options.streamBatchMs ?? BRIDGE_TIMINGS.streamBatchMs;
     this.#timeoutMs = options.timeoutMs ?? ((type) => getJobDefinition(type).timeoutMs);
@@ -257,7 +272,46 @@ export class JobRunner {
       this.#reject(job.id, "no_credits", ref);
       return;
     }
-    this.#start(job, job.type, handler, payload.data, ref, finished?.lastSeq ?? 0);
+    const credentials = this.#credentials(job, message.payload.credentials);
+    if (credentials === null) {
+      this.#reject(job.id, "invalid_credentials", ref);
+      return;
+    }
+    this.#start(job, job.type, handler, payload.data, credentials, ref, finished?.lastSeq ?? 0);
+  }
+
+  /**
+   * The in-memory credentials of an assignment. They go to the handler only: they are never
+   * logged and never written to the outbox or the journal. Returns null for credentials that
+   * would leave the paired server.
+   */
+  #credentials(
+    job: AssignedJob,
+    sent: ServerMessageOf<"job.assign">["payload"]["credentials"],
+  ): HandlerCredentials | null {
+    if (sent === undefined) {
+      return {};
+    }
+    if (getJobDefinition(job.type).mcpAccess === "none") {
+      this.#log.warn("ignoring credentials sent for a job type without MCP access", {
+        jobId: job.id,
+        jobType: job.type,
+      });
+      return {};
+    }
+    if (this.#serverUrl === undefined) {
+      this.#log.warn("ignoring job credentials: no server URL to resolve them against", {
+        jobId: job.id,
+      });
+      return {};
+    }
+    const { endpoint, token, expiresAt } = sent.mcp;
+    const server = new URL(this.#serverUrl);
+    const url = new URL(endpoint, server);
+    if (url.origin !== server.origin) {
+      return null;
+    }
+    return { mcp: createMcpCredentials(url, token, expiresAt) };
   }
 
   #start<T extends JobType>(
@@ -265,6 +319,7 @@ export class JobRunner {
     type: T,
     handler: Handler<T>,
     payload: JobPayload<T>,
+    credentials: HandlerCredentials,
     ref: string,
     startSeq: number,
   ): void {
@@ -298,6 +353,7 @@ export class JobRunner {
 
     const ctx: JobContext<T> = {
       job: { ...job, type, payload },
+      credentials,
       emit: (kind, data) => this.#emit(active, kind, data),
       stream: (text) => this.#stream(active, text),
       signal: active.controller.signal,

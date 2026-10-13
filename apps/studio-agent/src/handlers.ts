@@ -15,8 +15,42 @@ export type RunningJob<T extends JobType> = Omit<AssignedJob, "type" | "payload"
   readonly payload: JobPayload<T>;
 };
 
+/**
+ * Job-scoped MCP access: the platform's MCP endpoint and a job token (`lc_job_…`) bound to the job's
+ * project. The token lives in memory for the running job only. It is not enumerable, so it never
+ * appears when the credentials are serialised or inspected, and `toJSON` redacts it.
+ */
+export interface McpCredentials {
+  /** The MCP endpoint, resolved against the agent's own server URL. */
+  readonly url: URL;
+  readonly token: string;
+  readonly expiresAt: string;
+}
+
+export interface HandlerCredentials {
+  /** Present when the job type has MCP access and the server sent a job token. */
+  readonly mcp?: McpCredentials;
+}
+
+export const REDACTED_JOB_TOKEN = "lc_job_[redacted]";
+
+/** Builds MCP credentials whose token stays out of JSON, logs and `util.inspect` output. */
+export function createMcpCredentials(url: URL, token: string, expiresAt: string): McpCredentials {
+  const credentials = { url, expiresAt } as McpCredentials;
+  Object.defineProperties(credentials, {
+    token: { value: token, enumerable: false },
+    toJSON: {
+      value: () => ({ url: url.toString(), token: REDACTED_JOB_TOKEN, expiresAt }),
+      enumerable: false,
+    },
+  });
+  return Object.freeze(credentials);
+}
+
 export interface JobContext<T extends JobType> {
   readonly job: RunningJob<T>;
+  /** Credentials sent with the assignment. Never persisted, never logged. */
+  readonly credentials: HandlerCredentials;
   /**
    * Records a durable event. It is written to the outbox before it is sent and is replayed until
    * the server acks it. Only the event kinds the registry allows for the job type are accepted.

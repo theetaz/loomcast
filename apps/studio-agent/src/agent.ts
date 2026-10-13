@@ -57,6 +57,7 @@ export function startAgent(options: AgentOptions): RunningAgent {
     transport,
     concurrency: config.concurrency,
     log,
+    serverUrl: config.serverUrl,
     heartbeatMs: timings.heartbeatMs,
     streamBatchMs: timings.streamBatchMs,
     timeoutMs: timings.timeoutMs,
