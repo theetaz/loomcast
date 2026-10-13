@@ -48,12 +48,12 @@ render to review, one version every second or so, with the live events the API s
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/review/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/settings/*` |
 | `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -165,8 +165,50 @@ tab (`/projects/:id/content`), the same view scoped to one project.
 - New idea asks for a title, an optional pitch and series, and, in the library, the project.
 - The command palette searches videos by title and pitch across projects
   (`features/palette/sources/content.ts`, 150 ms debounce, older requests aborted).
-- Item pages (`/content/:itemId`) and the review queue (`/review`) are placeholders until their
-  screens land; the project's Series tab is one too.
+- The review queue (`/review`) is a placeholder until its screen lands; the project's Series tab
+  is one too.
+
+## Item page
+
+`features/content-item` is one video's page (`/content/:itemId`): the header, the active job, four
+tabs and a rail. The address holds the tab (`?tab=script|storyboard|voice|video`, else the furthest
+artifact), an earlier version to show (`?version=`) and a version to compare scripts with
+(`?compare=`).
+
+- Every action comes from `allowedActions` in the contracts for the item's state, the user's role
+  and the current version: Produce (through review), Approve, Request changes, Reject (after a
+  confirmation), Archive (after a confirmation) and Restore. There are no single-key shortcuts.
+  The title is renamed in place (Enter saves, Escape cancels).
+- The active job shows in a banner with its latest `job.activity` (a progress bar when the job
+  reports one) and Cancel; when it finishes the item is read again. The last production error
+  shows until the next step succeeds.
+- Script: segments with mono timestamps (from the voice, or `~` estimated from the word count),
+  the hook highlighted, on-screen text, and the word count and length against the series'
+  format target (`series.get` then `formats.get`, or `formats.versions` for the version the
+  content was produced with). Edit mode is segment fields: ⌥↑ and ⌥↓ move a segment, ⌥Enter
+  adds one, ⌥Backspace removes an empty one, ⌘S saves. Compare renders a word diff (`diff`) as
+  `<ins>` and `<del>`.
+- Storyboard: one row per frame with its card, tier and purpose (read from the card id), the
+  segment it plays over, a timing bar and the slot text; a frame's slots are edited in place.
+- Voice: every take (`content.assets?kind=voice`) with a player; "Use this take" sets
+  `voiceAssetId`, Regenerate queues a new take.
+- Video: a 9:16 `<video>` with its poster that never autoplays; `,` and `.` step one frame while
+  it has focus, the rate buttons change the speed, and the details come from `assets.get`.
+  Download asks for an `attachment` URL.
+- Every save is `content.versions.edit` on top of the version being edited. A `409 conflict`
+  (or a newer version arriving while editing) shows a banner to reload or save on top.
+- Media plays from presigned URLs (`asset-url.ts`): they stay fresh until a minute before they
+  expire and are replaced on a timer before then; a player keeps its position and only resumes if
+  it was playing. A `409` (still processing) is asked for again every few seconds.
+- The rail holds the review panel (Approve only when allowed; Request changes needs a comment,
+  "Ask the producer to revise" is on by default and ⌘Enter sends), the version timeline (pick a
+  version to show it, or compare its script) and the item's producer chat: the conversation
+  thread bound to `content.conversation`.
+- Other features add cards to the page by adding a file to `features/content-item/cards/items/`
+  that exports `card: {id, placement: "main" | "rail", order, component}`.
+- Mock mode: versions carry real scripts and storyboards (`src/mocks/artifacts.ts`), voice takes
+  play a quiet generated tone, posters are generated SVGs and renders a short clip recorded from a
+  canvas in the page. Single production steps (Regenerate, Render) and revisions run too.
 
 ## Screens and conventions
 

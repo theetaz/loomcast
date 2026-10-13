@@ -27,6 +27,7 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http } from "msw";
 import type { z } from "zod";
+import { mockScript, mockStoryboard } from "./artifacts";
 import { mockJob, updateJob } from "./conversations";
 import { type MockDb, mockId, publish } from "./db";
 
@@ -68,7 +69,7 @@ export function mockSeries(
   };
 }
 
-/** Artifacts a version at `stage` has; the mock keeps flags, not real scripts or storyboards. */
+/** Artifacts a version at `stage` has. */
 function artifactsFor(stage: PipelineState) {
   const reached = PRODUCTION_STATES.indexOf(stage as (typeof PRODUCTION_STATES)[number]);
   // Review and later states always have a render.
@@ -85,6 +86,10 @@ export function mockVersion(
   overrides: Partial<ContentVersion> & Pick<ContentVersion, "itemId" | "versionNo" | "stage">,
 ): ContentVersion {
   const artifacts = artifactsFor(overrides.stage);
+  // Real artifacts for the item page; a voice adds segment timings.
+  const script = artifacts.hasScript
+    ? mockScript(overrides.versionNo, { timed: artifacts.voiceAssetId !== null })
+    : null;
   return {
     id: mockId(),
     parentVersionId: null,
@@ -96,8 +101,8 @@ export function mockVersion(
     createdByUser: null,
     jobId: null,
     createdAt: new Date().toISOString(),
-    script: null,
-    storyboard: null,
+    script,
+    storyboard: script && artifacts.hasStoryboard ? mockStoryboard(script) : null,
     caption: null,
     ...overrides,
   };
@@ -114,11 +119,17 @@ export function mockContentItem(
   const state = overrides.state ?? "idea";
   const at = overrides.createdAt ?? new Date().toISOString();
   const versionNo = overrides.versionNo ?? 1;
+  // Earlier versions climb the production stages one at a time, up to the item's state.
+  const reached = PRODUCTION_STATES.indexOf(state as (typeof PRODUCTION_STATES)[number]);
+  const top = reached === -1 ? PRODUCTION_STATES.length - 1 : reached;
   const versions = Array.from({ length: versionNo }, (_, index) =>
     mockVersion({
       itemId: id,
       versionNo: index + 1,
-      stage: index + 1 === versionNo ? state : "idea",
+      stage:
+        index + 1 === versionNo
+          ? state
+          : (PRODUCTION_STATES[Math.min(index, Math.max(0, top - 1))] ?? "idea"),
       createdAt: at,
     }),
   );
@@ -214,7 +225,7 @@ function detailOf(db: MockDb, item: ContentItem): ContentItemDetail | null {
 const jobsByDb = new WeakMap<MockDb, Map<string, string>>();
 
 /** Production jobs queued or running, by item id. */
-function activeJobs(db: MockDb): Map<string, string> {
+export function activeJobs(db: MockDb): Map<string, string> {
   let jobs = jobsByDb.get(db);
   if (!jobs) {
     jobs = new Map();
@@ -233,6 +244,26 @@ const STEP_JOB_TYPES: Record<string, JobType> = {
 
 const STEP_MS = 1_400;
 
+/** What the mock studio agent reports while it works on a step. */
+const STEP_ACTIVITY: Record<string, string> = {
+  write_script: "Writing the script",
+  storyboard: "Laying out the storyboard",
+  voice: "Recording the voice",
+  render: "Rendering the video",
+  revise: "Revising the script from the review",
+};
+
+function cancelRequested(db: MockDb, jobId: string): boolean {
+  return Boolean(db.jobs.find((job) => job.id === jobId)?.cancelRequestedAt);
+}
+
+function reportActivity(db: MockDb, jobId: string, step: string, progress: number) {
+  publish(db, {
+    type: "job.activity",
+    payload: { jobId, kind: step, summary: STEP_ACTIVITY[step] ?? "Working", progress },
+  });
+}
+
 /**
  * Mock mode only: walks an item through the missing steps up to `through`, one version per step,
  * then sends a rendered item to review. Tests leave `simulateProducer` off and drive events.
@@ -242,7 +273,7 @@ function runProduction(db: MockDb, itemId: string, jobId: string, through: Produ
   const advance = () => {
     const item = db.contentItems.find((entry) => entry.id === itemId);
     const version = item ? currentVersion(db, item) : undefined;
-    if (!item || !version || item.state === "archived") {
+    if (!item || !version || item.state === "archived" || cancelRequested(db, jobId)) {
       finish("cancelled");
       return;
     }
@@ -250,6 +281,7 @@ function runProduction(db: MockDb, itemId: string, jobId: string, through: Produ
     const stage = PRODUCTION_STEPS.find((entry) => entry.action === step)?.stage;
     if (step && stage && PRODUCTION_STATES.indexOf(stage) <= stopAt) {
       updateJob(db, jobId, { type: STEP_JOB_TYPES[step] ?? "content.write_script" });
+      reportActivity(db, jobId, step, PRODUCTION_STATES.indexOf(stage) / (stopAt + 1));
       addContentVersion(db, itemId, stage, jobId);
       setTimeout(advance, STEP_MS);
       return;
@@ -266,9 +298,63 @@ function runProduction(db: MockDb, itemId: string, jobId: string, through: Produ
     updateJob(db, jobId, { status, finishedAt: new Date().toISOString() });
   };
   setTimeout(() => {
+    if (cancelRequested(db, jobId)) {
+      activeJobs(db).delete(itemId);
+      return;
+    }
     const at = new Date().toISOString();
     updateJob(db, jobId, { status: "running", dispatchedAt: at, startedAt: at });
     advance();
+  }, STEP_MS / 2);
+}
+
+/** The stage each single-step action writes a version at. `revise` rewrites the script. */
+const STEP_STAGES: Record<string, PipelineState> = {
+  write_script: "script",
+  storyboard: "storyboard",
+  voice: "voice",
+  render: "render",
+  revise: "script",
+};
+
+/**
+ * Mock mode only: runs one production step (a regenerated voice, a render, a revision) and writes
+ * its version, reporting progress on the way.
+ */
+export function runSingleStep(db: MockDb, itemId: string, jobId: string, step: string) {
+  const stage = STEP_STAGES[step];
+  const finish = (status: JobSummary["status"]) => {
+    activeJobs(db).delete(itemId);
+    updateJob(db, jobId, { status, finishedAt: new Date().toISOString() });
+  };
+  if (!stage) {
+    finish("failed");
+    return;
+  }
+  const progress = [0.2, 0.55, 0.85];
+  setTimeout(() => {
+    if (cancelRequested(db, jobId)) {
+      activeJobs(db).delete(itemId);
+      return;
+    }
+    const at = new Date().toISOString();
+    updateJob(db, jobId, { status: "running", dispatchedAt: at, startedAt: at });
+    progress.forEach((value, index) => {
+      setTimeout(
+        () => {
+          if (!cancelRequested(db, jobId)) reportActivity(db, jobId, step, value);
+        },
+        (index * STEP_MS) / 2,
+      );
+    });
+    setTimeout(() => {
+      if (cancelRequested(db, jobId)) {
+        finish("cancelled");
+        return;
+      }
+      addContentVersion(db, itemId, stage, jobId);
+      finish("succeeded");
+    }, STEP_MS * 2);
   }, STEP_MS / 2);
 }
 
@@ -467,6 +553,7 @@ export function createContentHandlers(db: MockDb) {
       activeJobs(db).set(item.id, job.id);
       publish(db, { type: "job.updated", payload: { job } });
       if (db.simulateProducer && action === "produce") runProduction(db, item.id, job.id, through);
+      else if (db.simulateProducer) runSingleStep(db, item.id, job.id, action);
       return HttpResponse.json(job, { status: 201 });
     }),
   ];

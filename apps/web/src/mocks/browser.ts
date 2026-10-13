@@ -1,5 +1,6 @@
 import { setupWorker } from "msw/browser";
 import { demoContent } from "./content";
+import { seedItemDemo } from "./content-item";
 import { demoConversations, resumeQueuedJobs } from "./conversations";
 import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { createHandlers, createStreamHandler } from "./handlers";
@@ -36,6 +37,8 @@ export async function startMockApi() {
       else sessionStorage.removeItem(SESSION_KEY);
     },
   });
+
+  seedItemDemo(db, now);
 
   window.loomcastMock = {
     setStudioOnline(online) {

@@ -17,6 +17,7 @@
     "@loomcast/ui": "workspace:*",
     "@tanstack/react-query": "^5.104.2",
     "@tanstack/react-router": "^1.170.42",
+    "diff": "^9.0.0",
     "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
