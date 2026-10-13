@@ -14,5 +14,6 @@ export {
   INSTAGRAM_QUOTA_RETRY_MS,
   instagramErrorOf,
 } from "./graph";
+export { RECENT_MEDIA_LIMIT, recentMediaRequest } from "./media";
 export { checkQuota, INSTAGRAM_DEFAULT_QUOTA, type InstagramQuota, parseQuota } from "./quota";
 export { INSTAGRAM_REELS_MEDIA, validateInstagramReel } from "./validate";
