@@ -9,7 +9,9 @@
     "includes": [
       "**",
       "!design",
-      "!studio",
+      "!studio/*",
+      "studio/runtime",
+      "studio/vitest.config.ts",
       "!**/dist",
       "!**/coverage",
       "!**/routeTree.gen.ts",

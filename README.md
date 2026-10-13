@@ -71,6 +71,53 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 
 Each app and package also has a README: [`apps/api`](apps/api/README.md), [`apps/web`](apps/web/README.md), [`apps/studio-agent`](apps/studio-agent/README.md), [`packages/contracts`](packages/contracts/README.md), [`packages/db`](packages/db/README.md) and [`packages/ui`](packages/ui/README.md).
 
+## Studio runtime
+
+`studio/runtime` is the TypeScript runtime the studio agent uses to turn a content version into a
+vertical short. It is exported as `@loomcast/studio/runtime` and covered by `pnpm lint`,
+`pnpm typecheck` and `pnpm test`.
+
+- **Storyboards** are checked against `studio/style-library/registry.json` and each style's
+  `style.json`: known cards, declared slots within their character limits, frames in order without
+  overlaps, and each frame's length within its card's limits.
+- **Assembly** writes a HyperFrames project to `<itemDir>/render/`. Shorts are 1080×1920: the
+  vertical shell (`studio/runtime/templates/vertical-shell/`) has a hook band, a card area and a
+  caption band. Landscape library cards are mounted as sub-compositions scaled to the frame width;
+  9:16 cards fill the frame. Slot text is HTML-escaped, and captions come from the voice timings.
+- **Rendering** runs the studio's pinned HyperFrames CLI (`lint`, then `render`) and ffmpeg, with
+  argument arrays only. Every spawn sets `HYPERFRAMES_NO_TELEMETRY=1` and `DO_NOT_TRACK=1`, and
+  turns off the CLI's update check and self-install. The delivered MP4 is H.264 High, yuv420p,
+  30 fps, AAC 48 kHz at 128 kb/s, normalised to −14 LUFS with `+faststart`, plus a poster at 1 s;
+  ffprobe then checks 1080×1920 and the voice length ±0.5 s.
+- **Voice and transcription** call the TTS provider with a key the caller passes in (for local use,
+  the provider key in `studio/.env`, as listed in `studio/.env.example`). Tests never call the
+  provider.
+
+Rendering needs ffmpeg and a headless Chrome: the HyperFrames CLI uses `HYPERFRAMES_BROWSER_PATH`
+when set and otherwise its own browser cache under `~/.cache/hyperframes`.
+
+```bash
+pnpm --filter @loomcast/studio run runtime validate path/to/storyboard.json
+pnpm --filter @loomcast/studio run runtime assemble path/to/item   # storyboard.json, voice.mp3, alignment.json, script.json
+pnpm --filter @loomcast/studio run runtime render path/to/item     # out/final.mp4 and poster.jpg
+pnpm --filter @loomcast/studio run runtime probe path/to/file.mp4
+
+# Opt-in five-second smoke render of synthetic content in a temporary directory:
+HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 pnpm --filter @loomcast/studio exec tsx runtime/scripts/smoke-render.ts
+pnpm --filter @loomcast/studio test:smoke   # the same render as a test (sets LOOMCAST_SMOKE_RENDER=1)
+```
+
+`pnpm test` never renders: the smoke test runs only with `LOOMCAST_SMOKE_RENDER=1` and only when
+ffmpeg, ffprobe and an installed render browser are present; otherwise it is skipped with the
+reason.
+
+Use `pnpm … run runtime`, not `pnpm … runtime`, which pnpm reserves for its own command.
+
+Producer guidance lives in `studio/skills/`: `scriptwriting`, `storyboarding`,
+`captions-and-pacing`, `revision` and the `recipes/vertical-explainer` recipe. Each has a
+`skill.json` manifest and a `SKILL.md`; `loadBundledSkills()` validates them against the skill
+contract.
+
 ## Contributing
 
 Branching, commit and pull-request conventions are described in [CONTRIBUTING.md](CONTRIBUTING.md).

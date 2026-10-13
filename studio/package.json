@@ -2,8 +2,11 @@
   "name": "@loomcast/studio",
   "version": "2.0.0",
   "private": true,
-  "type": "commonjs",
-  "description": "Loomcast video studio: HyperFrames/Remotion workspace driven by the project motion skills.",
+  "type": "module",
+  "description": "Loomcast video studio: HyperFrames workspace, style library, producer skills and the render runtime the studio agent drives.",
+  "exports": {
+    "./runtime": "./runtime/src/index.ts"
+  },
   "scripts": {
     "transcribe": "node scripts/transcribe-elevenlabs.mjs",
     "validate-beats": "node scripts/validate-beat-sync.mjs",
@@ -13,14 +16,27 @@
     "demo": "node scripts/new-video.mjs demo",
     "catalog": "node scripts/style-library/build-registry.mjs",
     "test:media": "node scripts/smoke-media.mjs",
-    "preflight:all": "node scripts/preflight-all.mjs"
+    "preflight:all": "node scripts/preflight-all.mjs",
+    "runtime": "tsx runtime/src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:smoke": "LOOMCAST_SMOKE_RENDER=1 HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 vitest run runtime/test/smoke.test.ts"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@loomcast/contracts": "workspace:*",
+    "parse5": "^8.0.1",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "hyperframes": "0.7.109",
+    "@types/node": "catalog:",
     "gsap": "3.14.2",
-    "playwright": "^1.59.1"
+    "hyperframes": "0.7.109",
+    "playwright": "^1.59.1",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
