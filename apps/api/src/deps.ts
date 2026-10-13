@@ -7,12 +7,14 @@ import type { Clock } from "./lib/clock";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { Storage } from "./lib/storage";
+import type { TokenVault } from "./lib/vault";
 import type { AssetsService } from "./modules/assets/service";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
 import type { JobHooks } from "./modules/jobs/hooks";
 import type { JobsService } from "./modules/jobs/service";
 import type { KbService } from "./modules/kb/service";
+import type { Scheduler, SchedulerAlert } from "./modules/scheduler/scheduler";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
@@ -34,6 +36,11 @@ export interface AppDeps {
    * may pass their own.
    */
   storage?: Storage;
+  /**
+   * Receives scheduler alerts (dead and failed tasks). Without it they are logged at error level.
+   * The ops module wires the webhook alerts here.
+   */
+  alert?: (alert: SchedulerAlert) => void | Promise<void>;
 }
 
 /** Which studio agents have a live bridge connection. The bridge module replaces the default. */
@@ -59,6 +66,16 @@ export interface ModuleDeps extends AppDeps {
   storage: Storage;
   /** Uploads, verification and downloads of stored files, shared by REST and the MCP tools. */
   assets: AssetsService;
+  /**
+   * Server-side scheduled tasks. Modules register a handler per task kind in `register` and
+   * enqueue tasks (optionally in a transaction). The loop runs only under `startServer`.
+   */
+  scheduler: Scheduler;
+  /**
+   * AES-256-GCM encryption of channel credentials (`encrypt(value, channelAad(id))`). When the
+   * server has no `LOOMCAST_ENCRYPTION_KEY` (outside production) every call answers 503.
+   */
+  vault: TokenVault;
 }
 
 /**

@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type PublishingMode, PublishingModeSchema } from "@loomcast/contracts";
 import { z } from "zod";
 import type { StorageConfig } from "./lib/storage/types";
+import { decodeVaultKey, parsePreviousVaultKeys, type VaultKeyring } from "./lib/vault";
 
 const ROOT_ENV_FILE = fileURLToPath(new URL("../../../.env", import.meta.url));
 
@@ -40,6 +42,85 @@ const OriginSchema = z.url({ protocol: /^https?$/ }).transform((value) => new UR
 /** Object storage settings that have no default: all set, or (outside production) all unset. */
 const STORAGE_KEYS = ["S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"] as const;
 
+/** Default pause between scheduler ticks. */
+export const DEFAULT_SCHEDULER_TICK_MS = 5_000;
+
+/** Default number of days ahead the cadence planner fills with slots. */
+export const DEFAULT_CADENCE_HORIZON_DAYS = 14;
+
+/** An optional setting where an empty value (`KEY=` in an env file) counts as unset. */
+const optionalText = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().optional(),
+);
+
+const ENCRYPTION_KEY_MESSAGE =
+  "Must be 32 random bytes, base64 encoded (for example `openssl rand -base64 32`)";
+
+const NodeEnvSchema = z.enum(NODE_ENVS).default("development");
+
+const EncryptionEnvShape = {
+  /**
+   * Key of the token vault that encrypts channel credentials: 32 random bytes, base64 encoded.
+   * Required in production; elsewhere it may be left out, and storing credentials answers 503.
+   */
+  LOOMCAST_ENCRYPTION_KEY: optionalText,
+  /** Version stored with every value the current key seals. Raise it with each new key. */
+  LOOMCAST_ENCRYPTION_KEY_VERSION: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  /** Earlier keys during a rotation: `version:base64key` pairs separated by commas. */
+  LOOMCAST_ENCRYPTION_KEYS_PREVIOUS: optionalText,
+};
+
+interface EncryptionEnv {
+  NODE_ENV: NodeEnv;
+  LOOMCAST_ENCRYPTION_KEY?: string | undefined;
+  LOOMCAST_ENCRYPTION_KEY_VERSION: number;
+  LOOMCAST_ENCRYPTION_KEYS_PREVIOUS?: string | undefined;
+}
+
+/**
+ * Checks the vault keys: a 32-byte key (required in production), previous keys that parse and do
+ * not reuse the current version. Messages never include key material.
+ */
+function refineEncryption(env: EncryptionEnv, ctx: z.RefinementCtx): void {
+  if (env.LOOMCAST_ENCRYPTION_KEY === undefined) {
+    if (env.NODE_ENV === "production") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOOMCAST_ENCRYPTION_KEY"],
+        message: `Required in production. ${ENCRYPTION_KEY_MESSAGE}`,
+      });
+    }
+    if (env.LOOMCAST_ENCRYPTION_KEYS_PREVIOUS !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOOMCAST_ENCRYPTION_KEYS_PREVIOUS"],
+        message: "Set LOOMCAST_ENCRYPTION_KEY as well",
+      });
+    }
+  } else if (decodeVaultKey(env.LOOMCAST_ENCRYPTION_KEY) === null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["LOOMCAST_ENCRYPTION_KEY"],
+      message: ENCRYPTION_KEY_MESSAGE,
+    });
+  }
+  if (
+    env.LOOMCAST_ENCRYPTION_KEY !== undefined &&
+    env.LOOMCAST_ENCRYPTION_KEYS_PREVIOUS !== undefined
+  ) {
+    const { keys, issues } = parsePreviousVaultKeys(env.LOOMCAST_ENCRYPTION_KEYS_PREVIOUS);
+    if (keys.has(env.LOOMCAST_ENCRYPTION_KEY_VERSION)) {
+      issues.push(
+        `version ${env.LOOMCAST_ENCRYPTION_KEY_VERSION} is the current LOOMCAST_ENCRYPTION_KEY_VERSION`,
+      );
+    }
+    for (const issue of issues) {
+      ctx.addIssue({ code: "custom", path: ["LOOMCAST_ENCRYPTION_KEYS_PREVIOUS"], message: issue });
+    }
+  }
+}
+
 const EnvSchema = z
   .object({
     DATABASE_URL: PostgresUrlSchema,
@@ -47,7 +128,7 @@ const EnvSchema = z
     API_PORT: z.coerce.number().int().min(0).max(65_535).default(8790),
     /** Interface to bind. Defaults to loopback, or all interfaces in production (inside a container). */
     API_HOST: z.string().min(1).optional(),
-    NODE_ENV: z.enum(NODE_ENVS).default("development"),
+    NODE_ENV: NodeEnvSchema,
     LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
     PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }),
     /** Built web app to serve in production, with an SPA fallback to `index.html`. */
@@ -75,7 +156,29 @@ const EnvSchema = z
     S3_SECRET_KEY: z.string().min(1).optional(),
     /** Largest upload finalize hashes itself when the store did not record its SHA-256. */
     ASSET_VERIFY_MAX_BYTES: z.coerce.number().int().min(0).default(DEFAULT_ASSET_VERIFY_MAX_BYTES),
+    ...EncryptionEnvShape,
+    /** Runs the background task loop. Admin endpoints and enqueueing work either way. */
+    SCHEDULER_ENABLED: z.stringbool().default(true),
+    /** Pause between two claims of due tasks. */
+    SCHEDULER_TICK_MS: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(600_000)
+      .default(DEFAULT_SCHEDULER_TICK_MS),
+    /** `dry-run` records what would be posted without calling the platforms; `live` posts. */
+    PUBLISHING_MODE: PublishingModeSchema.default("dry-run"),
+    /** False pauses publishing entirely: due posts wait and retry later. */
+    PUBLISHING_ENABLED: z.stringbool().default(true),
+    /** How many days ahead the cadence planner creates slots. */
+    CADENCE_HORIZON_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(90)
+      .default(DEFAULT_CADENCE_HORIZON_DAYS),
   })
+  .superRefine(refineEncryption)
   .superRefine((env, ctx) => {
     const missing = STORAGE_KEYS.filter((key) => env[key] === undefined);
     const allMissing = missing.length === STORAGE_KEYS.length;
@@ -113,6 +216,29 @@ export interface Config {
   storage: StorageConfig | null;
   /** Largest upload `assets.finalize` hashes itself when the store did not record its SHA-256. */
   assetVerifyMaxBytes: number;
+  /**
+   * Keys of the token vault. Null when `LOOMCAST_ENCRYPTION_KEY` is not set outside production.
+   * Holds key material: never log it.
+   */
+  encryption: VaultKeyring | null;
+  scheduler: SchedulerConfig;
+  publishing: PublishingConfig;
+  /** How many days ahead the cadence planner creates slots. */
+  cadenceHorizonDays: number;
+}
+
+export interface SchedulerConfig {
+  /** Runs the background task loop under `startServer`. */
+  enabled: boolean;
+  /** Pause between two claims of due tasks. */
+  tickMs: number;
+}
+
+export interface PublishingConfig {
+  /** `PUBLISHING_MODE`: in `dry-run`, nothing is sent to a platform. */
+  mode: PublishingMode;
+  /** `PUBLISHING_ENABLED`: false pauses publishing. */
+  enabled: boolean;
 }
 
 export class ConfigError extends Error {
@@ -165,7 +291,60 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
             publicBaseUrl: values.PUBLIC_BASE_URL,
           },
     assetVerifyMaxBytes: values.ASSET_VERIFY_MAX_BYTES,
+    encryption: encryptionConfig(values),
+    scheduler: { enabled: values.SCHEDULER_ENABLED, tickMs: values.SCHEDULER_TICK_MS },
+    publishing: { mode: values.PUBLISHING_MODE, enabled: values.PUBLISHING_ENABLED },
+    cadenceHorizonDays: values.CADENCE_HORIZON_DAYS,
   };
+}
+
+/** The vault keyring from validated settings; null without `LOOMCAST_ENCRYPTION_KEY`. */
+function encryptionConfig(values: {
+  LOOMCAST_ENCRYPTION_KEY?: string | undefined;
+  LOOMCAST_ENCRYPTION_KEY_VERSION: number;
+  LOOMCAST_ENCRYPTION_KEYS_PREVIOUS?: string | undefined;
+}): VaultKeyring | null {
+  const key =
+    values.LOOMCAST_ENCRYPTION_KEY === undefined
+      ? null
+      : decodeVaultKey(values.LOOMCAST_ENCRYPTION_KEY);
+  if (key === null) {
+    return null;
+  }
+  return {
+    keyVersion: values.LOOMCAST_ENCRYPTION_KEY_VERSION,
+    key,
+    previousKeys:
+      values.LOOMCAST_ENCRYPTION_KEYS_PREVIOUS === undefined
+        ? new Map()
+        : parsePreviousVaultKeys(values.LOOMCAST_ENCRYPTION_KEYS_PREVIOUS).keys,
+  };
+}
+
+const VaultEnvSchema = z
+  .object({ DATABASE_URL: PostgresUrlSchema, NODE_ENV: NodeEnvSchema, ...EncryptionEnvShape })
+  .superRefine(refineEncryption);
+
+export interface VaultCliConfig {
+  databaseUrl: string;
+  /** Null when `LOOMCAST_ENCRYPTION_KEY` is not set. */
+  encryption: VaultKeyring | null;
+}
+
+/**
+ * The settings the vault CLI needs: the database and the keys. Lighter than `parseConfig`, so a
+ * rotation can run with only these variables set. Throws `ConfigError`.
+ */
+export function parseVaultCliConfig(
+  env: Record<string, string | undefined> = process.env,
+): VaultCliConfig {
+  const parsed = VaultEnvSchema.safeParse(env);
+  if (!parsed.success) {
+    throw new ConfigError(
+      parsed.error.issues.map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`),
+    );
+  }
+  return { databaseUrl: parsed.data.DATABASE_URL, encryption: encryptionConfig(parsed.data) };
 }
 
 /** Loads the root `.env` (outside production) and parses the environment. */

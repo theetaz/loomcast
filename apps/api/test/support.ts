@@ -68,6 +68,12 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       publicBaseUrl: "https://media.example.test",
     },
     assetVerifyMaxBytes: 512 * 1024 * 1024,
+    // No vault keys by default; vault tests pass a keyring generated at runtime.
+    encryption: null,
+    // Tests drive scheduler ticks themselves.
+    scheduler: { enabled: false, tickMs: 5_000 },
+    publishing: { mode: "dry-run", enabled: true },
+    cadenceHorizonDays: 14,
     ...overrides,
   };
 }

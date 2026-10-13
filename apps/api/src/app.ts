@@ -17,10 +17,15 @@ import {
   type Storage,
   type StorageConfig,
 } from "./lib/storage";
+import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
+import { register as registerApprovals } from "./modules/approvals";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
 import { createSessionsService } from "./modules/auth/sessions";
 import { register as registerBridge } from "./modules/bridge";
+import { register as registerCadence } from "./modules/cadence";
+import { register as registerCalendar } from "./modules/calendar";
+import { register as registerChannels } from "./modules/channels";
 import { register as registerContent } from "./modules/content";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
@@ -31,7 +36,9 @@ import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
 import { register as registerProduction } from "./modules/production";
 import { register as registerProjects } from "./modules/projects";
+import { register as registerPublisher } from "./modules/publisher";
 import { register as registerReviews } from "./modules/reviews";
+import { createScheduler, register as registerScheduler } from "./modules/scheduler";
 import { register as registerSeries } from "./modules/series";
 import { register as registerSkills } from "./modules/skills";
 import { register as registerStream } from "./modules/stream";
@@ -116,6 +123,16 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     deps.storage ??
     (config.storage === null ? createUnconfiguredStorage() : ownStorage(deps, config.storage));
   const assets = createAssetsService({ ...deps, storage });
+  const scheduler = createScheduler({
+    db: deps.db,
+    bus: deps.bus,
+    clock: deps.clock,
+    logger: logger.child({ module: "scheduler" }),
+    config: config.scheduler,
+    alert: deps.alert,
+  });
+  const vault: TokenVault =
+    config.encryption === null ? createUnconfiguredVault() : createVault(config.encryption);
   const moduleDeps: ModuleDeps = {
     ...deps,
     sessions,
@@ -127,6 +144,8 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     presence,
     storage,
     assets,
+    scheduler,
+    vault,
   };
   const media = mediaOrigins(config);
 
@@ -219,6 +238,12 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerReviews(app, moduleDeps);
   registerProduction(app, moduleDeps);
   registerSkills(app, moduleDeps);
+  registerChannels(app, moduleDeps);
+  registerCalendar(app, moduleDeps);
+  registerCadence(app, moduleDeps);
+  registerApprovals(app, moduleDeps);
+  registerPublisher(app, moduleDeps);
+  registerScheduler(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
   registerBridge(app, moduleDeps);
@@ -226,6 +251,12 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerMcp(app, moduleDeps);
   for (const register of options.modules ?? []) {
     register(app, moduleDeps);
+  }
+
+  // Background work runs only in a served process, after every module registered its handlers.
+  if (deps.httpServer !== undefined && config.scheduler.enabled) {
+    scheduler.start();
+    deps.lifecycle.onClose(() => scheduler.stop());
   }
 
   if (config.isProduction && config.webDistDir !== null) {

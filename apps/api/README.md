@@ -8,10 +8,11 @@ built web app, so the browser only ever talks to one origin.
 
 ```bash
 pnpm --filter @loomcast/api dev        # tsx watch src/server.ts on API_PORT (8790)
-pnpm --filter @loomcast/api build      # tsdown: dist/server.mjs and dist/cli/admin.mjs
+pnpm --filter @loomcast/api build      # tsdown: dist/server.mjs and dist/cli/{admin,vault}.mjs
 pnpm --filter @loomcast/api start      # node dist/server.mjs
 pnpm --filter @loomcast/api test       # vitest against per-file Postgres databases
 pnpm --filter @loomcast/api typecheck
+pnpm --filter @loomcast/api run vault:rotate -- --dry-run   # see "Token vault"
 ```
 
 ## Configuration
@@ -37,10 +38,20 @@ production the repository's `.env` is loaded first; variables already set win.
 | `S3_PUBLIC_BUCKET` | `loomcast-public` | Public-read bucket served at `PUBLIC_BASE_URL` |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | required in production | Object storage keys |
 | `ASSET_VERIFY_MAX_BYTES` | 512 MiB | Largest upload finalize hashes itself when the store kept no checksum |
+| `LOOMCAST_ENCRYPTION_KEY` | required in production | Token vault key: 32 random bytes, base64 (`openssl rand -base64 32`) |
+| `LOOMCAST_ENCRYPTION_KEY_VERSION` | `1` | Version stored with values the current key seals |
+| `LOOMCAST_ENCRYPTION_KEYS_PREVIOUS` | unset | Earlier keys during a rotation: `version:base64key,...` |
+| `SCHEDULER_ENABLED` | `true` | Runs the scheduled task loop in this process |
+| `SCHEDULER_TICK_MS` | `5000` | Pause between two claims of due tasks |
+| `PUBLISHING_MODE` | `dry-run` | `dry-run` records what would be posted; `live` posts |
+| `PUBLISHING_ENABLED` | `true` | `false` pauses publishing |
+| `CADENCE_HORIZON_DAYS` | `14` | How many days ahead cadence slots are planned |
 
 Outside production, `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` may all be left out (not
 just some of them): the API then starts without object storage, and uploads and downloads answer
-503 `storage_unavailable`.
+503 `storage_unavailable`. Likewise `LOOMCAST_ENCRYPTION_KEY` may be left out outside production;
+storing or reading channel credentials then answers 503 `vault_unavailable`. A key that is not
+exactly 32 bytes is refused at startup.
 
 ## Layout
 
@@ -51,8 +62,11 @@ just some of them): the API then starts without object storage, and uploads and 
 | `src/deps.ts` | `AppDeps` (db, bus, clock, logger, config, lifecycle, httpServer) and `ModuleDeps` |
 | `src/lib/` | Event bus, rate limiter, audit log, crypto, passwords, transactions, errors, logger |
 | `src/lib/storage/` | Object storage: presigned PUT and GET, verification reads, `promoteToPublic` |
+| `src/lib/vault.ts` | Token vault: AES-256-GCM sealing of channel credentials, key rotation |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
+| `src/modules/scheduler/` | Scheduled task loop, task handlers registry and the admin endpoints |
 | `src/cli/admin.ts` | The admin CLI |
+| `src/cli/vault.ts` | The vault CLI (`vault:rotate`) |
 
 ## Writing a module
 
@@ -72,6 +86,8 @@ router is mounted. `createApp` already registers every module, so a module never
 - `httpServer`: the Node server when served by `startServer` (the bridge attaches `upgrade`).
 - `storage`: object storage (below). `AppDeps.storage` overrides the S3 client built from config.
 - `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
+- `scheduler`: server-side scheduled tasks (below). Register handlers in `register`.
+- `vault`: encryption of channel credentials (below).
 
 ### Object storage and assets
 
@@ -82,13 +98,63 @@ is `projects/<projectId>/<kind>/<sha256>.<ext>`, so the same file uploaded again
 returns the existing asset (`upload: null` once it is ready). `POST /api/assets/:id/finalize`
 checks the stored size and the checksum the store verified (or hashes the object, up to
 `ASSET_VERIFY_MAX_BYTES`, when the store kept none), then marks the asset `ready`, or `failed` and
-deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. An hourly timer deletes
-pending uploads older than 24 hours.
+deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. The recurring
+`assets.cleanup` scheduled task (hourly) deletes pending uploads older than 24 hours.
 
 `storage.promoteToPublic(key)` copies a private object to the public bucket under
 `p/<ulid>/<sha256>.<ext>` and returns its anonymous URL under `PUBLIC_BASE_URL`. Only the publisher
 uses it, for final renders. The CSP allows the S3 endpoint and `PUBLIC_BASE_URL` origins in
 `connect-src`, `img-src` and `media-src`.
+
+### Scheduled tasks
+
+Tasks are server-side work that runs at a set time (cadence planning, production ahead of a slot,
+publishing, status polls, asset cleanup). They never reach the studio agent. Each kind is listed
+in `scheduledTaskRegistry` (`@loomcast/contracts`) with its payload schema, attempts, backoff base
+and lease.
+
+- **Handlers.** A module calls `deps.scheduler.register(kind, handler)` in `register`. The handler
+  receives `{task, payload, attempt, signal, logger, now}`. Pass `signal` to every request: it
+  aborts when the lease is lost or the server stops. It may return `{next: Date, payload?}` to
+  schedule the same kind again under the same dedupe key (completion and the new task are written
+  in one transaction).
+- **Enqueueing.** `deps.scheduler.enqueue(tx?, kind, payload, {runAt, dedupeKey, onDuplicate})`
+  validates the payload (ids only, never secrets). With a dedupe key, a pending task takes the new
+  `runAt` (`onDuplicate: "keep"` leaves it alone).
+- **Loop.** Under `startServer` with `SCHEDULER_ENABLED`, every `SCHEDULER_TICK_MS` the loop claims
+  up to 10 due tasks with `FOR UPDATE SKIP LOCKED` (at most 10 run at once per process), so any
+  number of processes can run it and each task runs once. Leases are renewed every `leaseMs / 2`.
+- **Failures.** Throw `TaskFailure(code, message, {retryable, retryAfterMs})`; its message is shown
+  to admins, so keep secrets out of it. Any other error is stored as `handler_error` with a
+  generic message and logged. A retryable failure waits `min(base · 2^(attempt − 1), 1 h) ± 20%`;
+  after the last attempt the task is `dead` (audit row `scheduler.task.dead`, `task.dead` event
+  and an alert). A non-retryable one is `failed` at once (audit row and alert). Alerts go to
+  `AppDeps.alert` when set, otherwise to an error log line.
+- **Recurring tasks.** `cadence.plan` and `assets.cleanup` run hourly under the dedupe key
+  `recurring:<kind>`, once a handler for them is registered. The loop re-checks every hour that
+  each is queued.
+- **Stopping.** On shutdown the loop stops claiming and waits up to 20 s for running handlers, then
+  aborts them and puts their tasks back to `pending`.
+- **Health.** `deps.scheduler.health()` returns `{status: ok|stalled|disabled|stopped, lastTickAt,
+  inFlight, ...}` for the readiness registry; `queueDepths()` counts tasks per status.
+- **Admin.** `GET /api/scheduler/tasks?status=&kind=&cursor=&limit=` and
+  `POST /api/scheduler/tasks/:id/retry` (a `failed` or `dead` task; 409 otherwise, or when another
+  task holds its dedupe key) for the owner and admins.
+
+### Token vault
+
+`deps.vault` seals channel credentials with AES-256-GCM: `vault.encrypt(value, channelAad(id))`
+returns `{secretCiphertext, secretNonce, keyVersion}` for the `channels` columns (ciphertext with
+the 16-byte tag appended, a random 12-byte nonce), and `vault.decrypt(sealedSecretOf(row),
+channelAad(row.id))` opens it. The additional data binds a value to its row. Never select the
+`secret_*` columns into a response or a log line; the logger redacts them as a safety net.
+
+**Rotating the key.** Generate a new key, set it as `LOOMCAST_ENCRYPTION_KEY` with the next
+`LOOMCAST_ENCRYPTION_KEY_VERSION`, and move the old one to `LOOMCAST_ENCRYPTION_KEYS_PREVIOUS`
+(`1:<old key>`). Restart, then run `pnpm --filter @loomcast/api run vault:rotate -- --dry-run` and
+`vault:rotate` (in the production image: `node dist/cli/vault.mjs rotate`). It seals every value
+again with the current key in one transaction and refuses when a row uses a key version that is
+not configured. Remove the previous key once it reports success.
 
 ### Authentication
 

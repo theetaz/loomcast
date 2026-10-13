@@ -12,14 +12,8 @@ import { badRequest, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, issueDetails, readJson } from "../../lib/http";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
-import { createPendingUploadCleanup } from "./cleanup";
 import type { AssetActor } from "./service";
 
-export {
-  createPendingUploadCleanup,
-  PENDING_CLEANUP_INTERVAL_MS,
-  type PendingUploadCleanup,
-} from "./cleanup";
 export { toAsset, toAssetDetail } from "./mappers";
 export {
   type AssetActor,
@@ -71,7 +65,8 @@ async function readOptionalJson<S extends z.ZodType>(
  * verifies the stored size and SHA-256. Reads return metadata or a presigned GET URL. The MCP
  * tools use the same service through `deps.assets`.
  *
- * When served by `startServer`, an hourly timer deletes pending uploads older than 24 hours.
+ * The recurring `assets.cleanup` scheduled task (hourly) deletes pending uploads older than 24
+ * hours.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { assets } = deps;
@@ -133,11 +128,10 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     return c.json({ items }, 200);
   });
 
-  if (deps.httpServer !== undefined) {
-    const cleanup = createPendingUploadCleanup(assets, deps.logger.child({ module: "assets" }));
-    cleanup.start();
-    deps.lifecycle.onClose(() => cleanup.stop());
-  }
+  deps.scheduler.register("assets.cleanup", async ({ logger }) => {
+    const deleted = await assets.cleanupPendingUploads();
+    logger.debug({ deleted }, "pending upload cleanup finished");
+  });
 
   app.route("/", router);
   return router;
