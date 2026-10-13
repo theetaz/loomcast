@@ -1,9 +1,12 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Database } from "../src/client";
 import {
   conversations,
   jobs,
+  kbEntries,
+  type NewApiTokenRow,
   type NewJobRow,
+  type NewKbEntryRow,
   type NewUserRow,
   projects,
   users,
@@ -54,6 +57,34 @@ export async function insertJob(db: Database, values: JobFixture) {
   return job;
 }
 
+/** A random sha256 hex digest, standing in for the stored hash of a secret. */
+export function randomHash(): string {
+  return createHash("sha256").update(randomUUID()).digest("hex");
+}
+
+type KbEntryFixture = Pick<NewKbEntryRow, "projectId"> & Partial<NewKbEntryRow>;
+
+export async function insertKbEntry(db: Database, values: KbEntryFixture) {
+  const [entry] = await db
+    .insert(kbEntries)
+    .values({ kind: "note", title: "Untitled entry", createdVia: "ui", ...values })
+    .returning();
+  if (entry === undefined) throw new Error("kb entry was not inserted");
+  return entry;
+}
+
+type ApiTokenFixture = Pick<NewApiTokenRow, "userId" | "kind"> & Partial<NewApiTokenRow>;
+
+/** Inserts a token row. The hash and prefix are random; no secret is involved. */
+export function apiTokenValues(values: ApiTokenFixture): NewApiTokenRow {
+  return {
+    name: "test token",
+    tokenHash: randomHash(),
+    prefix: randomUUID().slice(0, 8),
+    ...values,
+  };
+}
+
 export interface PgErrorInfo {
   code: string | undefined;
   constraint: string | undefined;
@@ -78,4 +109,5 @@ export async function pgError(query: PromiseLike<unknown>): Promise<PgErrorInfo>
 export const PG = {
   uniqueViolation: "23505",
   checkViolation: "23514",
+  notNullViolation: "23502",
 } as const;
