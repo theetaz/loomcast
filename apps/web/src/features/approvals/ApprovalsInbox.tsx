@@ -26,7 +26,6 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
-import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { channelLabel, PlatformDot, platformLabel } from "@/features/channels/platforms";
@@ -34,7 +33,6 @@ import { channelsQueryOptions } from "@/features/channels/queries";
 import { useSeriesOptions } from "@/features/library/queries";
 import { projectsQueryOptions } from "@/features/projects/queries";
 import { Poster } from "@/features/review-queue/Poster";
-import { errorMessage, isApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { type CountdownTone, slotCountdown } from "./countdown";
@@ -242,25 +240,9 @@ function ApprovalRow({
   const countdown = slotCountdown(deadlineAt, now);
   const context = [projectName, seriesName].filter(Boolean).join(" · ");
 
+  // The outcome toasts come from `useDecide`, so they show even once this row has unmounted.
   const onDecide = (input: Decision, onDone?: () => void) => {
-    decide.mutate(input, {
-      onSuccess: () => {
-        onDone?.();
-        toast.success(input.decision === "approve" ? "Approved" : "Changes requested", {
-          description: item.title,
-        });
-      },
-      onError: (error) => {
-        toast.error(
-          input.decision === "approve" ? "Couldn't approve" : "Couldn't request changes",
-          {
-            description: isApiError(error, 409)
-              ? "The video changed since the inbox loaded. It now shows the latest version."
-              : errorMessage(error),
-          },
-        );
-      },
-    });
+    decide.mutate(input, { onSuccess: () => onDone?.() });
   };
 
   const sendChanges = () => {

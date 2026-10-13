@@ -38,8 +38,8 @@ without a series is produced with the default rules.
 | `render` | It also has a render and a poster | `render` with autopilot stopping at `render` |
 | `review` | A rendered version waits for a decision | `render` (autopilot or a single step), `submit` |
 | `approved` | A person approved the current version | Approve |
-| `scheduled` | Approved and booked on the calendar | The calendar (milestone 4) |
-| `published` | Posted | The publisher (milestone 4 and 5) |
+| `scheduled` | Approved, with its posts queued for their slots | Approval rules, once an approved item has a post ([scheduling guide](scheduling-and-publishing.md#approval-rules)) |
+| `published` | Its first post went out, live or in dry-run | The publisher ([scheduling guide](scheduling-and-publishing.md#dry-run-and-going-live)) |
 | `archived` | Out of the pipeline | Archive, Reject |
 
 A version's **stage** is the last of script, storyboard, voice and render it has without a gap
@@ -52,8 +52,9 @@ Allowed moves:
   the version's stage. A version taken out of review (for example a regenerated voice) returns the
   item to that stage until it is rendered again.
 - **Review**: only a person decides. Approve needs a render. Request changes moves the item to
-  `script`; Reject archives it. In the `auto` publish mode the scheduler approves on the user's
-  behalf (milestone 4).
+  `script`; Reject archives it. When every planned post of an item entering review publishes in
+  the `auto` mode, the system approves it instead (see
+  [approval rules](scheduling-and-publishing.md#approval-rules)).
 - **Approved items**: editing the script, storyboard or voice sends the item back into
   production; a caption or notes change keeps it approved.
 - **Archive and restore**: any state may be archived; restoring brings the item back as an idea.
@@ -107,8 +108,8 @@ quick actions run `produce`. The voice tab's **Regenerate** runs `voice` again.
 `produce` drives an item to a target state, `review` by default (`{"action": "produce",
 "through": "render"}` stops earlier). It records the target on the item (`autopilot_target`) and
 queues the first missing step. Each successful step queues the next one; once the version has a
-render, the item goes to review and autopilot turns off. The cadence scheduler (milestone 4)
-uses the same path.
+render, the item goes to review and autopilot turns off. The cadence scheduler's
+`cadence.produce` task uses the same path ([scheduling guide](scheduling-and-publishing.md)).
 
 Autopilot stops, and the item shows the reason as its **last error**, when:
 
