@@ -315,21 +315,20 @@ describe("series channels", () => {
     expect((await put(missing, { channels: [] })).status).toBe(404);
   });
 
-  it("asks the calendar to replan only once it plans cadence", async () => {
-    const plans = () =>
-      h.db.select().from(scheduledTasks).where(eq(scheduledTasks.kind, "cadence.plan"));
+  it("asks the cadence planner to replan the series", async () => {
+    // The cadence module registers the planner, so a change queues a replan of the series.
+    expect(h.deps.scheduler.hasHandler("cadence.plan")).toBe(true);
     const seriesId = await newSeries();
     await put(seriesId, { channels: [] });
-    expect(await plans()).toEqual([]);
-
-    // Once the calendar registers its planner, a change queues a replan of the series.
-    h.deps.scheduler.register("cadence.plan", async () => {});
-    await put(seriesId, { channels: [] });
-    expect(await plans()).toEqual([
+    const plans = await h.db
+      .select()
+      .from(scheduledTasks)
+      .where(eq(scheduledTasks.dedupeKey, `plan:${seriesId}`));
+    expect(plans).toEqual([
       expect.objectContaining({
+        kind: "cadence.plan",
         status: "pending",
         payload: { seriesId },
-        dedupeKey: `plan:${seriesId}`,
       }),
     ]);
   });
