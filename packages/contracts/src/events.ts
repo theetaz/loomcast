@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PostMetricsSchema } from "./analytics/metrics";
 import { AssetSchema } from "./api/assets";
 import { ScheduledPostSchema } from "./api/calendar";
 import { ChannelSchema } from "./api/channels";
@@ -11,6 +12,7 @@ import { ReviewSchema } from "./api/reviews";
 import { ScheduledTaskSchema } from "./api/scheduler";
 import { SkillVersionSummarySchema } from "./api/skills";
 import { IdSchema, TimestampSchema } from "./common";
+import { PlatformSchema } from "./enums";
 
 /** Server-sent events endpoint. Each event's `data` is one JSON-encoded `LiveEvent`. */
 export const LIVE_STREAM_PATH = "/api/stream";
@@ -75,6 +77,18 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
   liveEvent("skill.published", z.object({ skill: SkillVersionSummarySchema })),
   /** A post was created, moved, cancelled or changed status (including publish results). */
   liveEvent("post.updated", z.object({ post: ScheduledPostSchema })),
+  /** A new capture of a live post's insights. */
+  liveEvent(
+    "post.metrics.updated",
+    z.object({
+      postId: IdSchema,
+      itemId: IdSchema,
+      projectId: IdSchema,
+      channelId: IdSchema,
+      platform: PlatformSchema,
+      metrics: PostMetricsSchema,
+    }),
+  ),
   /** A channel was added, renamed, switched, connected or changed status. Never has secrets. */
   liveEvent("channel.updated", z.object({ channel: ChannelSchema })),
   /** A scheduled task used up its attempts and moved to the dead-letter list. */

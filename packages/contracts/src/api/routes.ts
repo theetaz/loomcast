@@ -3,6 +3,14 @@ import { IdSchema } from "../common";
 import { type OAuthProvider, OAuthProviderSchema } from "../enums";
 import { SkillNameSchema } from "../pipeline/skills";
 import {
+  AnalyticsOverviewQuerySchema,
+  AnalyticsOverviewSchema,
+  ItemAnalyticsSchema,
+  PostAnalyticsSchema,
+  SeriesAnalyticsQuerySchema,
+  SeriesAnalyticsSchema,
+} from "./analytics";
+import {
   AssetDetailSchema,
   AssetSchema,
   AssetUrlQuerySchema,
@@ -829,6 +837,42 @@ export const routes = {
     params: IdParamsSchema,
     body: AcceptConnectionSchema,
     response: AcceptConnectionResponseSchema,
+    status: 200,
+  }),
+  /** One live post and its capture history. `404 not_found` for a post that is not live. */
+  "analytics.post": route({
+    method: "GET",
+    path: "/api/analytics/posts/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: PostAnalyticsSchema,
+    status: 200,
+  }),
+  /** Every live post of a content item, for its analytics card. */
+  "analytics.item": route({
+    method: "GET",
+    path: "/api/analytics/items/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ItemAnalyticsSchema,
+    status: 200,
+  }),
+  "analytics.series": route({
+    method: "GET",
+    path: "/api/analytics/series/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    query: SeriesAnalyticsQuerySchema,
+    response: SeriesAnalyticsSchema,
+    status: 200,
+  }),
+  /** Posts published in a range of at most 366 days. */
+  "analytics.overview": route({
+    method: "GET",
+    path: "/api/analytics/overview",
+    auth: "session",
+    query: AnalyticsOverviewQuerySchema,
+    response: AnalyticsOverviewSchema,
     status: 200,
   }),
   "system.features": route({

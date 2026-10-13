@@ -24,7 +24,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 |---|---|
 | `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
-| `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), connecting channels through a platform sign-in (`oauth.ts`), server features (`system.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
+| `src/api/*` | REST DTOs for auth, analytics (`analytics.ts`), projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), connecting channels through a platform sign-in (`oauth.ts`), server features (`system.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
 | `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
@@ -47,6 +47,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/scheduler/tasks.ts` | `scheduledTaskRegistry`, the allow-list of scheduled tasks, with payloads, attempts, backoff and leases, and `taskRetryDelayMs` |
 | `src/publishing/request.ts` | `PublishRequestSchema` and `PublishErrorSchema`, what an adapter is asked to publish and how it fails, and dry-run permalinks |
 | `src/publishing/policy.ts` | `effectivePublishMode` |
+| `src/analytics/metrics.ts` | `PostMetricsSchema`, one capture of a post's insights; `aggregatePosts` and `insightsSchedule` |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -239,6 +240,7 @@ Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fiel
 | `review.created` | `{projectId, review}` |
 | `skill.published` | `{skill}` (a `SkillVersionSummary`; skills are global) |
 | `post.updated` | `{post}` (a `ScheduledPost`: created, moved, cancelled, publishing, published, failed or missed) |
+| `post.metrics.updated` | `{postId, itemId, projectId, channelId, platform, metrics}` (a new `PostMetrics` capture) |
 | `channel.updated` | `{channel}` (a `Channel`, never with credentials) |
 | `task.dead` | `{task}` (a `ScheduledTask` that used up its attempts) |
 | `resync` | `{}`: the client missed events and should refetch |
@@ -425,6 +427,22 @@ generateSlots({ days: ["sun"], slots: ["02:30"], tz: "America/New_York" }, from,
 - `PublishRequest` `{platform, externalId, videoUrl, posterUrl?, caption, durationMs, width, height}` is what an adapter is asked to publish. Media links are public HTTPS links without credentials; the caption is at most 2,200 characters and already cut to the platform's limit.
 - `PublishError` `{code, retryable, retryAfterMs?, platformCode?, message}`, with `code` one of `rate_limited`, `auth`, `permission`, `invalid_media`, `transient`, `permanent` and `not_configured`. `RETRYABLE_PUBLISH_ERROR_CODES` (`rate_limited`, `transient`) are retryable unless the adapter knows better. Messages never contain credentials.
 - `PublishAttempt.request` is what was sent, or in dry-run what would have been sent, with credentials removed.
+
+### Analytics
+
+Insights of live posts (`published`, not dry-run) are captured as `PostMetrics` `{capturedAt, views, likes, comments, shares, saves, reach, avgWatchMs}`: running totals since the post went live, with `null` for a metric the platform does not report (such as Threads saves) rather than 0.
+
+| Route | Request | Response |
+|---|---|---|
+| `analytics.post` `GET /api/analytics/posts/:id` | | `PostAnalytics` `{post, history, nextCaptureAt}` (`history` oldest first) |
+| `analytics.item` `GET /api/analytics/items/:id` | | `ItemAnalytics` `{itemId, totals, posts: PostAnalytics[]}` |
+| `analytics.series` `GET /api/analytics/series/:id` | `?from=&to=` (both optional) | `SeriesAnalytics` `{seriesId, totals, posts}` (oldest `publishedAt` first) |
+| `analytics.overview` `GET /api/analytics/overview` | `?from=&to=&projectId=` (at most 366 days) | `AnalyticsOverview` `{from, to, totals, platforms, daily, topPosts}` |
+
+- `PostPerformance` is a live post with its latest capture: `{postId, itemId, projectId, seriesId, channelId, platform, title, permalink, publishedAt, metrics}`, where `metrics` is null before the first capture.
+- `insightsSchedule(publishedAt)` gives the capture times: 1 h, 6 h, 24 h, 72 h, 7 days, 14 days and 30 days after `publishedAt` (`INSIGHTS_SCHEDULE_OFFSETS_MS`).
+- `aggregatePosts(latest)` takes each post's latest capture (`null` for a post without one) and returns an `AnalyticsAggregate`: `posts`, `measuredPosts`, the sums of `views`, `likes`, `comments`, `shares`, `saves` and `reach` (a missing metric counts as 0), `medianViews` (over the posts that report views), `engagementRate` (`(likes + comments + shares + saves) / views`, null while views are 0) and `avgWatchMs` (weighted by views).
+- The overview's `daily` rows are `{date, platform, posts, views}` per UTC publish day, oldest first, and `topPosts` holds the 10 posts with the most views (`ANALYTICS_TOP_POSTS`).
 
 ## Limits and formats
 
