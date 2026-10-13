@@ -177,7 +177,9 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     secureHeaders({
       contentSecurityPolicy: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        // The web app checksums uploads with WebAssembly (hash-wasm). `'wasm-unsafe-eval'` allows
+        // compiling WebAssembly only; JavaScript `eval` stays blocked.
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:", ...media],
         mediaSrc: ["'self'", "blob:", ...media],

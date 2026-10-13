@@ -131,7 +131,8 @@ describe("middleware", () => {
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     const csp = response.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(csp).not.toContain("'unsafe-eval'");
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
