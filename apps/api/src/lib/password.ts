@@ -17,8 +17,18 @@ export function hashPassword(password: string): Promise<string> {
   return hash(password, ARGON2_OPTIONS);
 }
 
-/** False for a wrong password and for a malformed stored hash. */
-export async function verifyPassword(passwordHash: string, password: string): Promise<boolean> {
+/**
+ * False for a wrong password and for a malformed stored hash. Also false when the account has no
+ * password yet (an invited user who has not used their link); that case spends the same time as a
+ * real check.
+ */
+export async function verifyPassword(
+  passwordHash: string | null,
+  password: string,
+): Promise<boolean> {
+  if (passwordHash === null) {
+    return verifyDummyPassword(password);
+  }
   try {
     return await verify(passwordHash, password);
   } catch {
