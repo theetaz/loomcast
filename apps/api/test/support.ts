@@ -78,6 +78,15 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     alerts: { webhookUrl: null, format: "json" },
     gitSha: null,
     backupDir: null,
+    // No platform apps by default; the sign-in tests pass app credentials generated at runtime.
+    platforms: {
+      redirectBase: APP_ORIGIN,
+      metaGraphVersion: "v26.0",
+      metaGraphBaseUrl: "https://graph.facebook.com",
+      threadsGraphBaseUrl: "https://graph.threads.net",
+      meta: null,
+      threads: null,
+    },
     ...overrides,
   };
 }

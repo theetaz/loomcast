@@ -55,6 +55,74 @@ const optionalText = z.preprocess(
   z.string().optional(),
 );
 
+/** Graph API version the Meta client targets when `META_GRAPH_VERSION` is not set. */
+export const DEFAULT_META_GRAPH_VERSION = "v26.0";
+
+/** The Graph API host. Tests and E2E runs may point `META_GRAPH_BASE_URL` at a fake. */
+export const DEFAULT_META_GRAPH_BASE_URL = "https://graph.facebook.com";
+
+/** The Threads API host. Tests and E2E runs may point `THREADS_GRAPH_BASE_URL` at a fake. */
+export const DEFAULT_THREADS_GRAPH_BASE_URL = "https://graph.threads.net";
+
+/** A base URL without a trailing slash; an empty value counts as unset. */
+const optionalBaseUrl = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z
+    .url({ protocol: /^https?$/ })
+    .transform((value) => value.replace(/\/+$/, ""))
+    .optional(),
+);
+
+/** Settings of each sign-in provider: all set, or all unset. */
+const OAUTH_PROVIDER_KEYS = {
+  meta: ["META_APP_ID", "META_APP_SECRET", "META_LOGIN_CONFIG_ID"],
+  threads: ["THREADS_APP_ID", "THREADS_APP_SECRET"],
+} as const;
+
+const PlatformsEnvShape = {
+  /** Meta app (Facebook Login for Business, Pages and Instagram): app id, secret, login config. */
+  META_APP_ID: optionalText,
+  META_APP_SECRET: optionalText,
+  META_LOGIN_CONFIG_ID: optionalText,
+  /** Graph API version, such as `v26.0`. */
+  META_GRAPH_VERSION: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^v\d{1,3}\.\d{1,2}$/, "Expected a Graph API version such as v26.0")
+      .default(DEFAULT_META_GRAPH_VERSION),
+  ),
+  META_GRAPH_BASE_URL: optionalBaseUrl,
+  /** Threads app id and secret (the Threads use case has its own pair). */
+  THREADS_APP_ID: optionalText,
+  THREADS_APP_SECRET: optionalText,
+  THREADS_GRAPH_BASE_URL: optionalBaseUrl,
+};
+
+interface PlatformsEnv {
+  META_APP_ID?: string | undefined;
+  META_APP_SECRET?: string | undefined;
+  META_LOGIN_CONFIG_ID?: string | undefined;
+  META_GRAPH_VERSION: string;
+  META_GRAPH_BASE_URL?: string | undefined;
+  THREADS_APP_ID?: string | undefined;
+  THREADS_APP_SECRET?: string | undefined;
+  THREADS_GRAPH_BASE_URL?: string | undefined;
+}
+
+/** Each provider's settings are all set or all unset. Messages never include the values. */
+function refinePlatforms(env: PlatformsEnv, ctx: z.RefinementCtx): void {
+  for (const keys of Object.values(OAUTH_PROVIDER_KEYS)) {
+    const missing = keys.filter((key) => env[key] === undefined);
+    if (missing.length === 0 || missing.length === keys.length) {
+      continue;
+    }
+    for (const key of missing) {
+      ctx.addIssue({ code: "custom", path: [key], message: `Set ${keys.join(", ")} together` });
+    }
+  }
+}
+
 const ENCRYPTION_KEY_MESSAGE =
   "Must be 32 random bytes, base64 encoded (for example `openssl rand -base64 32`)";
 
@@ -213,8 +281,15 @@ const EnvSchema = z
         .refine((value) => isAbsolute(value), { message: "Expected an absolute path" })
         .optional(),
     ),
+    ...PlatformsEnvShape,
+    /** Base of the OAuth redirect URIs registered with the platforms. Defaults to `APP_ORIGIN`. */
+    OAUTH_REDIRECT_BASE: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      OriginSchema.optional(),
+    ),
   })
   .superRefine(refineEncryption)
+  .superRefine(refinePlatforms)
   .superRefine((env, ctx) => {
     const missing = STORAGE_KEYS.filter((key) => env[key] === undefined);
     const allMissing = missing.length === STORAGE_KEYS.length;
@@ -267,6 +342,37 @@ export interface Config {
   gitSha: string | null;
   /** Directory holding the backup service's `last-success.json`, or null when not mounted. */
   backupDir: string | null;
+  /** Sign-in providers and platform API hosts. Holds app secrets: never log it. */
+  platforms: PlatformsConfig;
+}
+
+/** A Meta app: Facebook Login for Business, Pages and Instagram. */
+export interface MetaAppConfig {
+  appId: string;
+  appSecret: string;
+  /** The Facebook Login for Business configuration the login dialog uses. */
+  loginConfigId: string;
+}
+
+/** The Threads app of the Threads use case. */
+export interface ThreadsAppConfig {
+  appId: string;
+  appSecret: string;
+}
+
+export interface PlatformsConfig {
+  /** Origin the OAuth redirect URIs start with (`OAUTH_REDIRECT_BASE`, default `APP_ORIGIN`). */
+  redirectBase: string;
+  /** Graph API version, such as `v26.0`. */
+  metaGraphVersion: string;
+  /** Graph API host, without a version or trailing slash. */
+  metaGraphBaseUrl: string;
+  /** Threads API host, without a version or trailing slash. */
+  threadsGraphBaseUrl: string;
+  /** Null until `META_APP_ID`, `META_APP_SECRET` and `META_LOGIN_CONFIG_ID` are set. */
+  meta: MetaAppConfig | null;
+  /** Null until `THREADS_APP_ID` and `THREADS_APP_SECRET` are set. */
+  threads: ThreadsAppConfig | null;
 }
 
 export interface SchedulerConfig {
@@ -343,6 +449,33 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     },
     gitSha: values.LOOMCAST_GIT_SHA ?? null,
     backupDir: values.BACKUP_DIR ?? null,
+    platforms: {
+      ...platformsConfig(values),
+      redirectBase: values.OAUTH_REDIRECT_BASE ?? values.APP_ORIGIN,
+    },
+  };
+}
+
+/** The platform apps and hosts from validated settings, without the redirect base. */
+function platformsConfig(values: PlatformsEnv): Omit<PlatformsConfig, "redirectBase"> {
+  return {
+    metaGraphVersion: values.META_GRAPH_VERSION,
+    metaGraphBaseUrl: values.META_GRAPH_BASE_URL ?? DEFAULT_META_GRAPH_BASE_URL,
+    threadsGraphBaseUrl: values.THREADS_GRAPH_BASE_URL ?? DEFAULT_THREADS_GRAPH_BASE_URL,
+    meta:
+      values.META_APP_ID === undefined ||
+      values.META_APP_SECRET === undefined ||
+      values.META_LOGIN_CONFIG_ID === undefined
+        ? null
+        : {
+            appId: values.META_APP_ID,
+            appSecret: values.META_APP_SECRET,
+            loginConfigId: values.META_LOGIN_CONFIG_ID,
+          },
+    threads:
+      values.THREADS_APP_ID === undefined || values.THREADS_APP_SECRET === undefined
+        ? null
+        : { appId: values.THREADS_APP_ID, appSecret: values.THREADS_APP_SECRET },
   };
 }
 
@@ -393,6 +526,41 @@ export function parseVaultCliConfig(
     );
   }
   return { databaseUrl: parsed.data.DATABASE_URL, encryption: encryptionConfig(parsed.data) };
+}
+
+const MetaCheckEnvSchema = z
+  .object({
+    APP_ORIGIN: OriginSchema.optional(),
+    OAUTH_REDIRECT_BASE: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      OriginSchema.optional(),
+    ),
+    ...PlatformsEnvShape,
+  })
+  .superRefine(refinePlatforms);
+
+export interface MetaCheckConfig extends Omit<PlatformsConfig, "redirectBase"> {
+  /** Null when neither `OAUTH_REDIRECT_BASE` nor `APP_ORIGIN` is set. */
+  redirectBase: string | null;
+}
+
+/**
+ * The settings `meta:check` needs: the platform apps and hosts, and the redirect base. Lighter
+ * than `parseConfig`, so the check runs without a database. Throws `ConfigError`.
+ */
+export function parseMetaCheckConfig(
+  env: Record<string, string | undefined> = process.env,
+): MetaCheckConfig {
+  const parsed = MetaCheckEnvSchema.safeParse(env);
+  if (!parsed.success) {
+    throw new ConfigError(
+      parsed.error.issues.map((issue) => `${issue.path.join(".") || "env"}: ${issue.message}`),
+    );
+  }
+  return {
+    ...platformsConfig(parsed.data),
+    redirectBase: parsed.data.OAUTH_REDIRECT_BASE ?? parsed.data.APP_ORIGIN ?? null,
+  };
 }
 
 /** Loads the root `.env` (outside production) and parses the environment. */
