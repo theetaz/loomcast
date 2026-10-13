@@ -124,6 +124,23 @@ describe("dispatcher", () => {
     await testDb.db.delete(jobs);
   });
 
+  it("ignores job types the database does not know yet instead of failing the claim", async () => {
+    const device = await pairDevice(testDb.db, fixtures.userId);
+    const dispatcher = dispatcherOnOwnPool();
+    const job = await enqueue(testDb.db, createEventBus(), {
+      projectId: fixtures.projectId,
+      createdBy: fixtures.userId,
+    });
+    const claimed = await dispatcher.claim({
+      deviceId: device.deviceId,
+      // Known to the contracts; the job_type enum may not have it until its migration lands.
+      jobTypes: ["system.ping", "kb.analyze_reference"],
+      credits: { producer: 2, render: 0 },
+    });
+    expect(claimed.map((row) => row.id)).toEqual([job.id]);
+    await testDb.db.delete(jobs);
+  });
+
   it("puts a job back in the queue when its assignment cannot be delivered", async () => {
     const device = await pairDevice(testDb.db, fixtures.userId);
     const session: DispatchSession = {

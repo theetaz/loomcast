@@ -94,7 +94,9 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
           .where(
             and(
               eq(jobs.status, "queued"),
-              inArray(jobs.type, byClass.get(cls) ?? []),
+              // Compared as text: a type the agent knows but the job_type enum does not yet
+              // (a newer agent before its migration) must match nothing rather than fail the claim.
+              inArray(sql`${jobs.type}::text`, byClass.get(cls) ?? []),
               isNull(jobs.cancelRequestedAt),
               or(
                 isNull(jobs.deviceAffinity),
