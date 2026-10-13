@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { Page } from "@/components/PageHeader";
 import { RelativeTime } from "@/components/RelativeTime";
+import { useKbLive } from "@/features/kb/use-kb-live";
 import { ProjectGlyph } from "@/features/projects/ProjectRow";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
@@ -25,10 +26,12 @@ export function ProjectCrumb({ idOrSlug }: { idOrSlug: string }) {
 
 /**
  * The project page: its header and tabs, with the open tab below. Loading, not-found and error
- * states cover the whole page, so tabs only render once the project is known.
+ * states cover the whole page, so tabs only render once the project is known. Knowledge-base
+ * live events are applied here, so every tab sees the same entries.
  */
 export function ProjectLayout({ idOrSlug }: { idOrSlug: string }) {
   const query = useProject(idOrSlug);
+  useKbLive();
 
   if (query.isPending) {
     return (
@@ -115,7 +118,8 @@ function ProjectHeader({ project }: { project: Project }) {
 
 /**
  * The body of one tab. The layout has already loaded the project, so this reads it from the
- * cache, and sets the document title to `<tab> · <project>`.
+ * cache. It sets the document title to `<title> · <project>`; pages that name themselves (an
+ * entry, say) pass `title={null}` and set it with `useTitle`.
  */
 export function ProjectTabBody({
   idOrSlug,
@@ -123,10 +127,17 @@ export function ProjectTabBody({
   children,
 }: {
   idOrSlug: string;
-  title?: string;
+  title?: string | null;
   children: (project: Project) => ReactNode;
 }) {
   const { data: project } = useProject(idOrSlug);
-  useTitle(project ? (title ? `${title} · ${project.name}` : project.name) : title);
-  return project ? children(project) : null;
+  if (!project) return null;
+  return (
+    <>
+      {title === null ? null : (
+        <ProjectTitle page={title ? `${title} · ${project.name}` : project.name} />
+      )}
+      {children(project)}
+    </>
+  );
 }

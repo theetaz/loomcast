@@ -24,6 +24,7 @@ import {
   setSignedIn,
   tokenPrefix,
 } from "./db";
+import { createKbHandlers } from "./kb";
 
 /** Hono paths (`:id`) and MSW paths share the same syntax. */
 const path = (name: keyof typeof routes) => `*${routes[name].path}`;
@@ -192,6 +193,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     ...createConversationHandlers(db),
+    ...createKbHandlers(db),
   ];
 }
 

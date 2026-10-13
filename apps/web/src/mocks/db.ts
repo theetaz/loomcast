@@ -3,6 +3,7 @@ import {
   type Conversation,
   type Device,
   type JobSummary,
+  type KbEntryDetail,
   type LiveEvent,
   type Me,
   type Message,
@@ -33,6 +34,8 @@ export interface MockDb {
   conversations: Conversation[];
   messages: Message[];
   jobs: JobSummary[];
+  /** Knowledge-base entries of every project, with their reference details. */
+  kbEntries: KbEntryDetail[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -68,6 +71,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     conversations: [],
     messages: [],
     jobs: [],
+    kbEntries: [],
     ...seed,
     listeners: new Set(),
   };

@@ -1,7 +1,7 @@
 import type { Project } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRightIcon, MessagesSquareIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -9,7 +9,8 @@ import { ErrorState } from "@/components/ErrorState";
 import { RelativeTime } from "@/components/RelativeTime";
 import { conversationTitle } from "@/features/conversation/messages";
 import { conversationsQueryOptions } from "@/features/conversation/queries";
-import { formatDateTime } from "@/lib/format";
+import { KbRow, KbRowsSkeleton } from "@/features/kb/KbRow";
+import { kbListQueryOptions, kbTagsQueryOptions } from "@/features/kb/queries";
 import { ArchiveProject } from "./ArchiveProject";
 import { DescriptionEditor } from "./DescriptionEditor";
 import { OverviewCard, OverviewRowsSkeleton } from "./OverviewCard";
@@ -19,6 +20,10 @@ const RECENT_LIMIT = 5;
 /** The Overview tab: what the project is, how much is in it, and what changed lately. */
 export function ProjectOverview({ project }: { project: Project }) {
   const conversations = useQuery(conversationsQueryOptions(project.id));
+  // The same cache as the Knowledge tab's unfiltered list.
+  const knowledge = useInfiniteQuery(kbListQueryOptions(project.id, { kind: "all", tag: null }));
+  const tags = useQuery(kbTagsQueryOptions(project.id));
+  const entries = knowledge.data?.pages.flatMap((page) => page.items);
 
   return (
     <div className="flex flex-col gap-5">
@@ -28,10 +33,11 @@ export function ProjectOverview({ project }: { project: Project }) {
         <Stat label="Conversations" pending={conversations.isPending}>
           {conversations.data?.length ?? "–"}
         </Stat>
-        <Stat label="Created">
-          <span title={formatDateTime(project.createdAt)}>
-            <RelativeTime value={project.createdAt} />
-          </span>
+        <Stat label="Knowledge entries" pending={knowledge.isPending}>
+          {entries ? `${entries.length}${knowledge.hasNextPage ? "+" : ""}` : "–"}
+        </Stat>
+        <Stat label="Tags" pending={tags.isPending}>
+          {tags.data?.length ?? "–"}
         </Stat>
         <Stat label="Last change">
           <RelativeTime value={project.updatedAt} />
@@ -39,6 +45,41 @@ export function ProjectOverview({ project }: { project: Project }) {
       </dl>
 
       <div className="grid gap-5 lg:grid-cols-2">
+        <OverviewCard
+          title="Recent knowledge"
+          action={
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/projects/$projectId/kb" params={{ projectId: project.id }}>
+                Open knowledge
+                <ArrowRightIcon aria-hidden="true" />
+              </Link>
+            </Button>
+          }
+        >
+          {knowledge.isPending ? (
+            <KbRowsSkeleton rows={3} />
+          ) : knowledge.isError ? (
+            <ErrorState
+              size="compact"
+              title="Couldn't load the knowledge base"
+              error={knowledge.error}
+              onRetry={() => void knowledge.refetch()}
+              retrying={knowledge.isFetching}
+            />
+          ) : !entries?.length ? (
+            <p className="px-3.5 py-6 text-center text-control text-muted-foreground">
+              Nothing saved yet. Add ideas, references and decisions in the Knowledge tab.
+            </p>
+          ) : (
+            <ul aria-label="Recent knowledge" className="divide-y divide-divider">
+              {entries.slice(0, RECENT_LIMIT).map((entry) => (
+                <li key={entry.id}>
+                  <KbRow entry={entry} projectParam={project.id} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </OverviewCard>
         <OverviewCard
           title="Recent conversations"
           action={

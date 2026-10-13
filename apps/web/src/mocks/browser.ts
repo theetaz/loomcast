@@ -2,6 +2,7 @@ import { setupWorker } from "msw/browser";
 import { demoConversations, resumeQueuedJobs } from "./conversations";
 import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { createHandlers, createStreamHandler } from "./handlers";
+import { demoKb } from "./kb";
 
 const SESSION_KEY = "loomcast-mock-session";
 
@@ -23,6 +24,7 @@ export async function startMockApi() {
   const db = createMockDb({
     ...seed,
     ...(firstProject ? demoConversations(firstProject.id, MOCK_USER.id, now) : {}),
+    kbEntries: firstProject ? demoKb(firstProject.id, MOCK_USER.id, now) : [],
     simulateProducer: true,
     signedIn: sessionStorage.getItem(SESSION_KEY) === "1",
     onSessionChange: (signedIn) => {

@@ -32,7 +32,7 @@ export function ProjectTabs({
       }}
       className="min-h-0 flex-1 gap-4"
     >
-      <TabsList aria-label="Project sections" className="max-w-full overflow-x-auto">
+      <TabsList aria-label="Project sections" className="max-w-full justify-start overflow-x-auto">
         {projectTabs.map((tab) => (
           <TabsTrigger key={tab.id} value={tab.id}>
             <tab.icon aria-hidden="true" />
