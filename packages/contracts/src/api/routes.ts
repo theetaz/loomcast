@@ -12,6 +12,22 @@ import {
   ListItemAssetsQuerySchema,
 } from "./assets";
 import { ChangePasswordRequestSchema, LoginRequestSchema, MeSchema } from "./auth";
+import {
+  ApprovalsInboxSchema,
+  ApprovalsQuerySchema,
+  CalendarQuerySchema,
+  CalendarResponseSchema,
+  CreatePostRequestSchema,
+  ReschedulePostRequestSchema,
+  ScheduledPostSchema,
+} from "./calendar";
+import {
+  ChannelSchema,
+  CreateChannelRequestSchema,
+  SeriesChannelsSchema,
+  UpdateChannelRequestSchema,
+  UpdateSeriesChannelsRequestSchema,
+} from "./channels";
 import { CursorPageQuerySchema, cursorPageSchema, listSchema } from "./common";
 import {
   ContentActionRequestSchema,
@@ -57,12 +73,14 @@ import {
   ProjectSchema,
   UpdateProjectSchema,
 } from "./projects";
+import { PublishAttemptSchema, PublisherStatusSchema } from "./publisher";
 import {
   CreateReviewRequestSchema,
   CreateReviewResponseSchema,
   ReviewQueueQuerySchema,
   ReviewSchema,
 } from "./reviews";
+import { ListScheduledTasksQuerySchema, ScheduledTaskSchema } from "./scheduler";
 import {
   CreateSeriesRequestSchema,
   ListSeriesQuerySchema,
@@ -86,7 +104,7 @@ import {
   UserSummarySchema,
 } from "./users";
 
-export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /**
  * `session`: cookie session, plus the CSRF checks on unsafe methods.
@@ -492,6 +510,26 @@ export const routes = {
     status: 200,
   }),
 
+  /** The series' channels, enabled or not. */
+  "series.channels": route({
+    method: "GET",
+    path: "/api/series/:id/channels",
+    auth: "session",
+    params: IdParamsSchema,
+    response: SeriesChannelsSchema,
+    status: 200,
+  }),
+  /** Replaces the series' channel links; channels left out are unlinked. */
+  "series.setChannels": route({
+    method: "PUT",
+    path: "/api/series/:id/channels",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateSeriesChannelsRequestSchema,
+    response: SeriesChannelsSchema,
+    status: 200,
+  }),
+
   "content.list": route({
     method: "GET",
     path: "/api/content",
@@ -687,6 +725,116 @@ export const routes = {
     auth: "session",
     params: SkillNameParamsSchema,
     response: listSchema(SkillVersionSummarySchema),
+    status: 200,
+  }),
+
+  "channels.list": route({
+    method: "GET",
+    path: "/api/channels",
+    auth: "session",
+    response: listSchema(ChannelSchema),
+    status: 200,
+  }),
+  /** Adds a planning channel: disconnected, dry-run on. */
+  "channels.create": route({
+    method: "POST",
+    path: "/api/channels",
+    auth: "session",
+    body: CreateChannelRequestSchema,
+    response: ChannelSchema,
+    status: 201,
+  }),
+  /** `409 dry_run_locked` when `dryRun: false` is not allowed yet. */
+  "channels.update": route({
+    method: "PATCH",
+    path: "/api/channels/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateChannelRequestSchema,
+    response: ChannelSchema,
+    status: 200,
+  }),
+
+  /** Posts and open cadence slots in a range of at most 62 days. */
+  "calendar.get": route({
+    method: "GET",
+    path: "/api/calendar",
+    auth: "session",
+    query: CalendarQuerySchema,
+    response: CalendarResponseSchema,
+    status: 200,
+  }),
+  /** Schedules an approved item on a channel as a `queued` post. */
+  "scheduledPosts.create": route({
+    method: "POST",
+    path: "/api/scheduled-posts",
+    auth: "session",
+    body: CreatePostRequestSchema,
+    response: ScheduledPostSchema,
+    status: 201,
+  }),
+  /** `409 conflict` when `expectedUpdatedAt` is stale; `409 post_not_editable` once publishing. */
+  "scheduledPosts.reschedule": route({
+    method: "PATCH",
+    path: "/api/scheduled-posts/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: ReschedulePostRequestSchema,
+    response: ScheduledPostSchema,
+    status: 200,
+  }),
+  "scheduledPosts.cancel": route({
+    method: "POST",
+    path: "/api/scheduled-posts/:id/cancel",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ScheduledPostSchema,
+    status: 200,
+  }),
+  /** Every publish attempt of a post, newest first. */
+  "scheduledPosts.attempts": route({
+    method: "GET",
+    path: "/api/scheduled-posts/:id/attempts",
+    auth: "session",
+    params: IdParamsSchema,
+    response: listSchema(PublishAttemptSchema),
+    status: 200,
+  }),
+  /** Items waiting for approval with their slot deadlines, and missed posts. */
+  "approvals.inbox": route({
+    method: "GET",
+    path: "/api/approvals",
+    auth: "session",
+    query: ApprovalsQuerySchema,
+    response: ApprovalsInboxSchema,
+    status: 200,
+  }),
+  "publisher.status": route({
+    method: "GET",
+    path: "/api/publisher/status",
+    auth: "session",
+    response: PublisherStatusSchema,
+    status: 200,
+  }),
+  /** Owner and admins only. */
+  "scheduler.tasks": route({
+    method: "GET",
+    path: "/api/scheduler/tasks",
+    auth: "session",
+    query: ListScheduledTasksQuerySchema,
+    response: cursorPageSchema(ScheduledTaskSchema),
+    status: 200,
+  }),
+  /**
+   * Owner and admins only. Runs a `failed` or `dead` task again now, with a fresh set of attempts;
+   * `409 conflict` for any other status.
+   */
+  "scheduler.retryTask": route({
+    method: "POST",
+    path: "/api/scheduler/tasks/:id/retry",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ScheduledTaskSchema,
     status: 200,
   }),
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IdSchema } from "../common";
 
 /** Error codes the API uses. `ApiError.error.code` stays an open string so clients tolerate new codes. */
 export const API_ERROR_CODES = [
@@ -18,6 +19,10 @@ export const API_ERROR_CODES = [
   "missing_artifact",
   /** The `voice` step needs a `voiceId` in the format rules (422). */
   "voice_not_configured",
+  /** The channel cannot leave dry-run; `details.reason` is a `LivePublishingBlocker` (409). */
+  "dry_run_locked",
+  /** The post is publishing, published or cancelled and cannot change (409). */
+  "post_not_editable",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -67,6 +72,25 @@ export function csvEnumQuerySchema<const T extends readonly [string, ...string[]
     .min(1)
     .max(values.length)
     .refine((items) => new Set(items).size === items.length, { message: "Values must not repeat" });
+  return z.union([
+    list,
+    z
+      .string()
+      .transform((value) => value.split(",").map((part) => part.trim()))
+      .pipe(list),
+  ]);
+}
+
+/**
+ * A list of ids in a query string: comma-separated (`channelIds=a,b`) or repeated values, already
+ * split into an array. At least one and at most `max` ids, without repeats.
+ */
+export function csvIdsQuerySchema(max: number) {
+  const list = z
+    .array(IdSchema)
+    .min(1)
+    .max(max)
+    .refine((items) => new Set(items).size === items.length, { message: "Ids must not repeat" });
   return z.union([
     list,
     z

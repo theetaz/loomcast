@@ -1,4 +1,5 @@
 import { adminTools } from "./admin-tools";
+import { calendarTools } from "./calendar-tools";
 import type { McpToolContract } from "./contract";
 import { kbTools } from "./kb-tools";
 import { pipelineTools } from "./pipeline-tools";
@@ -10,6 +11,7 @@ export const mcpTools = {
   ...kbTools,
   ...adminTools,
   ...pipelineTools,
+  ...calendarTools,
 } as const satisfies Record<string, McpToolContract>;
 
 export type McpTools = typeof mcpTools;

@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { AssetSchema } from "./api/assets";
+import { ScheduledPostSchema } from "./api/calendar";
+import { ChannelSchema } from "./api/channels";
 import { ContentItemSchema, ContentVersionSummarySchema } from "./api/content";
 import { MessageSchema } from "./api/conversations";
 import { JobSummarySchema } from "./api/jobs";
 import { KbEntrySchema } from "./api/kb";
 import { ProjectSchema } from "./api/projects";
 import { ReviewSchema } from "./api/reviews";
+import { ScheduledTaskSchema } from "./api/scheduler";
 import { SkillVersionSummarySchema } from "./api/skills";
 import { IdSchema, TimestampSchema } from "./common";
 
@@ -70,6 +73,12 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
   liveEvent("review.created", z.object({ projectId: IdSchema, review: ReviewSchema })),
   /** A new skill version; skills are global, not tied to a project. */
   liveEvent("skill.published", z.object({ skill: SkillVersionSummarySchema })),
+  /** A post was created, moved, cancelled or changed status (including publish results). */
+  liveEvent("post.updated", z.object({ post: ScheduledPostSchema })),
+  /** A channel was added, renamed, switched, connected or changed status. Never has secrets. */
+  liveEvent("channel.updated", z.object({ channel: ChannelSchema })),
+  /** A scheduled task used up its attempts and moved to the dead-letter list. */
+  liveEvent("task.dead", z.object({ task: ScheduledTaskSchema })),
   /** The client missed events it cannot replay and should refetch its data. */
   liveEvent("resync", z.object({})),
 ]);

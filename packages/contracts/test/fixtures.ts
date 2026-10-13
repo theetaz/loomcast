@@ -1,5 +1,6 @@
 import type {
   Asset,
+  Channel,
   ContentItem,
   ContentVersion,
   ContentVersionSummary,
@@ -7,8 +8,11 @@ import type {
   KbEntry,
   Message,
   Project,
+  PublishAttempt,
   ReferenceAnalysis,
   Review,
+  ScheduledPost,
+  ScheduledTask,
   Script,
   SkillVersionSummary,
   Storyboard,
@@ -252,6 +256,79 @@ export const skillVersion: SkillVersionSummary = {
   bytes: 4_096,
   publishedByUser: ids.user,
   publishedAt: at,
+};
+
+export const channel: Channel = {
+  id: ids.channel,
+  platform: "instagram",
+  displayName: "Rust in 60 seconds",
+  externalId: "17841400000000001",
+  username: "rustin60",
+  parentChannelId: ids.channel2,
+  status: "active",
+  dryRun: true,
+  requiresApproval: false,
+  connected: true,
+  scopes: ["instagram_basic", "instagram_content_publish"],
+  tokenExpiresAt: "2026-12-11T09:30:00.000Z",
+  liveBlocker: "publishing_dry_run",
+  createdAt: at,
+  updatedAt: at,
+  disabledAt: null,
+};
+
+export const post: ScheduledPost = {
+  id: ids.post,
+  projectId: ids.project,
+  itemId: ids.item,
+  versionId: ids.version,
+  channelId: ids.channel,
+  seriesId: ids.series,
+  platform: "instagram",
+  scheduledAt: "2026-10-14T13:00:00.000Z",
+  status: "queued",
+  dryRun: true,
+  publishMode: "auto",
+  externalId: null,
+  permalink: null,
+  attempts: 0,
+  lastError: null,
+  publishedAt: null,
+  item: { title: "Borrowing in one minute", state: "scheduled", posterAssetId: ids.poster },
+  createdAt: at,
+  updatedAt: at,
+};
+
+export const publishAttempt: PublishAttempt = {
+  id: ids.attempt,
+  postId: ids.post,
+  attempt: 1,
+  adapter: "instagram",
+  dryRun: true,
+  request: {
+    method: "POST",
+    path: "/17841400000000001/media",
+    body: { media_type: "REELS", caption: "The borrow checker in one rule." },
+  },
+  response: null,
+  error: null,
+  startedAt: at,
+  finishedAt: at,
+};
+
+export const deadTask: ScheduledTask = {
+  id: ids.task,
+  kind: "post.publish",
+  status: "dead",
+  runAt: at,
+  payload: { postId: ids.post },
+  attempts: 5,
+  maxAttempts: 5,
+  dedupeKey: `publish:${ids.post}`,
+  lastError: { code: "transient", message: "The platform timed out.", at },
+  lockedUntil: null,
+  createdAt: at,
+  finishedAt: at,
 };
 
 /** A fresh value per run, so the suite holds no credential-like literals. */
