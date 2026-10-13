@@ -11,6 +11,8 @@ import type { AppDeps, ModuleDeps, Presence, RegisterModule } from "./deps";
 import { type Alert, createAlerts } from "./lib/alerts";
 import { HttpError, notFound } from "./lib/errors";
 import { type CheckStatus, createHealthRegistry, type HealthRegistry } from "./lib/health";
+import { clientIp } from "./lib/http";
+import { consume, createRateLimiter, type RateLimitOptions } from "./lib/rate-limit";
 import {
   createS3Storage,
   createUnconfiguredStorage,
@@ -60,6 +62,13 @@ export const API_BODY_LIMIT_BYTES = 1024 * 1024;
 
 /** Paths the web app never owns; the SPA fallback leaves them alone. */
 const SERVER_PATH_RE = /^\/(api|mcp|bridge|healthz|readyz)(\/|$)/;
+
+/**
+ * `/healthz` and `/readyz` per client address. The container health check, the deploy script
+ * (at most 30 polls in 60 s) and the uptime workflow stay far below it; `/readyz` reaches the
+ * database, so a flood from one address is cut off.
+ */
+export const PROBE_RATE_LIMIT: RateLimitOptions = { capacity: 60, intervalMs: 60_000 };
 
 /** Requests logged at debug rather than info, to keep probes out of the logs. */
 const QUIET_PATHS: ReadonlySet<string> = new Set(["/healthz", "/readyz"]);
@@ -269,6 +278,11 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     await auth.sessionGuard(c, next);
   });
 
+  const probes = createRateLimiter(PROBE_RATE_LIMIT, deps.clock);
+  app.on("GET", ["/healthz", "/readyz"], async (c, next) => {
+    consume(probes, clientIp(c, config.trustProxy));
+    await next();
+  });
   app.get("/healthz", (c) => c.json({ status: "ok" }));
   // Readiness: every registered check (database, object storage, scheduler and any a module
   // adds), each bounded to 2 s. Only statuses are public; the owner sees details on the ops status.

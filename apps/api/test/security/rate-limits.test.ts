@@ -1,8 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { TOKEN_PREFIXES } from "@loomcast/contracts";
+import { type RouteName, routes, TOKEN_PREFIXES } from "@loomcast/contracts";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PROBE_RATE_LIMIT } from "../../src/app";
+import type { RateLimitOptions } from "../../src/lib/rate-limit";
+import { LOGIN_LIMITS, PASSWORD_LINK_LIMIT } from "../../src/modules/auth";
 import { AUTH_FAILURE_LIMIT } from "../../src/modules/auth/guards";
+import { PAIRING_LIMITS } from "../../src/modules/devices";
 import { issueToken } from "../mcp-support";
 import { createTestApp, errorCode, insertUser, login, send, testIp } from "../support";
 
@@ -105,4 +109,66 @@ describe("failed credentials", () => {
       }
     }
   });
+});
+
+/**
+ * The per-address limit of each public route of the contracts. A route marked `auth: "none"`
+ * without an entry here fails the suite.
+ */
+const PUBLIC_ROUTE_LIMITS: Partial<Record<RouteName, RateLimitOptions>> = {
+  "auth.login": LOGIN_LIMITS.perIp,
+  "auth.inspectPasswordToken": PASSWORD_LINK_LIMIT,
+  "auth.setPassword": PASSWORD_LINK_LIMIT,
+  "bridge.pair": PAIRING_LIMITS.pairPerIp,
+};
+
+describe("unauthenticated routes", () => {
+  const publicRoutes = (Object.keys(routes) as RouteName[]).filter(
+    (name) => routes[name].auth === "none",
+  );
+
+  it("knows the limit of every public route", () => {
+    expect(publicRoutes.filter((name) => PUBLIC_ROUTE_LIMITS[name] === undefined)).toEqual([]);
+  });
+
+  for (const name of publicRoutes) {
+    it(`rate limits ${name} per address`, async () => {
+      const route = routes[name];
+      const limit = PUBLIC_ROUTE_LIMITS[name];
+      expect(limit).toBeDefined();
+      const { app } = createTestApp(testDb.db);
+      const ip = testIp(100);
+      const call = (from: string) =>
+        send(app, route.method, route.path, {
+          body: {},
+          ip: from,
+          origin: name === "bridge.pair" ? null : undefined,
+        });
+      for (let i = 0; i < (limit?.capacity ?? 0); i++) {
+        // An empty body: the limit is taken before the body is read, which then fails.
+        expect((await call(ip)).status, `${name} attempt ${i + 1}`).toBe(400);
+      }
+      const blocked = await call(ip);
+      expect(blocked.status, name).toBe(429);
+      expect(await errorCode(blocked)).toBe("rate_limited");
+      expect(blocked.headers.get("retry-after")).not.toBeNull();
+      expect((await call(testIp(101))).status, `${name} from another address`).toBe(400);
+    });
+  }
+
+  for (const path of ["/healthz", "/readyz"]) {
+    it(`rate limits ${path} per address`, async () => {
+      const { app, clock } = createTestApp(testDb.db, { config: { storage: null } });
+      const ip = testIp(110);
+      for (let i = 0; i < PROBE_RATE_LIMIT.capacity; i++) {
+        expect((await send(app, "GET", path, { ip })).status, `${path} attempt ${i + 1}`).toBe(200);
+      }
+      const blocked = await send(app, "GET", path, { ip });
+      expect(blocked.status).toBe(429);
+      expect(blocked.headers.get("retry-after")).not.toBeNull();
+      expect((await send(app, "GET", path, { ip: testIp(111) })).status).toBe(200);
+      clock.advance(PROBE_RATE_LIMIT.intervalMs);
+      expect((await send(app, "GET", path, { ip })).status).toBe(200);
+    });
+  }
 });
