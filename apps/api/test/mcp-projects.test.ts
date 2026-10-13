@@ -74,7 +74,8 @@ async function createProject(name: string, extra: Record<string, unknown> = {}) 
 
 describe("project tools", () => {
   it("lists the project tools with their contracts", async () => {
-    const { tools } = await reader.listTools();
+    const { tools: all } = await reader.listTools();
+    const tools = all.filter((tool) => tool.name.startsWith("project."));
     const names = tools.map((tool) => tool.name).sort();
     expect(names).toEqual(["project.create", "project.get", "project.list"]);
     for (const tool of tools) {

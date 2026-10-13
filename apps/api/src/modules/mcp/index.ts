@@ -18,10 +18,13 @@ export {
 } from "./caller";
 export { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./server";
 export {
+  createKbTools,
   createMcpTools,
   createProjectTools,
   defineTool,
+  kbEntryUrl,
   McpToolError,
+  projectIdFromCwd,
   projectUrl,
   TOOL_CALL_AUDIT_ACTION,
   type ToolDefinition,

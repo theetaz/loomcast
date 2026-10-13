@@ -197,9 +197,26 @@ function toFailure(error: unknown): Failure {
     return { code: error.code, text: `${error.code}: ${error.message}` };
   }
   if (error instanceof HttpError && error.status < 500) {
-    return { code: error.code, text: `${error.code}: ${error.message}` };
+    return { code: error.code, text: `${error.code}: ${error.message}${fieldIssues(error)}` };
   }
   return { code: "internal", text: `internal: ${INTERNAL_MESSAGE}` };
+}
+
+/** The `{path, message}` issues of a validation failure, so the client can fix its arguments. */
+function fieldIssues(error: HttpError): string {
+  if (error.code !== "validation_failed" || !Array.isArray(error.details)) {
+    return "";
+  }
+  const issues = error.details
+    .filter(
+      (issue): issue is { path: string; message: string } =>
+        typeof issue === "object" &&
+        issue !== null &&
+        typeof issue.path === "string" &&
+        typeof issue.message === "string",
+    )
+    .map((issue) => `${issue.path}: ${issue.message}`);
+  return issues.length === 0 ? "" : ` (${issues.join("; ")})`;
 }
 
 async function writeAudit(
