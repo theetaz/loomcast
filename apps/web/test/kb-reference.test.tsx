@@ -160,7 +160,7 @@ describe("reference detail", () => {
     const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/${reference.id}`);
 
     expect(
-      await screen.findByText("Add a transcript to analyze this reference."),
+      await screen.findByText("Add a transcript or upload the media to analyze this reference."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analyze" })).toBeDisabled();
 

@@ -5,6 +5,8 @@ import {
   type ContentVersion,
   type Conversation,
   type Device,
+  type Format,
+  type FormatVersion,
   type JobSummary,
   type KbEntryDetail,
   type LiveEvent,
@@ -66,6 +68,10 @@ export interface MockDb {
   assets: AssetDetail[];
   /** Review decisions on content items, newest last. */
   reviews: Review[];
+  /** Formats of every project, with their current version. */
+  formats: Format[];
+  /** Every version of every format. */
+  formatVersions: FormatVersion[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -109,6 +115,8 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     contentVersions: [],
     assets: [],
     reviews: [],
+    formats: [],
+    formatVersions: [],
     ...seed,
     listeners: new Set(),
   };

@@ -63,11 +63,14 @@ export function analysisState(
 
   const busy = status === "queued" || status === "dispatched" || status === "running";
   const hasTranscript = (reference.transcript ?? "").trim().length > 0;
+  // Uploaded media is analysed when there is no transcript.
+  const hasMedia = Boolean(reference.mediaAssetId);
   const finished = status === "succeeded" || status === "failed" || status === "cancelled";
 
   let hint: string | null = null;
-  if (!hasTranscript) hint = "Add a transcript to analyze this reference.";
-  else if (status === "failed") {
+  if (!hasTranscript && !hasMedia) {
+    hint = "Add a transcript or upload the media to analyze this reference.";
+  } else if (status === "failed") {
     hint =
       (live === "failed" ? job?.error?.message : undefined) ||
       "The analysis failed. Try again, or check the studio agent.";
@@ -78,7 +81,7 @@ export function analysisState(
     label: status === null ? "Not analyzed" : LABELS[status],
     busy,
     action: reference.analysis || finished ? "Re-analyze" : "Analyze",
-    canAnalyze: hasTranscript && !busy,
+    canAnalyze: (hasTranscript || hasMedia) && !busy,
     hint,
   };
 }

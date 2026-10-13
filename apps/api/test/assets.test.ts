@@ -718,7 +718,7 @@ describe("content security policy", () => {
       "https://media.example.test",
     ]);
     expect(directives.get("default-src")).toEqual(["'self'"]);
-    expect(directives.get("script-src")).toEqual(["'self'"]);
+    expect(directives.get("script-src")).toEqual(["'self'", "'wasm-unsafe-eval'"]);
   });
 
   it("uses the bucket host with virtual-hosted addressing", async () => {

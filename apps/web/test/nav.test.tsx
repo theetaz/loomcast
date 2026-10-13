@@ -100,12 +100,9 @@ describe("app sidebar", () => {
     );
   });
 
-  it("opens the review placeholder, which links to items in review", async () => {
+  it("opens the review queue from the address", async () => {
     renderApp("/review", signedInDb());
-    expect(await screen.findByText("The review queue is on its way")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open videos in review" })).toHaveAttribute(
-      "href",
-      "/library?states=review",
-    );
+    expect(await screen.findByRole("heading", { name: "Review", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
   });
 });
