@@ -44,7 +44,8 @@ API lives in the page and a reload resets it, so open the link without reloading
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/review/*`, `_app/settings/*` |
+| `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
@@ -140,6 +141,11 @@ and the composer.
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
   for labels that need data (see `_app/projects/$projectId/route.tsx`).
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
+  Its items come from a registry: every file in `src/app/nav/items/` exports one
+  `item: {id, label, icon, order, section?, to?, exact?, badge?}`, so a feature adds itself to
+  the sidebar by adding a file. `section` is `main` (default) or `footer`; an item without `to`
+  shows disabled with a "Soon" badge. The Channels group (`src/app/nav/channels-section.tsx`)
+  lists the planned platforms (Facebook, Instagram, Threads, X) as coming soon.
 - The project page (`features/project`) is a header and tabs over the open tab's route. Tabs
   come from a registry: every file in `features/project/tabs/items/` exports one
   `tab: {id, label, icon, to, order}`, so a feature adds a tab by adding a file. The tab whose
