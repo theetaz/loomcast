@@ -46,7 +46,8 @@ export interface McpRouteOptions {
  * The MCP endpoint: streamable HTTP in stateless mode, so every POST gets its own server and
  * transport and the server never issues an `Mcp-Session-Id`. Responses are plain JSON.
  *
- * - Bearer tokens only (`lc_mcp_…`); cookies are never read.
+ * - Bearer tokens only: user MCP tokens (`lc_mcp_…`) and job tokens (`lc_job_…`) bound to one
+ *   job's project. Cookies are never read.
  * - 120 requests a minute per token.
  * - A browser request from another origin is refused, against DNS rebinding.
  * - GET (a server-to-client event stream) and DELETE (ending a session) are not offered: 405.

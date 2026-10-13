@@ -1,9 +1,10 @@
 import type { TokenScope } from "@loomcast/contracts";
-import type { Database } from "@loomcast/db";
+import { apiTokens, type Database, jobs } from "@loomcast/db";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AppDeps, RegisterModule } from "../src/deps";
 import { createEventBus } from "../src/lib/bus";
+import { generatePrefixedToken } from "../src/lib/crypto";
 import { createLifecycle } from "../src/lib/lifecycle";
 import { createLogger } from "../src/lib/logger";
 import { createTokensService } from "../src/modules/tokens/service";
@@ -56,6 +57,47 @@ export async function issueToken(
   kind: "mcp" | "device" = "mcp",
 ) {
   return createTokensService(deps).create({ userId, kind, name: `test ${kind} token`, scopes });
+}
+
+/**
+ * A running job with a job token bound to it, inserted the way the bridge will mint one for a
+ * producer session.
+ */
+export async function issueJobToken(
+  db: Database,
+  values: { userId: string; projectId: string; scopes: readonly TokenScope[] },
+) {
+  const [job] = await db
+    .insert(jobs)
+    .values({
+      type: "system.ping",
+      status: "running",
+      projectId: values.projectId,
+      payload: {},
+      createdBy: values.userId,
+    })
+    .returning();
+  if (job === undefined) {
+    throw new Error("job was not inserted");
+  }
+  const generated = generatePrefixedToken("job");
+  const [row] = await db
+    .insert(apiTokens)
+    .values({
+      userId: values.userId,
+      kind: "job",
+      name: `job ${job.id}`,
+      tokenHash: generated.hash,
+      prefix: generated.prefix,
+      scopes: [...values.scopes],
+      projectId: values.projectId,
+      jobId: job.id,
+    })
+    .returning();
+  if (row === undefined) {
+    throw new Error("job token was not inserted");
+  }
+  return { secret: generated.secret, job, row };
 }
 
 /** An MCP client connected to `url` with `secret` as its bearer token. */

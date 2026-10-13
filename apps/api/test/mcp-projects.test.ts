@@ -6,14 +6,21 @@ import {
   ProjectListOutputSchema,
   projectTools,
 } from "@loomcast/contracts";
-import { auditLog, projects } from "@loomcast/db";
+import { auditLog, jobs, projects } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createProjectTools, type McpCaller, TOOL_CALL_AUDIT_ACTION } from "../src/modules/mcp";
 import { createProjectsService } from "../src/modules/projects";
-import { connectClient, issueToken, type McpTestServer, startMcpTestServer } from "./mcp-support";
+import {
+  connectClient,
+  issueJobToken,
+  issueToken,
+  type McpTestServer,
+  rpc,
+  startMcpTestServer,
+} from "./mcp-support";
 import { APP_ORIGIN, insertUser, testIp } from "./support";
 
 let testDb: TestDb;
@@ -227,5 +234,55 @@ describe("project tools for a bound caller", () => {
     const create = await tool("project.create").run({ name: uniqueName("Nope") }, ctx);
     expect(create.isError).toBe(true);
     expect(textOf(create)).toBe("forbidden: Job tokens cannot call this tool.");
+  });
+});
+
+describe("project tools with a job token", () => {
+  it("binds the token to its job's project", async () => {
+    const own = await createProject(uniqueName("Job own"));
+    const other = await createProject(uniqueName("Job other"));
+    const { secret, job, row } = await issueJobToken(testDb.db, {
+      userId,
+      projectId: own.id,
+      scopes: ["mcp:read", "mcp:write"],
+    });
+    const client = await connectClient(server.url, secret);
+
+    const list = await client.callTool({ name: "project.list", arguments: {} });
+    const listed = ProjectListOutputSchema.parse(list.structuredContent).projects;
+    expect(listed.map((project) => project.id)).toEqual([own.id]);
+
+    const get = await client.callTool({ name: "project.get", arguments: { idOrSlug: own.slug } });
+    expect(get.isError).toBeFalsy();
+    const denied = await client.callTool({
+      name: "project.get",
+      arguments: { idOrSlug: other.id },
+    });
+    expect(denied.isError).toBe(true);
+    expect(textOf(denied)).toMatch(/^forbidden: /);
+
+    const create = await client.callTool({
+      name: "project.create",
+      arguments: { name: uniqueName("From a job") },
+    });
+    expect(create.isError).toBe(true);
+    expect(textOf(create)).toBe("forbidden: Job tokens cannot call this tool.");
+
+    const audits = await testDb.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, TOOL_CALL_AUDIT_ACTION), eq(auditLog.actorId, row.id)));
+    expect(audits).toHaveLength(4);
+    expect(audits.every((audit) => audit.data?.jobId === job.id)).toBe(true);
+    await client.close();
+
+    // The token stops working once its job has finished.
+    await testDb.db.update(jobs).set({ status: "succeeded" }).where(eq(jobs.id, job.id));
+    const response = await rpc(
+      server.url,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { Authorization: `Bearer ${secret}` },
+    );
+    expect(response.status).toBe(401);
   });
 });

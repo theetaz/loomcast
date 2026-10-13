@@ -1,4 +1,6 @@
-import { TOKEN_PREFIXES, type TokenKind } from "@loomcast/contracts";
+import { TERMINAL_JOB_STATUSES, TOKEN_PREFIXES, type TokenKind } from "@loomcast/contracts";
+import { apiTokens, jobs } from "@loomcast/db";
+import { and, eq, notInArray } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { unauthorized } from "../../lib/errors";
@@ -28,13 +30,9 @@ export interface CallerBinding {
 
 /**
  * How one token kind is accepted on `/mcp`. The endpoint picks the resolver whose prefix the bearer
- * secret carries, verifies the secret with `requireBearer(kind)` and then asks `bind` what the
- * token is tied to.
- *
- * Extension point for job tokens: add a `job` resolver whose `bind` looks up the job the token was
- * minted for and returns `{boundProjectId: job.projectId, jobId: job.id}`, or null once the job
- * has ended. The tool registry already enforces `jobTokens` and `projectBinding` for any caller
- * with `token.kind === "job"`.
+ * secret carries, verifies the secret with `requireBearer(kind)` (format, hash, kind, not revoked
+ * or expired, user enabled) and then asks `bind` what the token is tied to. The tool registry
+ * enforces each contract's `jobTokens` and `projectBinding` rules from the binding.
  */
 export interface CallerResolver {
   kind: TokenKind;
@@ -47,10 +45,27 @@ const userTokenResolver: CallerResolver = {
 };
 
 /**
- * Token kinds accepted on `/mcp`. Only user MCP tokens for now: job tokens are minted once the
- * bridge hands credentials to producer sessions, and their resolver is added then.
+ * Job tokens (`lc_job_…`) are minted for one job and carry its project and job ids. They stop
+ * working once the job has finished, even if revoking them at the end of the job was missed.
  */
-export const CALLER_RESOLVERS: readonly CallerResolver[] = [userTokenResolver];
+const jobTokenResolver: CallerResolver = {
+  kind: "job",
+  async bind(token, deps) {
+    const [row] = await deps.db
+      .select({ projectId: apiTokens.projectId, jobId: apiTokens.jobId })
+      .from(apiTokens)
+      .innerJoin(jobs, eq(jobs.id, apiTokens.jobId))
+      .where(and(eq(apiTokens.id, token.id), notInArray(jobs.status, [...TERMINAL_JOB_STATUSES])))
+      .limit(1);
+    if (row === undefined || row.projectId === null || row.jobId === null) {
+      return null;
+    }
+    return { boundProjectId: row.projectId, jobId: row.jobId };
+  },
+};
+
+/** Token kinds accepted on `/mcp`: user MCP tokens and job tokens. */
+export const CALLER_RESOLVERS: readonly CallerResolver[] = [userTokenResolver, jobTokenResolver];
 
 const BEARER_PREFIX_RE = /^Bearer[ \t]+(\S+)/i;
 

@@ -49,9 +49,12 @@ Authorization: Bearer <access token>
 - **Failures.** A missing, malformed, expired or revoked token gets `401` with a
   `WWW-Authenticate: Bearer` header. Revoking a token in Settings takes effect on its next request.
   Device tokens (`lc_dev_…`) are not accepted.
-- **Job tokens.** Producer sessions will receive short-lived `lc_job_…` tokens, bound to the
-  project of the job they run. Tools state whether job tokens may call them; until job tokens are
-  issued, `/mcp` accepts user tokens (`lc_mcp_…`) only.
+- **Job tokens.** A producer session started by the studio agent gets its own `lc_job_…` token,
+  minted for one job and bound to that job's project. It works until the job finishes, the token
+  is revoked or it expires. A job token may call only the tools marked "Job tokens: allowed" in the
+  reference below. Tools whose input names a project refuse any project but the job's (leaving an
+  optional project out means the job's project), and `project.list` returns only the job's
+  project.
 
 ## Connecting a client
 
