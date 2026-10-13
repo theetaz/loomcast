@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../common";
+import type { OAuthProvider } from "../enums";
 
 // The scheduler runs server-side tasks at a set time: planning cadence slots, starting production
-// ahead of a slot, publishing a post and polling the platform until it is live. Tasks are not jobs:
+// ahead of a slot, publishing a post and polling the platform until it is live, keeping channel
+// credentials fresh and pulling post insights. Tasks are not jobs:
 // they never reach the studio agent. `scheduledTaskRegistry` is their allow-list.
 
 /**
@@ -15,6 +17,9 @@ export const SCHEDULED_TASK_KINDS = [
   "post.publish",
   "post.check_status",
   "assets.cleanup",
+  "channel.refresh_token",
+  "channel.verify",
+  "insights.pull",
 ] as const;
 export const ScheduledTaskKindSchema = z.enum(SCHEDULED_TASK_KINDS);
 export type ScheduledTaskKind = (typeof SCHEDULED_TASK_KINDS)[number];
@@ -71,6 +76,49 @@ export type PostCheckStatusPayload = z.infer<typeof PostCheckStatusPayloadSchema
 export const AssetsCleanupPayloadSchema = z.object({});
 export type AssetsCleanupPayload = z.infer<typeof AssetsCleanupPayloadSchema>;
 
+/**
+ * Refreshes channel credentials that expire within `TOKEN_REFRESH_LEAD_MS` of their provider, for
+ * one channel or, when `channelId` is left out, for every connected channel (the daily sweep).
+ */
+export const ChannelRefreshTokenPayloadSchema = z.object({
+  channelId: IdSchema.optional(),
+});
+export type ChannelRefreshTokenPayload = z.infer<typeof ChannelRefreshTokenPayloadSchema>;
+
+/**
+ * Asks the platform whether a channel's credentials still work, for one channel or, when
+ * `channelId` is left out, for every connected channel (the daily sweep). Refused credentials set
+ * the channel `needs_reauth`.
+ */
+export const ChannelVerifyPayloadSchema = z.object({
+  channelId: IdSchema.optional(),
+});
+export type ChannelVerifyPayload = z.infer<typeof ChannelVerifyPayloadSchema>;
+
+/**
+ * Captures a live post's insights into a new metrics row. One task is enqueued per time of
+ * `insightsSchedule(publishedAt)`.
+ */
+export const InsightsPullPayloadSchema = z.object({
+  postId: IdSchema,
+});
+export type InsightsPullPayload = z.infer<typeof InsightsPullPayloadSchema>;
+
+/** How often the daily credential sweeps (`channel.refresh_token`, `channel.verify`) run. */
+export const DAILY_TASK_INTERVAL_MS = 24 * 60 * 60_000;
+
+/**
+ * How long before its expiry a provider's credential is refreshed; null when it is not refreshed
+ * (Meta Page credentials from a long-lived sign-in do not expire, and are only verified). Threads
+ * credentials last 60 days and are refreshed by the daily sweep once fewer than 15 days remain; X
+ * credentials last hours, so each X channel gets its own task 10 minutes before expiry.
+ */
+export const TOKEN_REFRESH_LEAD_MS = {
+  meta: null,
+  threads: 15 * 24 * 60 * 60_000,
+  x: 10 * 60_000,
+} as const satisfies Record<OAuthProvider, number | null>;
+
 /** First delay between status polls of a processing post. */
 export const POST_STATUS_POLL_INITIAL_MS = 15_000;
 /** Polls back off to at most this delay. */
@@ -112,6 +160,24 @@ export const scheduledTaskRegistry = {
     maxAttempts: 3,
     backoffBaseMs: 5 * 60_000,
     leaseMs: 10 * 60_000,
+  },
+  "channel.refresh_token": {
+    payload: ChannelRefreshTokenPayloadSchema,
+    maxAttempts: 3,
+    backoffBaseMs: 2 * 60_000,
+    leaseMs: 5 * 60_000,
+  },
+  "channel.verify": {
+    payload: ChannelVerifyPayloadSchema,
+    maxAttempts: 3,
+    backoffBaseMs: 5 * 60_000,
+    leaseMs: 5 * 60_000,
+  },
+  "insights.pull": {
+    payload: InsightsPullPayloadSchema,
+    maxAttempts: 4,
+    backoffBaseMs: 5 * 60_000,
+    leaseMs: 2 * 60_000,
   },
 } as const satisfies Record<ScheduledTaskKind, ScheduledTaskDefinition>;
 

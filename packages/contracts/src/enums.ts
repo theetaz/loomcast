@@ -203,6 +203,17 @@ export const PlatformSchema = z.enum(PLATFORMS);
 export type Platform = (typeof PLATFORMS)[number];
 
 /**
+ * Accounts a channel is connected through:
+ * - `meta`: Facebook Login for Business. One sign-in connects Facebook Pages and the Instagram
+ *   professional accounts linked to them.
+ * - `threads`: Threads profiles, through the Threads API's own sign-in.
+ * - `x`: X profiles, behind the `xPublishing` feature flag.
+ */
+export const OAUTH_PROVIDERS = ["meta", "threads", "x"] as const;
+export const OAuthProviderSchema = z.enum(OAUTH_PROVIDERS);
+export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
+
+/**
  * - `disconnected`: no stored credentials, such as a planning channel; it can only dry-run.
  * - `active`: connected and usable.
  * - `needs_reauth`: the platform refused the stored credentials; the owner has to reconnect.

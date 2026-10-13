@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { IdSchema } from "../common";
+import { type OAuthProvider, OAuthProviderSchema } from "../enums";
 import { SkillNameSchema } from "../pipeline/skills";
+import {
+  AnalyticsOverviewQuerySchema,
+  AnalyticsOverviewSchema,
+  ItemAnalyticsSchema,
+  PostAnalyticsSchema,
+  SeriesAnalyticsQuerySchema,
+  SeriesAnalyticsSchema,
+} from "./analytics";
 import {
   AssetDetailSchema,
   AssetSchema,
@@ -68,6 +77,14 @@ import {
   UpdateKbEntrySchema,
 } from "./kb";
 import {
+  AcceptConnectionResponseSchema,
+  AcceptConnectionSchema,
+  ConnectionCandidatesSchema,
+  OAuthCallbackQuerySchema,
+  type OAuthStartQuery,
+  OAuthStartQuerySchema,
+} from "./oauth";
+import {
   CreateProjectSchema,
   ListProjectsQuerySchema,
   ProjectSchema,
@@ -93,6 +110,7 @@ import {
   SkillVersionDetailSchema,
   SkillVersionSummarySchema,
 } from "./skills";
+import { SystemFeaturesSchema } from "./system";
 import { AccessTokenSchema, CreateTokenRequestSchema, CreateTokenResponseSchema } from "./tokens";
 import {
   InspectPasswordTokenRequestSchema,
@@ -120,9 +138,13 @@ export interface RouteDefinition {
   readonly params?: z.ZodType;
   readonly query?: z.ZodType;
   readonly body?: z.ZodType;
-  /** Schema of the success body, or `null` for `204 No Content`. */
+  /** Schema of the success body, or `null` for `204 No Content` and `302 Found`. */
   readonly response: z.ZodType | null;
-  readonly status: 200 | 201 | 204;
+  /**
+   * `302`: a browser navigation that answers with a redirect, such as a sign-in with a platform.
+   * Open it with a full-page navigation, never with `fetch`.
+   */
+  readonly status: 200 | 201 | 204 | 302;
 }
 
 function route<const R extends RouteDefinition>(definition: R): R {
@@ -134,6 +156,7 @@ const ProjectIdParamsSchema = z.object({ projectId: IdSchema });
 const IdOrSlugParamsSchema = z.object({ idOrSlug: z.string().min(1).max(64) });
 const VersionParamsSchema = z.object({ id: IdSchema, versionId: IdSchema });
 const SkillNameParamsSchema = z.object({ name: SkillNameSchema });
+const OAuthProviderParamsSchema = z.object({ provider: OAuthProviderSchema });
 
 /**
  * Every REST route of the API. The web client and the API both build on this map.
@@ -754,6 +777,111 @@ export const routes = {
     response: ChannelSchema,
     status: 200,
   }),
+  /**
+   * Wipes the channel's stored credentials and sets it `disconnected` with dry-run on. The channel,
+   * its series links and its posts stay; open posts only dry-run until it is connected again.
+   */
+  "channels.disconnect": route({
+    method: "DELETE",
+    path: "/api/channels/:id/connection",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ChannelSchema,
+    status: 200,
+  }),
+
+  /**
+   * Starts a sign-in with the provider: a full-page navigation that redirects to the platform's
+   * consent dialog (`oauthStartPath`). The sign-in is bound to the session's user, lasts
+   * `OAUTH_STATE_TTL_MS` and is used once. A provider the server cannot use (no app credentials,
+   * or `x` while `xPublishing` is off) redirects to the connect page with `error=not_configured`.
+   */
+  "oauth.start": route({
+    method: "GET",
+    path: "/api/oauth/:provider/start",
+    auth: "session",
+    params: OAuthProviderParamsSchema,
+    query: OAuthStartQuerySchema,
+    response: null,
+    status: 302,
+  }),
+  /**
+   * Where the platform sends the browser back; this URL is the redirect URI registered with the
+   * platform. It checks the sign-in belongs to the session's user, exchanges the code for
+   * long-lived credentials, stores them encrypted in a pending connection, and redirects to
+   * `OAUTH_CONNECT_PAGE_PATH` with `?connection=<id>`, or with `?error=<OAuthConnectError>`.
+   */
+  "oauth.callback": route({
+    method: "GET",
+    path: "/api/oauth/:provider/callback",
+    auth: "session",
+    params: OAuthProviderParamsSchema,
+    query: OAuthCallbackQuerySchema,
+    response: null,
+    status: 302,
+  }),
+  /** The accounts of a pending connection. `410 connection_expired` once expired or used. */
+  "oauth.connection": route({
+    method: "GET",
+    path: "/api/oauth/connections/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ConnectionCandidatesSchema,
+    status: 200,
+  }),
+  /** Connects the chosen accounts. `410 connection_expired` once expired or used. */
+  "oauth.accept": route({
+    method: "POST",
+    path: "/api/oauth/connections/:id/accept",
+    auth: "session",
+    params: IdParamsSchema,
+    body: AcceptConnectionSchema,
+    response: AcceptConnectionResponseSchema,
+    status: 200,
+  }),
+  /** One live post and its capture history. `404 not_found` for a post that is not live. */
+  "analytics.post": route({
+    method: "GET",
+    path: "/api/analytics/posts/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: PostAnalyticsSchema,
+    status: 200,
+  }),
+  /** Every live post of a content item, for its analytics card. */
+  "analytics.item": route({
+    method: "GET",
+    path: "/api/analytics/items/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ItemAnalyticsSchema,
+    status: 200,
+  }),
+  "analytics.series": route({
+    method: "GET",
+    path: "/api/analytics/series/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    query: SeriesAnalyticsQuerySchema,
+    response: SeriesAnalyticsSchema,
+    status: 200,
+  }),
+  /** Posts published in a range of at most 366 days. */
+  "analytics.overview": route({
+    method: "GET",
+    path: "/api/analytics/overview",
+    auth: "session",
+    query: AnalyticsOverviewQuerySchema,
+    response: AnalyticsOverviewSchema,
+    status: 200,
+  }),
+  "system.features": route({
+    method: "GET",
+    path: "/api/system/features",
+    auth: "session",
+    response: SystemFeaturesSchema,
+    status: 200,
+  }),
 
   /** Posts and open cadence slots in a range of at most 62 days. */
   "calendar.get": route({
@@ -930,4 +1058,14 @@ export function buildPath<P extends string>(path: P, params: PathParams<P>): str
     }
     return encodeURIComponent(value);
   });
+}
+
+/**
+ * The URL `oauth.start` is opened at, for a full-page navigation (`location.assign`):
+ * `/api/oauth/<provider>/start`, with `?redirectTo=` when given.
+ */
+export function oauthStartPath(provider: OAuthProvider, query: OAuthStartQuery = {}): string {
+  const path = buildPath(routes["oauth.start"].path, { provider });
+  const redirectTo = OAuthStartQuerySchema.parse(query).redirectTo;
+  return redirectTo === undefined ? path : `${path}?redirectTo=${encodeURIComponent(redirectTo)}`;
 }

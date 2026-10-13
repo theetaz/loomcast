@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../common";
 import { ChannelStatusSchema, PlatformSchema } from "../enums";
+import { PublishErrorSchema } from "../publishing/request";
 
 export const CHANNEL_NAME_MAX_LENGTH = 120;
 export const CHANNEL_USERNAME_MAX_LENGTH = 200;
@@ -53,6 +54,16 @@ export const ChannelSchema = z.object({
   tokenExpiresAt: TimestampSchema.nullable(),
   /** Why `dryRun` cannot be switched off right now; null when it can. */
   liveBlocker: LivePublishingBlockerSchema.nullable(),
+  /**
+   * When the daily check last found the credentials valid; null until the first check. Optional
+   * until the server sends it.
+   */
+  lastVerifiedAt: TimestampSchema.nullable().optional(),
+  /**
+   * Why the platform last refused the credentials, such as an `auth` error that set
+   * `needs_reauth`; null once a check or a reconnect succeeds. Optional until the server sends it.
+   */
+  lastError: PublishErrorSchema.nullable().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
   disabledAt: TimestampSchema.nullable(),
@@ -60,8 +71,8 @@ export const ChannelSchema = z.object({
 export type Channel = z.infer<typeof ChannelSchema>;
 
 /**
- * Adds a planning channel: no credentials, status `disconnected`, dry-run on. Connecting it to the
- * platform comes later (M5).
+ * Adds a planning channel: no credentials, status `disconnected`, dry-run on. Real accounts are
+ * connected through a sign-in (`oauth.start`, then `oauth.accept`) instead.
  */
 export const CreateChannelRequestSchema = z.object({
   platform: PlatformSchema,
