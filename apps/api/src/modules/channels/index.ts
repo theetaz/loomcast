@@ -19,6 +19,7 @@ import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { channelColumns, toChannel } from "./mappers";
 import { ensureChannelSweeps, registerRefreshTask } from "./tasks";
+import { registerVerifyTask } from "./verify";
 
 export { type ChannelView, channelColumns, toChannel } from "./mappers";
 export { channelSweepDedupeKey, ensureChannelSweeps } from "./tasks";
@@ -47,6 +48,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
 
   registerRefreshTask(deps);
+  registerVerifyTask(deps);
   // A served process makes sure the daily credential sweeps are queued (they re-queue themselves).
   if (deps.httpServer !== undefined && deps.config.scheduler.enabled) {
     ensureChannelSweeps(scheduler, null, deps.clock.now()).catch((error: unknown) => {
