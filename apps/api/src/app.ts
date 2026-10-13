@@ -16,6 +16,7 @@ import { register as registerBridge } from "./modules/bridge";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
 import { createJobsService, register as registerJobs } from "./modules/jobs";
+import { createJobHooks, subscribeJobStatusHooks } from "./modules/jobs/handlers";
 import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
 import { register as registerProjects } from "./modules/projects";
@@ -77,10 +78,21 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   const sessions = createSessionsService(deps);
   const tokens = createTokensService(deps);
   const jobs = createJobsService(deps);
-  const kb = createKbService(deps);
+  const kb = createKbService({ ...deps, jobs });
+  const hooks = createJobHooks(deps);
+  deps.lifecycle.onClose(subscribeJobStatusHooks(deps.bus, hooks));
   const auth = createAuthGuards({ config, clock: deps.clock, sessions, tokens });
   const presence: Presence = { connectedDevices: () => NO_DEVICES };
-  const moduleDeps: ModuleDeps = { ...deps, sessions, tokens, jobs, kb, auth, presence };
+  const moduleDeps: ModuleDeps = {
+    ...deps,
+    sessions,
+    tokens,
+    jobs,
+    kb,
+    hooks,
+    auth,
+    presence,
+  };
 
   const app = new Hono<AppEnv>();
 

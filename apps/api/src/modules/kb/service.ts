@@ -4,6 +4,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   type DecisionData,
   IdSchema,
+  type JobStatus,
   type JsonObject,
   KB_TITLE_MAX_LENGTH,
   type KbCreatedVia,
@@ -23,6 +24,7 @@ import {
 import {
   conversations,
   type Database,
+  type JobRow,
   type KbReferenceRow,
   kbEntries,
   kbReferences,
@@ -34,8 +36,10 @@ import {
 import { and, arrayContains, asc, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
+import { sha256Hex } from "../../lib/crypto";
 import { afterCommit, type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, notFound, validationFailed } from "../../lib/errors";
+import type { JobsService } from "../jobs/service";
 import { type EntryRow, entryColumns, toKbEntry, toKbEntryDetail } from "./mappers";
 import {
   defaultReferenceTitle,
@@ -160,6 +164,21 @@ export interface KbService {
    * is given, otherwise across every project.
    */
   search(options: KbSearchOptions): Promise<KbSearchHit[]>;
+  /**
+   * Queues `kb.analyze_reference` for a reference with a transcript and marks its analysis
+   * `queued`. The idempotency key is `analyze:<entryId>:<sha256(transcript)>`, so asking twice
+   * for the same transcript returns the job already queued or running. A failed or cancelled
+   * analysis, or a finished one the reference no longer shows, is run again under a key chained
+   * on that job. 409 for an entry that is not a reference or has no transcript; null when there
+   * is no such entry.
+   */
+  analyze(id: string, actor: KbActor): Promise<AnalyzeResult | null>;
+}
+
+export interface AnalyzeResult {
+  job: JobRow;
+  /** False when a job for the same transcript was already queued or running. */
+  created: boolean;
 }
 
 export interface KbSearchOptions {
@@ -172,6 +191,18 @@ export interface KbSearchOptions {
 export interface KbServiceDeps {
   db: Database;
   bus: EventBus;
+  jobs: JobsService;
+}
+
+/** Job statuses in which an analysis is still on its way. */
+const ACTIVE_JOB_STATUSES: ReadonlySet<JobStatus> = new Set(["queued", "dispatched", "running"]);
+
+/** Longest chain of re-runs `analyze` follows before giving up. */
+const MAX_ANALYSIS_KEY_CHAIN = 100;
+
+/** The base idempotency key of an analysis of `transcript`. */
+export function analysisKey(entryId: string, transcript: string): string {
+  return `analyze:${entryId}:${sha256Hex(transcript)}`;
 }
 
 /** The fields `update` accepts for every kind, and the extra ones per kind. */
@@ -324,7 +355,7 @@ export async function lockEntry(tx: Transaction, id: string): Promise<EntryRow |
 }
 
 export function createKbService(deps: KbServiceDeps): KbService {
-  const { db, bus } = deps;
+  const { db, bus, jobs } = deps;
 
   function publishCreated(tx: Transaction, row: EntryRow): void {
     const entry = toKbEntry(row);
@@ -836,6 +867,93 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
     search(options) {
       return kbSearch(db, options);
+    },
+
+    analyze(id, actor) {
+      return transaction(db, async (tx) => {
+        const entry = await lockEntry(tx, id);
+        if (entry === null) {
+          return null;
+        }
+        const [reference] =
+          entry.kind === "reference"
+            ? await tx
+                .select()
+                .from(kbReferences)
+                .where(eq(kbReferences.entryId, entry.id))
+                .limit(1)
+                .for("update")
+            : [];
+        if (reference === undefined) {
+          throw conflict("Only references can be analysed.", { reason: "not_reference" });
+        }
+        if (reference.transcript === null) {
+          throw conflict("Add a transcript before analysing this reference.", {
+            reason: "missing_transcript",
+          });
+        }
+        const baseKey = analysisKey(entry.id, reference.transcript);
+
+        // Someone already asked for this transcript and the job is still on its way.
+        const current =
+          reference.analysisJobId === null ? null : await jobs.get(reference.analysisJobId, tx);
+        if (
+          current !== null &&
+          ACTIVE_JOB_STATUSES.has(current.status) &&
+          current.idempotencyKey?.startsWith(baseKey) === true
+        ) {
+          return { job: current, created: false };
+        }
+
+        let key = baseKey;
+        for (let attempt = 0; attempt < MAX_ANALYSIS_KEY_CHAIN; attempt += 1) {
+          const { job, created } = await jobs.enqueue(tx, {
+            type: "kb.analyze_reference",
+            payload: {
+              projectId: entry.projectId,
+              entryId: entry.id,
+              url: reference.url,
+              platform: reference.platform,
+              transcript: reference.transcript,
+              ...(reference.likedReason === null ? {} : { likedReason: reference.likedReason }),
+            },
+            projectId: entry.projectId,
+            conversationId: null,
+            idempotencyKey: key,
+            createdBy: actor.userId,
+          });
+          const reusable =
+            !created &&
+            (ACTIVE_JOB_STATUSES.has(job.status) ||
+              (job.status === "succeeded" &&
+                job.id === reference.analysisJobId &&
+                reference.analysisStatus === "done"));
+          if (!created && !reusable) {
+            // Failed, cancelled, or a result the reference no longer shows: run it again.
+            key = `${baseKey}:${job.id}`;
+            continue;
+          }
+          if (job.id !== reference.analysisJobId) {
+            await tx
+              .update(kbReferences)
+              .set({
+                analysisJobId: job.id,
+                analysisStatus: job.status === "running" ? "running" : "queued",
+              })
+              .where(eq(kbReferences.entryId, entry.id));
+            await audit(tx, {
+              ...auditActor(actor),
+              action: "kb.reference.analyze",
+              targetType: "kb_entry",
+              targetId: entry.id,
+              data: { projectId: entry.projectId, jobId: job.id },
+            });
+            publishUpdated(tx, entry);
+          }
+          return { job, created };
+        }
+        throw new Error("too many analyses of one transcript");
+      });
     },
 
     softDelete(id, actor) {

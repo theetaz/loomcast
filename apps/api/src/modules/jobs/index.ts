@@ -5,7 +5,13 @@ import { createJobLifecycle } from "./lifecycle";
 import { createJobsRouter } from "./routes";
 
 export { createDispatcher, type Dispatcher, type DispatchTarget } from "./dispatcher";
-export { createProducerChatHooks } from "./handlers/producer-chat";
+export {
+  createJobHooks,
+  createKbAnalyzeReferenceHooks,
+  createProducerChatHooks,
+  type JobHandlerDeps,
+  subscribeJobStatusHooks,
+} from "./handlers";
 export type { JobHooks, JobTypeHooks } from "./hooks";
 export {
   CANCELLED_ERROR,

@@ -12,11 +12,14 @@ import { notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, issueDetails, readJson } from "../../lib/http";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
+import { toJobSummary } from "../jobs/service";
 import type { KbActor } from "./service";
 import { withNormalizedTags } from "./tags";
 
 export { type EntryRow, entryColumns, toKbEntry, toKbEntryDetail } from "./mappers";
 export {
+  type AnalyzeResult,
+  analysisKey,
   createKbService,
   type KbActor,
   type KbSearchOptions,
@@ -138,6 +141,14 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       throw entryNotFound();
     }
     return c.json(entry, 200);
+  });
+
+  router.post(routes["kb.analyze"].path, async (c) => {
+    const result = await kb.analyze(idParam(c), actor(c));
+    if (result === null) {
+      throw entryNotFound();
+    }
+    return c.json(toJobSummary(result.job), 201);
   });
 
   router.delete(routes["kb.delete"].path, async (c) => {
