@@ -79,6 +79,8 @@ The rules come from the brand kit and are enforced by `test/styles.test.ts`.
   `lib/motion.ts` has the shared enter and exit classes.
 - `hover:` only applies on devices with `(hover: hover) and (pointer: fine)`.
 - Keyboard-driven changes do not animate: the sidebar shortcut and arrow keys in tabs jump.
+  The command menu (`command`, built on cmdk) opens, highlights and closes without any
+  animation, because it is opened from the keyboard many times a day.
 - Under `prefers-reduced-motion` fades stay and movement goes: no scale, slide or press.
 - Name the properties a transition animates; never transition all of them.
 
