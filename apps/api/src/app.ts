@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { type HttpMethod, routes } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -9,6 +10,8 @@ import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppDeps, ModuleDeps, Presence, RegisterModule } from "./deps";
 import { HttpError, notFound } from "./lib/errors";
+import { createAuthGuards, register as registerAuth } from "./modules/auth";
+import { createSessionsService } from "./modules/auth/sessions";
 import { register as registerBridge } from "./modules/bridge";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
@@ -31,6 +34,33 @@ const QUIET_PATHS: ReadonlySet<string> = new Set(["/healthz", "/readyz"]);
 
 const NO_DEVICES: ReadonlySet<string> = new Set();
 
+interface PublicRoute {
+  method: HttpMethod;
+  pattern: RegExp;
+}
+
+function compilePath(path: string): RegExp {
+  const source = path
+    .split("/")
+    .map((segment) =>
+      segment.startsWith(":") ? "[^/]+" : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    )
+    .join("/");
+  return new RegExp(`^${source}$`);
+}
+
+/**
+ * The only `/api/*` routes reachable without a session: those the contracts mark `auth: "none"`
+ * (login and device pairing). Every other `/api/*` path, including unknown ones, needs a session.
+ */
+const PUBLIC_API_ROUTES: readonly PublicRoute[] = Object.values(routes)
+  .filter((route) => route.auth === "none")
+  .map((route) => ({ method: route.method, pattern: compilePath(route.path) }));
+
+export function isPublicApiRoute(method: string, path: string): boolean {
+  return PUBLIC_API_ROUTES.some((route) => route.method === method && route.pattern.test(path));
+}
+
 export interface CreateAppOptions {
   /** Extra modules registered after the built-in ones. Tests use it to mount probe routes. */
   modules?: readonly RegisterModule[];
@@ -42,8 +72,10 @@ export interface CreateAppOptions {
  */
 export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<AppEnv> {
   const { config, logger } = deps;
+  const sessions = createSessionsService(deps);
+  const auth = createAuthGuards({ config, clock: deps.clock, sessions });
   const presence: Presence = { connectedDevices: () => NO_DEVICES };
-  const moduleDeps: ModuleDeps = { ...deps, presence };
+  const moduleDeps: ModuleDeps = { ...deps, sessions, auth, presence };
 
   const app = new Hono<AppEnv>();
 
@@ -97,6 +129,16 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     }),
   );
 
+  // Default deny: every `/api/*` request needs a cookie session (and passes the CSRF check)
+  // unless the contracts mark the route public. Public routes apply their own checks.
+  app.use("/api/*", async (c, next) => {
+    if (isPublicApiRoute(c.req.method, c.req.path)) {
+      await next();
+      return;
+    }
+    await auth.sessionGuard(c, next);
+  });
+
   app.get("/healthz", (c) => c.json({ status: "ok" }));
   app.get("/readyz", async (c) => {
     if (deps.lifecycle.closing) {
@@ -111,6 +153,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     }
   });
 
+  registerAuth(app, moduleDeps);
   registerProjects(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerStream(app, moduleDeps);

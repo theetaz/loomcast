@@ -5,6 +5,8 @@ import type { Config } from "./env";
 import type { Clock } from "./lib/clock";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
+import type { AuthGuards } from "./modules/auth/guards";
+import type { SessionsService } from "./modules/auth/sessions";
 import type { AppEnv } from "./types";
 
 /** What `createApp` needs from outside. Tests build their own with a test database and clock. */
@@ -26,8 +28,10 @@ export interface Presence {
   connectedDevices(): ReadonlySet<string>;
 }
 
-/** What every module's `register` receives: the app deps plus shared services. */
+/** What every module's `register` receives: the app deps plus the shared services and guards. */
 export interface ModuleDeps extends AppDeps {
+  sessions: SessionsService;
+  auth: AuthGuards;
   presence: Presence;
 }
 
