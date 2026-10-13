@@ -335,7 +335,10 @@ describe("new idea", () => {
 
     await user.type(within(dialog).getByLabelText("Title"), "Traits as contracts");
     await user.type(within(dialog).getByLabelText(/Pitch/), "One trait, three impls.");
-    await user.click(within(dialog).getByRole("combobox", { name: /Series/ }));
+    // The series select stays disabled until the project's series have loaded.
+    const seriesSelect = within(dialog).getByRole("combobox", { name: /Series/ });
+    await waitFor(() => expect(seriesSelect).toBeEnabled());
+    await user.click(seriesSelect);
     await user.click(await screen.findByRole("option", { name: series.errors.name }));
     await user.click(within(dialog).getByRole("button", { name: "Add idea" }));
 
