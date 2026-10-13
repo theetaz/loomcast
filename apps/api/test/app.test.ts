@@ -67,11 +67,16 @@ describe("health checks", () => {
 });
 
 describe("default deny", () => {
-  it("allows only login and pairing among the API routes without a session", () => {
+  it("allows only login, pairing and set-password among the API routes without a session", () => {
     const publicRoutes = Object.entries(routes)
       .filter(([, route]) => isPublicApiRoute(route.method, route.path))
       .map(([name]) => name);
-    expect(publicRoutes.sort()).toEqual(["auth.login", "bridge.pair"]);
+    expect(publicRoutes.sort()).toEqual([
+      "auth.inspectPasswordToken",
+      "auth.login",
+      "auth.setPassword",
+      "bridge.pair",
+    ]);
   });
 
   it("answers 401 for every session route of the contracts without a cookie", async () => {
