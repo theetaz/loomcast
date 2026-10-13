@@ -1,5 +1,6 @@
 export * from "./api";
 export * from "./bridge";
+export * from "./calendar/slots";
 export * from "./common";
 export * from "./enums";
 export * from "./events";

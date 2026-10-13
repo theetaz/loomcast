@@ -43,6 +43,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/pipeline/artifacts.ts` | `ScriptSchema`, `StoryboardSchema` and `VoiceAlignmentSchema`, the artifacts of a content version |
 | `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
 | `src/pipeline/skills.ts` | Skill names, versions, file paths and limits, `skill.json`, and `skillChecksumInput` |
+| `src/calendar/slots.ts` | `generateSlots`, the cadence slots of a range in a real time zone, and `toLocalDateTime` / `fromLocalDateTime` |
 | `src/scheduler/tasks.ts` | `scheduledTaskRegistry`, the allow-list of scheduled tasks, with payloads, attempts, backoff and leases, and `taskRetryDelayMs` |
 | `src/publishing/request.ts` | `PublishRequestSchema` and `PublishErrorSchema`, what an adapter is asked to publish and how it fails, and dry-run permalinks |
 | `src/publishing/policy.ts` | `effectivePublishMode` |
@@ -380,6 +381,22 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 - New and moved posts must be at least `MIN_SCHEDULE_LEAD_MS` (2 minutes) ahead, and only `RESCHEDULABLE_POST_STATUSES` move.
 - Calendar ranges are `[from, to)`, end after they start and span at most `MAX_CALENDAR_RANGE_DAYS` (62); `checkCalendarRange` checks any `{from, to}` schema. Slots without `postId` are open.
 - The approvals inbox sorts items by `deadlineAt` (the earliest open post; null last), then `updatedAt`.
+
+### Cadence slots
+
+`generateSlots(cadence, from, to)` returns the slots of a cadence (`{days, slots, tz}` from the format rules) in `[from, to)` as `Date`s, in time order and without repeats. It uses only `Intl`, so the API, the scheduler and the web app compute the same slots.
+
+```ts
+import { generateSlots } from "@loomcast/contracts";
+
+generateSlots({ days: ["sun"], slots: ["02:30"], tz: "America/New_York" }, from, to);
+// on 2026-03-08 the clocks skip 02:00-03:00: the slot is 03:00 EDT, 2026-03-08T07:00:00.000Z
+```
+
+- Each local time is resolved in two passes: the zone's offsets a day before and a day after give the candidate instants, and only candidates that really show that local time are kept.
+- A time the clocks skip (spring forward) moves forward to the first valid minute, the moment the clocks changed. A time that happens twice (fall back) takes the earlier instant.
+- An empty `days` or `slots` gives no slots, and so does a range whose end is not after its start. A range over 62 days or an invalid time throws a `RangeError`.
+- `toLocalDateTime(instant, tz)` gives `{date: "YYYY-MM-DD", time: "HH:mm", weekday}`, such as for an item's title; `fromLocalDateTime(date, time, tz)` resolves one local time the same way as a slot.
 
 ### Publishing
 
