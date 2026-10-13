@@ -1,40 +1,14 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate as runMigrations } from "drizzle-orm/node-postgres/migrator";
-import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MIGRATIONS_FOLDER, migrate } from "../src/migrate";
+import { migrate } from "../src/migrate";
 import { assets, conversations, kbReferences, series } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import { assetValues, insertContentItem, insertFormat } from "./fixtures";
+import { journal, migrateFolder, migrationsUpTo } from "./upgrade";
 
 /** The last migration of the release before the pipeline tables. */
 const PREVIOUS_RELEASE = "0004_add_pipeline_job_types";
-
-interface Journal {
-  entries: { tag: string }[];
-}
-
-const journal = JSON.parse(
-  readFileSync(join(MIGRATIONS_FOLDER, "meta", "_journal.json"), "utf8"),
-) as Journal;
-
-/** A copy of the migrations folder that ends at `lastTag`. */
-function migrationsUpTo(lastTag: string): string {
-  const end = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (end < 0) throw new Error(`the journal has no ${lastTag}`);
-  const entries = journal.entries.slice(0, end + 1);
-  const folder = mkdtempSync(join(tmpdir(), "loomcast-previous-migrations-"));
-  mkdirSync(join(folder, "meta"));
-  for (const entry of entries) {
-    copyFileSync(join(MIGRATIONS_FOLDER, `${entry.tag}.sql`), join(folder, `${entry.tag}.sql`));
-  }
-  writeFileSync(join(folder, "meta", "_journal.json"), JSON.stringify({ ...journal, entries }));
-  return folder;
-}
 
 async function one<T extends Record<string, unknown>>(
   db: TestDb["db"],
@@ -53,13 +27,7 @@ describe("pipeline migrations on a database of the previous release", () => {
   beforeAll(async () => {
     testDb = await createTestDb({ empty: true });
     folder = migrationsUpTo(PREVIOUS_RELEASE);
-    const client = new Client({ connectionString: testDb.url });
-    await client.connect();
-    try {
-      await runMigrations(drizzle({ client }), { migrationsFolder: folder });
-    } finally {
-      await client.end();
-    }
+    await migrateFolder(testDb.url, folder);
   });
 
   afterAll(async () => {

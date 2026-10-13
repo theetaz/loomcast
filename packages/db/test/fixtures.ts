@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   DEFAULT_FORMAT_RULES,
   type SkillFile,
@@ -8,6 +8,9 @@ import {
 import type { Database } from "../src/client";
 import {
   type AssetMeta,
+  CHANNEL_SECRET_NONCE_BYTES,
+  CHANNEL_SECRET_TAG_BYTES,
+  channels,
   contentItems,
   contentVersions,
   conversations,
@@ -17,11 +20,15 @@ import {
   kbEntries,
   type NewApiTokenRow,
   type NewAssetRow,
+  type NewChannelRow,
   type NewContentItemRow,
   type NewJobRow,
   type NewKbEntryRow,
+  type NewScheduledPostRow,
   type NewUserRow,
   projects,
+  scheduledPosts,
+  series,
   skills,
   skillVersions,
   users,
@@ -236,4 +243,62 @@ export async function insertSkill(db: Database, name: string, kind: SkillKind = 
     if (skill === undefined || version === undefined) throw new Error("skill was not inserted");
     return { skill, version };
   });
+}
+
+/**
+ * Stored channel credentials as the token vault writes them: random bytes standing in for the
+ * AES-GCM ciphertext (with its tag) and nonce. No secret is involved.
+ */
+export function sealedSecret(keyVersion = 1) {
+  return {
+    secretCiphertext: randomBytes(CHANNEL_SECRET_TAG_BYTES + 32),
+    secretNonce: randomBytes(CHANNEL_SECRET_NONCE_BYTES),
+    keyVersion,
+  };
+}
+
+type ChannelFixture = Partial<NewChannelRow>;
+
+/** A planning channel (no credentials, `disconnected`) unless overridden. */
+export function channelValues(values: ChannelFixture = {}): NewChannelRow {
+  return { platform: "instagram", displayName: "Test Channel", ...values };
+}
+
+export async function insertChannel(db: Writer, values: ChannelFixture = {}) {
+  const [channel] = await db.insert(channels).values(channelValues(values)).returning();
+  if (channel === undefined) throw new Error("channel was not inserted");
+  return channel;
+}
+
+/** A connected, active channel with a random external id. */
+export function insertActiveChannel(db: Writer, values: ChannelFixture = {}) {
+  return insertChannel(db, {
+    externalId: `acct-${randomUUID()}`,
+    status: "active",
+    ...sealedSecret(),
+    ...values,
+  });
+}
+
+/** Inserts a series of a new format in `projectId`. */
+export async function insertSeries(db: Database, projectId: string, createdBy?: string) {
+  const { format } = await insertFormat(db, projectId, createdBy);
+  const [created] = await db
+    .insert(series)
+    .values({ projectId, name: "Test Series", slug: `series-${randomUUID()}`, formatId: format.id })
+    .returning();
+  if (created === undefined) throw new Error("series was not inserted");
+  return created;
+}
+
+type PostFixture = Pick<NewScheduledPostRow, "itemId" | "channelId"> & Partial<NewScheduledPostRow>;
+
+export function postValues(values: PostFixture): NewScheduledPostRow {
+  return { scheduledAt: new Date(Date.now() + 60 * 60_000), ...values };
+}
+
+export async function insertPost(db: Writer, values: PostFixture) {
+  const [post] = await db.insert(scheduledPosts).values(postValues(values)).returning();
+  if (post === undefined) throw new Error("post was not inserted");
+  return post;
 }
