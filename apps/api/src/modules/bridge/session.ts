@@ -8,6 +8,7 @@ import {
   type Credits,
   encode,
   getJobDefinition,
+  type JobCredentials,
   type JobType,
   PROTOCOL_VERSION,
   parseAgentMessage,
@@ -186,8 +187,8 @@ export class BridgeSession implements DispatchSession {
     };
   }
 
-  assign(job: JobRow): boolean {
-    const result = this.#assign(job);
+  assign(job: JobRow, credentials: JobCredentials | null = null): boolean {
+    const result = this.#assign(job, credentials);
     if (result === "invalid") {
       // The payload passed the registry when it was queued, so this is a bug, not a retry case.
       void this.#host.lifecycle
@@ -202,7 +203,12 @@ export class BridgeSession implements DispatchSession {
     return result === "sent";
   }
 
-  #assign(job: JobRow): AssignResult {
+  /**
+   * Writes one `job.assign` frame. `credentials` (the job token minted for this assignment) go
+   * into this frame only: they are never kept on the session, logged or sent again. A later
+   * assignment of the same job carries a fresh token.
+   */
+  #assign(job: JobRow, credentials: JobCredentials | null): AssignResult {
     if (!this.ready) {
       return "closed";
     }
@@ -218,6 +224,7 @@ export class BridgeSession implements DispatchSession {
           ...(job.conversationId === null ? {} : { conversationId: job.conversationId }),
         },
         leaseMs: this.#host.timings.leaseMs,
+        ...(credentials === null ? {} : { credentials }),
       },
     };
     let frame: string;
@@ -225,7 +232,11 @@ export class BridgeSession implements DispatchSession {
       frame = encode(draft);
     } catch (error) {
       if (error instanceof BridgeEncodeError) {
-        this.#log.error({ jobId: job.id, err: error }, "job.assign does not match the protocol");
+        // Only the issue paths and messages: the error never carries the frame or its token.
+        this.#log.error(
+          { jobId: job.id, issues: error.issues.map((issue) => issue.path.join(".")) },
+          "job.assign does not match the protocol",
+        );
         return "invalid";
       }
       throw error;

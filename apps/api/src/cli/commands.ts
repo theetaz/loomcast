@@ -2,19 +2,22 @@ import {
   EmailSchema,
   MCP_TOKEN_SCOPES,
   NewPasswordSchema,
+  type PasswordLink,
   type TokenScope,
   type UserRole,
   UserRoleSchema,
 } from "@loomcast/contracts";
 import { type Database, type UserRow, users } from "@loomcast/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "../lib/audit";
 import type { Clock } from "../lib/clock";
 import { isUniqueViolation, transaction } from "../lib/db";
 import { HttpError } from "../lib/errors";
 import { hashPassword } from "../lib/password";
+import { createPasswordTokensService } from "../modules/auth/password-tokens";
 import { createSessionsService } from "../modules/auth/sessions";
+import { lockUserCreation } from "../modules/auth/users";
 import { createTokensService } from "../modules/tokens/service";
 
 /** A refusal the CLI prints as is, without a stack trace. */
@@ -56,15 +59,49 @@ export interface CreateUserInput {
  * can only be created once the owner exists. Emails must be unused.
  */
 export async function createUser(deps: CommandDeps, input: CreateUserInput): Promise<UserRow> {
+  const passwordHash = await hashPassword(validatePassword(input.password));
+  const { user } = await insertUser(deps, input, { passwordHash, appOrigin: null });
+  return user;
+}
+
+/** An http(s) origin, such as `https://loomcast.example.com`. */
+const OriginSchema = z.url({ protocol: /^https?$/ }).transform((value) => new URL(value).origin);
+
+export interface InviteUserDeps extends CommandDeps {
+  /** Origin of the web app, for the set-password link (`APP_ORIGIN`). */
+  appOrigin: string;
+}
+
+/**
+ * Creates an account without a password, under the same rules as `createUser`, and returns its
+ * one-time set-password link. The link is printed once; only its hash is stored.
+ */
+export async function inviteUser(
+  deps: InviteUserDeps,
+  input: Omit<CreateUserInput, "password">,
+): Promise<{ user: UserRow; link: PasswordLink }> {
+  const appOrigin = parseOrFail(OriginSchema, deps.appOrigin, "APP_ORIGIN");
+  const { user, link } = await insertUser(deps, input, { passwordHash: null, appOrigin });
+  if (link === null) {
+    throw new Error("the invitation link was not issued");
+  }
+  return { user, link };
+}
+
+async function insertUser(
+  deps: CommandDeps,
+  input: Omit<CreateUserInput, "password">,
+  secret: { passwordHash: string; appOrigin: null } | { passwordHash: null; appOrigin: string },
+): Promise<{ user: UserRow; link: PasswordLink | null }> {
   const email = parseOrFail(EmailSchema, input.email, "Email");
   const name = parseOrFail(NameSchema, input.name, "Name");
   const role = parseOrFail(UserRoleSchema, input.role, "Role");
-  const passwordHash = await hashPassword(validatePassword(input.password));
+  const { passwordHash } = secret;
 
   try {
     return await transaction(deps.db, async (tx) => {
       // Serialise account creation so two runs cannot both create "the first owner".
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('loomcast:create-user'))`);
+      await lockUserCreation(tx);
       const [owner] = await tx
         .select({ id: users.id })
         .from(users)
@@ -91,14 +128,29 @@ export async function createUser(deps: CommandDeps, input: CreateUserInput): Pro
       if (user === undefined) {
         throw new Error("user was not inserted");
       }
+      let link: PasswordLink | null = null;
+      if (secret.appOrigin !== null) {
+        const passwordTokens = createPasswordTokensService({
+          db: deps.db,
+          clock: deps.clock,
+          config: { appOrigin: secret.appOrigin },
+        });
+        ({ link } = await passwordTokens.issue(
+          { userId: user.id, purpose: "invite", createdBy: null },
+          tx,
+        ));
+      }
       await audit(tx, {
         actorKind: "system",
-        action: "user.created",
+        action: link === null ? "user.created" : "user.invited",
         targetType: "user",
         targetId: user.id,
-        data: { role, via: "cli" },
+        data:
+          link === null
+            ? { role, via: "cli" }
+            : { email, role, expiresAt: link.expiresAt, via: "cli" },
       });
-      return user;
+      return { user, link };
     });
   } catch (error) {
     if (isUniqueViolation(error, "users_email_uq")) {

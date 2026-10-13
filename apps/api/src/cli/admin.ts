@@ -7,6 +7,7 @@ import { systemClock } from "../lib/clock";
 import {
   CliError,
   createUser,
+  inviteUser,
   issueToken,
   parseScopes,
   resetPassword,
@@ -14,13 +15,15 @@ import {
 } from "./commands";
 
 const USAGE = `Usage:
-  admin create --email <email> --name <name> --role <owner|admin> [--password-stdin]
+  admin create --email <email> --name <name> --role <owner|admin> [--password-stdin | --invite]
   admin token --email <email> --name <token name> --scopes <mcp:read,mcp:write,...>
   admin reset-password --email <email> [--password-stdin]
 
 The first account must be the owner. Passwords are typed twice at a hidden prompt; with
 --password-stdin, or when stdin is not a terminal, the first line of stdin is used instead.
-Reads DATABASE_URL from the environment or the repository's .env.`;
+With --invite no password is asked for: a one-time set-password link is printed instead
+(valid for 7 days; needs APP_ORIGIN).
+Reads DATABASE_URL and APP_ORIGIN from the environment or the repository's .env.`;
 
 export interface CliInput extends NodeJS.ReadableStream {
   isTTY?: boolean;
@@ -36,6 +39,11 @@ export interface CliIo {
 export interface CliDatabase {
   db: Database;
   close: () => Promise<void>;
+}
+
+export interface RunAdminOptions {
+  /** Origin of the web app for `create --invite`. Defaults to `process.env.APP_ORIGIN`. */
+  appOrigin?: string;
 }
 
 /** A malformed command line. Exits with code 2. */
@@ -119,6 +127,7 @@ export async function runAdmin(
   argv: readonly string[],
   io: CliIo,
   openDb: () => CliDatabase,
+  options: RunAdminOptions = {},
 ): Promise<number> {
   let parsed: ReturnType<typeof parseCommandLine>;
   try {
@@ -136,12 +145,36 @@ export async function runAdmin(
   let database: CliDatabase | null = null;
   try {
     const fromStdin = values["password-stdin"] === true;
+    if (values.invite === true && command !== "create") {
+      throw usageError("--invite only applies to create.");
+    }
     if (command === "create") {
       const email = required(values, "email");
       const name = required(values, "name");
       const role = required(values, "role");
       if (role !== "owner" && role !== "admin") {
         throw usageError("--role must be owner or admin.");
+      }
+      if (values.invite === true) {
+        if (fromStdin) {
+          throw usageError("--invite and --password-stdin cannot be used together.");
+        }
+        const appOrigin = options.appOrigin ?? process.env.APP_ORIGIN ?? "";
+        if (appOrigin.trim() === "") {
+          throw new CliError("APP_ORIGIN is not set. It is needed for the set-password link.");
+        }
+        database = openDb();
+        const { user, link } = await inviteUser(
+          { db: database.db, clock: systemClock, appOrigin },
+          { email, name, role },
+        );
+        io.stderr.write(
+          `Invited ${user.role} ${user.email} (${user.id}).\n` +
+            `Send them this one-time link to set a password. It expires at ${link.expiresAt}\n` +
+            "and cannot be shown again:\n",
+        );
+        io.stdout.write(`${link.setPasswordUrl}\n`);
+        return 0;
       }
       const password = await readNewPassword(io, fromStdin);
       database = openDb();
@@ -203,6 +236,7 @@ function parseCommandLine(argv: readonly string[]) {
       role: { type: "string" },
       scopes: { type: "string" },
       "password-stdin": { type: "boolean" },
+      invite: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });

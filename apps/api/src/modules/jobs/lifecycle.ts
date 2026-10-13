@@ -12,10 +12,11 @@ import { and, eq, inArray, lt, notInArray } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
 import { afterCommit, type Transaction, transaction } from "../../lib/db";
+import { revokeJobTokens } from "../tokens/service";
 import { createProducerChatHooks } from "./handlers/producer-chat";
 import type { JobHooks } from "./hooks";
 import { toJobSummary } from "./service";
-import { type JobAction, nextStatus, statusesAllowing } from "./transitions";
+import { isTerminalStatus, type JobAction, nextStatus, statusesAllowing } from "./transitions";
 
 export const CANCELLED_ERROR: JobError = {
   code: "cancelled",
@@ -150,6 +151,10 @@ export function createJobLifecycle(deps: LifecycleDeps): JobLifecycle {
   /**
    * Moves a locked job with `action`. Returns null (and changes nothing) when the pure transition
    * function does not allow it from the job's current status.
+   *
+   * A job that ends, or goes back to the queue, loses its job tokens in the same transaction: the
+   * producer session of the finished assignment can no longer call the MCP server, and a
+   * re-dispatch mints a fresh token for the next assignment.
    */
   async function apply(
     tx: Transaction,
@@ -168,6 +173,9 @@ export function createJobLifecycle(deps: LifecycleDeps): JobLifecycle {
       .returning();
     if (row === undefined) {
       return null;
+    }
+    if (isTerminalStatus(row.status) || row.status === "queued") {
+      await revokeJobTokens(tx, row.id, clock.now());
     }
     if (row.status !== job.status || row.cancelRequestedAt !== job.cancelRequestedAt) {
       publishUpdated(tx, row);

@@ -21,10 +21,14 @@ export interface AuthGuards {
   /** `csrfGuard` then `requireUser`: what every `auth: "session"` route gets. */
   sessionGuard: MiddlewareHandler<AppEnv>;
   /**
-   * Requires `Authorization: Bearer <token>` of `kind` with every scope in `scopes`, and sets
-   * `token`. Never reads cookies. 401 for a missing or unusable token, 403 for a missing scope.
+   * Requires `Authorization: Bearer <token>` of `kind` (or one of several kinds) with every scope
+   * in `scopes`, and sets `token`. Never reads cookies. 401 for a missing or unusable token, 403
+   * for a missing scope.
    */
-  requireBearer(kind: TokenKind, scopes?: readonly TokenScope[]): MiddlewareHandler<AppEnv>;
+  requireBearer(
+    kind: TokenKind | readonly TokenKind[],
+    scopes?: readonly TokenScope[],
+  ): MiddlewareHandler<AppEnv>;
 }
 
 export interface AuthGuardDeps {

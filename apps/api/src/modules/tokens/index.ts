@@ -14,14 +14,19 @@ export {
   type CreateTokenInput,
   createTokensService,
   hasScopes,
+  jobTokenName,
+  type MintedJobToken,
+  type MintJobTokenInput,
   OWNER_ONLY_SCOPES,
+  revokeJobTokens,
   type TokensService,
   toAccessToken,
 } from "./service";
 
 /**
  * MCP access tokens of the signed-in user: `GET`, `POST` and `DELETE /api/tokens`. Device tokens
- * are created by pairing and revoked with their device, so these routes never touch them.
+ * are created by pairing and revoked with their device, and job tokens are minted and revoked by
+ * the job dispatcher and lifecycle, so these routes never list or touch either.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { db, config, tokens } = deps;

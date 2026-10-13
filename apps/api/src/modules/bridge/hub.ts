@@ -102,6 +102,8 @@ export function createBridgeHub(deps: ModuleDeps, options: BridgeHubOptions = {}
     logger: log,
     lifecycle,
     sessions: () => [...current.values()].filter((session) => session.ready),
+    leaseMs: timings.leaseMs,
+    tokens,
   });
   const reaper = createReaper({
     lifecycle,

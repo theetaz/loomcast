@@ -18,6 +18,10 @@ const SENSITIVE_KEYS = [
   "passwordHash",
   "token",
   "secret",
+  // Set-password links carry their secret in the URL fragment.
+  "setPasswordUrl",
+  // Job credentials in `job.assign` hold a job token.
+  "credentials",
 ] as const;
 
 function redactPaths(): string[] {

@@ -1,8 +1,11 @@
 import {
   ChangePasswordRequestSchema,
+  InspectPasswordTokenRequestSchema,
   LoginRequestSchema,
   type Me,
+  type PasswordTokenInfo,
   routes,
+  SetPasswordRequestSchema,
 } from "@loomcast/contracts";
 import { users } from "@loomcast/db";
 import { eq } from "drizzle-orm";
@@ -10,13 +13,15 @@ import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
 import { audit } from "../../lib/audit";
 import { transaction } from "../../lib/db";
-import { HttpError, validationFailed } from "../../lib/errors";
+import { HttpError, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, readJson, userAgent } from "../../lib/http";
 import { hashPassword, verifyDummyPassword, verifyPassword } from "../../lib/password";
 import { consume, createRateLimiter } from "../../lib/rate-limit";
 import type { AppEnv, AuthUser } from "../../types";
 import { clearSessionCookie, setSessionCookie } from "./cookies";
 import { currentSession, currentUser } from "./guards";
+import { createPasswordTokensService } from "./password-tokens";
+import { addUserRoutes, createUsersService } from "./users";
 
 export {
   type AuthGuards,
@@ -25,7 +30,19 @@ export {
   currentToken,
   currentUser,
 } from "./guards";
+export {
+  createPasswordTokensService,
+  type PasswordTokensService,
+  SET_PASSWORD_PATH,
+  setPasswordUrl,
+} from "./password-tokens";
 export { createSessionsService, type SessionsService } from "./sessions";
+export {
+  createUsersService,
+  toUserSummary,
+  type UserActor,
+  type UsersService,
+} from "./users";
 
 const MINUTE_MS = 60_000;
 
@@ -38,7 +55,11 @@ export const LOGIN_LIMITS = {
 /** Password changes per user, so a stolen session cannot brute-force the current password. */
 export const PASSWORD_CHANGE_LIMIT = { capacity: 5, intervalMs: MINUTE_MS } as const;
 
+/** Set-password link requests (inspect and set-password together) per client address. */
+export const PASSWORD_LINK_LIMIT = { capacity: 10, intervalMs: MINUTE_MS } as const;
+
 const INVALID_LOGIN_MESSAGE = "Email or password is incorrect.";
+const INVALID_LINK_MESSAGE = "This link is invalid, has expired or was already used.";
 
 export function toMe(user: AuthUser): Me {
   return {
@@ -51,13 +72,20 @@ export function toMe(user: AuthUser): Me {
   };
 }
 
-/** `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`. */
+/**
+ * `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`,
+ * the public set-password routes (`POST /api/auth/password-tokens/inspect`,
+ * `POST /api/auth/set-password`) and the owner's user routes (`/api/users`).
+ */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
-  const { db, clock, config, sessions } = deps;
+  const { db, clock, config, sessions, tokens } = deps;
   const router = new Hono<AppEnv>();
   const loginPerIp = createRateLimiter(LOGIN_LIMITS.perIp, clock);
   const loginPerAccount = createRateLimiter(LOGIN_LIMITS.perAccount, clock);
   const passwordChanges = createRateLimiter(PASSWORD_CHANGE_LIMIT, clock);
+  const passwordLinks = createRateLimiter(PASSWORD_LINK_LIMIT, clock);
+  const passwordTokens = createPasswordTokensService({ db, clock, config });
+  const usersService = createUsersService({ db, clock, sessions, tokens, passwordTokens });
 
   // Public route: the app-level session guard lets it through, so it applies the CSRF check itself.
   router.post(routes["auth.login"].path, deps.auth.csrfGuard, async (c) => {
@@ -175,6 +203,90 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     });
     return c.body(null, 204);
   });
+
+  // Public routes: the token in the body is the credential. They apply the CSRF check themselves.
+  router.post(routes["auth.inspectPasswordToken"].path, deps.auth.csrfGuard, async (c) => {
+    const ip = clientIp(c, config.trustProxy);
+    consume(passwordLinks, ip);
+    const input = await readJson(c, InspectPasswordTokenRequestSchema);
+    const found = await passwordTokens.find(input.token);
+    c.header("Cache-Control", "no-store");
+    if (found === null) {
+      await audit(db, {
+        actorKind: "user",
+        action: "auth.password_token.invalid",
+        data: { route: "inspect" },
+        ip,
+      });
+      throw notFound(INVALID_LINK_MESSAGE);
+    }
+    await audit(db, {
+      actorKind: "user",
+      actorId: found.user.id,
+      action: "auth.password_token.inspected",
+      targetType: "user",
+      targetId: found.user.id,
+      data: { purpose: found.token.purpose },
+      ip,
+    });
+    const body: PasswordTokenInfo = {
+      email: found.user.email,
+      purpose: found.token.purpose,
+      expiresAt: found.token.expiresAt.toISOString(),
+    };
+    return c.json(body, 200);
+  });
+
+  // Sets the password and consumes the link. There is no automatic sign-in: every session of the
+  // account ends, and the user signs in with the new password.
+  router.post(routes["auth.setPassword"].path, deps.auth.csrfGuard, async (c) => {
+    const ip = clientIp(c, config.trustProxy);
+    consume(passwordLinks, ip);
+    const input = await readJson(c, SetPasswordRequestSchema);
+    c.header("Cache-Control", "no-store");
+
+    const invalid = async () => {
+      await audit(db, {
+        actorKind: "user",
+        action: "auth.password_token.invalid",
+        data: { route: "set-password" },
+        ip,
+      });
+      return notFound(INVALID_LINK_MESSAGE);
+    };
+    // Checked before the slow hash, and again under a row lock so a link is used only once.
+    if ((await passwordTokens.find(input.token)) === null) {
+      throw await invalid();
+    }
+    const passwordHash = await hashPassword(input.newPassword);
+    const used = await transaction(db, async (tx) => {
+      const found = await passwordTokens.find(input.token, tx);
+      if (found === null) {
+        return false;
+      }
+      const { token, user } = found;
+      await tx.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+      await passwordTokens.markUsed(token.id, tx);
+      await passwordTokens.voidUnused(user.id, tx);
+      const sessionsEnded = await sessions.revokeAll(user.id, tx);
+      await audit(tx, {
+        actorKind: "user",
+        actorId: user.id,
+        action: "auth.password.set",
+        targetType: "user",
+        targetId: user.id,
+        data: { purpose: token.purpose, sessionsEnded },
+        ip,
+      });
+      return true;
+    });
+    if (!used) {
+      throw await invalid();
+    }
+    return c.body(null, 204);
+  });
+
+  addUserRoutes(router, deps, usersService);
 
   app.route("/", router);
   return router;
