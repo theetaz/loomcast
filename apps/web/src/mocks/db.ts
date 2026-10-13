@@ -1,8 +1,11 @@
 import {
   type AccessToken,
+  type Conversation,
   type Device,
+  type JobSummary,
   type LiveEvent,
   type Me,
+  type Message,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_TTL_MS,
   type PairingCode,
@@ -27,6 +30,15 @@ export interface MockDb {
    * so the pairing dialog can be seen closing. Tests leave it unset.
    */
   autoPairAfterMs?: number;
+  conversations: Conversation[];
+  messages: Message[];
+  jobs: JobSummary[];
+  /**
+   * Answers posted messages like a studio agent would: dispatch, tool
+   * activity, streamed text, the stored reply. Off in tests, which drive the
+   * live events themselves; on in mock mode.
+   */
+  simulateProducer?: boolean;
   /** Live stream clients; the mock API publishes to them like the real bus. */
   listeners: Set<(event: LiveEvent) => void>;
   /** Called when a login or logout changes the session. */
@@ -53,6 +65,9 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     devices: [],
     tokens: [],
     pairingCodes: [],
+    conversations: [],
+    messages: [],
+    jobs: [],
     ...seed,
     listeners: new Set(),
   };
