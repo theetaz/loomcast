@@ -1,7 +1,30 @@
 import { z } from "zod";
 import { IdSchema } from "../common";
+import { SkillNameSchema } from "../pipeline/skills";
+import {
+  AssetDetailSchema,
+  AssetSchema,
+  AssetUrlQuerySchema,
+  AssetUrlSchema,
+  CreateUploadRequestSchema,
+  CreateUploadResponseSchema,
+  FinalizeAssetRequestSchema,
+  ListItemAssetsQuerySchema,
+} from "./assets";
 import { ChangePasswordRequestSchema, LoginRequestSchema, MeSchema } from "./auth";
 import { CursorPageQuerySchema, cursorPageSchema, listSchema } from "./common";
+import {
+  ContentActionRequestSchema,
+  ContentItemDetailSchema,
+  ContentItemSchema,
+  ContentVersionSchema,
+  ContentVersionSummarySchema,
+  CreateContentItemRequestSchema,
+  EditVersionRequestSchema,
+  EditVersionResponseSchema,
+  ListContentQuerySchema,
+  UpdateContentItemRequestSchema,
+} from "./content";
 import {
   ConversationSchema,
   CreateConversationSchema,
@@ -10,6 +33,12 @@ import {
   PostMessageResponseSchema,
 } from "./conversations";
 import { DeviceSchema, PairingCodeSchema, PairRequestSchema, PairResponseSchema } from "./devices";
+import {
+  CreateFormatRequestSchema,
+  FormatSchema,
+  FormatVersionSchema,
+  UpdateFormatRequestSchema,
+} from "./formats";
 import { JobSummarySchema } from "./jobs";
 import {
   CaptureConversationSchema,
@@ -28,6 +57,24 @@ import {
   ProjectSchema,
   UpdateProjectSchema,
 } from "./projects";
+import {
+  CreateReviewRequestSchema,
+  CreateReviewResponseSchema,
+  ReviewQueueQuerySchema,
+  ReviewSchema,
+} from "./reviews";
+import {
+  CreateSeriesRequestSchema,
+  ListSeriesQuerySchema,
+  SeriesSchema,
+  UpdateSeriesRequestSchema,
+} from "./series";
+import {
+  GetSkillQuerySchema,
+  SkillSummarySchema,
+  SkillVersionDetailSchema,
+  SkillVersionSummarySchema,
+} from "./skills";
 import { AccessTokenSchema, CreateTokenRequestSchema, CreateTokenResponseSchema } from "./tokens";
 import {
   InspectPasswordTokenRequestSchema,
@@ -67,6 +114,8 @@ function route<const R extends RouteDefinition>(definition: R): R {
 const IdParamsSchema = z.object({ id: IdSchema });
 const ProjectIdParamsSchema = z.object({ projectId: IdSchema });
 const IdOrSlugParamsSchema = z.object({ idOrSlug: z.string().min(1).max(64) });
+const VersionParamsSchema = z.object({ id: IdSchema, versionId: IdSchema });
+const SkillNameParamsSchema = z.object({ name: SkillNameSchema });
 
 /**
  * Every REST route of the API. The web client and the API both build on this map.
@@ -328,7 +377,7 @@ export const routes = {
     response: null,
     status: 204,
   }),
-  /** Queues `kb.analyze_reference` for a reference that has a transcript. */
+  /** Queues `kb.analyze_reference` for a reference that has a transcript or uploaded media. */
   "kb.analyze": route({
     method: "POST",
     path: "/api/kb/:id/analyze",
@@ -336,6 +385,309 @@ export const routes = {
     params: IdParamsSchema,
     response: JobSummarySchema,
     status: 201,
+  }),
+
+  "formats.list": route({
+    method: "GET",
+    path: "/api/projects/:projectId/formats",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    response: listSchema(FormatSchema),
+    status: 200,
+  }),
+  "formats.create": route({
+    method: "POST",
+    path: "/api/projects/:projectId/formats",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CreateFormatRequestSchema,
+    response: FormatSchema,
+    status: 201,
+  }),
+  "formats.get": route({
+    method: "GET",
+    path: "/api/formats/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: FormatSchema,
+    status: 200,
+  }),
+  /** Stores a new version. `409 conflict` when `baseVersionId` is not the current version. */
+  "formats.update": route({
+    method: "PATCH",
+    path: "/api/formats/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateFormatRequestSchema,
+    response: FormatSchema,
+    status: 200,
+  }),
+  /** Every version, newest first. */
+  "formats.versions": route({
+    method: "GET",
+    path: "/api/formats/:id/versions",
+    auth: "session",
+    params: IdParamsSchema,
+    response: listSchema(FormatVersionSchema),
+    status: 200,
+  }),
+
+  "series.list": route({
+    method: "GET",
+    path: "/api/projects/:projectId/series",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    query: ListSeriesQuerySchema,
+    response: listSchema(SeriesSchema),
+    status: 200,
+  }),
+  "series.create": route({
+    method: "POST",
+    path: "/api/projects/:projectId/series",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CreateSeriesRequestSchema,
+    response: SeriesSchema,
+    status: 201,
+  }),
+  "series.get": route({
+    method: "GET",
+    path: "/api/series/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: SeriesSchema,
+    status: 200,
+  }),
+  "series.update": route({
+    method: "PATCH",
+    path: "/api/series/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateSeriesRequestSchema,
+    response: SeriesSchema,
+    status: 200,
+  }),
+  "series.pause": route({
+    method: "POST",
+    path: "/api/series/:id/pause",
+    auth: "session",
+    params: IdParamsSchema,
+    response: SeriesSchema,
+    status: 200,
+  }),
+  "series.resume": route({
+    method: "POST",
+    path: "/api/series/:id/resume",
+    auth: "session",
+    params: IdParamsSchema,
+    response: SeriesSchema,
+    status: 200,
+  }),
+  "series.archive": route({
+    method: "POST",
+    path: "/api/series/:id/archive",
+    auth: "session",
+    params: IdParamsSchema,
+    response: SeriesSchema,
+    status: 200,
+  }),
+
+  "content.list": route({
+    method: "GET",
+    path: "/api/content",
+    auth: "session",
+    query: ListContentQuerySchema,
+    response: cursorPageSchema(ContentItemSchema),
+    status: 200,
+  }),
+  "content.create": route({
+    method: "POST",
+    path: "/api/projects/:projectId/content",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CreateContentItemRequestSchema,
+    response: ContentItemDetailSchema,
+    status: 201,
+  }),
+  "content.get": route({
+    method: "GET",
+    path: "/api/content/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ContentItemDetailSchema,
+    status: 200,
+  }),
+  "content.update": route({
+    method: "PATCH",
+    path: "/api/content/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateContentItemRequestSchema,
+    response: ContentItemSchema,
+    status: 200,
+  }),
+  /** Every version, newest first. */
+  "content.versions.list": route({
+    method: "GET",
+    path: "/api/content/:id/versions",
+    auth: "session",
+    params: IdParamsSchema,
+    response: listSchema(ContentVersionSummarySchema),
+    status: 200,
+  }),
+  "content.versions.get": route({
+    method: "GET",
+    path: "/api/content/:id/versions/:versionId",
+    auth: "session",
+    params: VersionParamsSchema,
+    response: ContentVersionSchema,
+    status: 200,
+  }),
+  /** `409 conflict` when `baseVersionId` is stale; `409 invalid_transition` when refused. */
+  "content.versions.edit": route({
+    method: "POST",
+    path: "/api/content/:id/versions",
+    auth: "session",
+    params: IdParamsSchema,
+    body: EditVersionRequestSchema,
+    response: EditVersionResponseSchema,
+    status: 201,
+  }),
+  /** Starts production work and returns its job. */
+  "content.actions": route({
+    method: "POST",
+    path: "/api/content/:id/actions",
+    auth: "session",
+    params: IdParamsSchema,
+    body: ContentActionRequestSchema,
+    response: JobSummarySchema,
+    status: 201,
+  }),
+  "content.archive": route({
+    method: "POST",
+    path: "/api/content/:id/archive",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ContentItemSchema,
+    status: 200,
+  }),
+  /** Brings an archived item back as an idea. */
+  "content.restore": route({
+    method: "POST",
+    path: "/api/content/:id/restore",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ContentItemSchema,
+    status: 200,
+  }),
+  /** The item's producer conversation, created on first use. */
+  "content.conversation": route({
+    method: "POST",
+    path: "/api/content/:id/conversation",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ConversationSchema,
+    status: 200,
+  }),
+  /** The item's assets, newest first, such as every voice take. */
+  "content.assets": route({
+    method: "GET",
+    path: "/api/content/:id/assets",
+    auth: "session",
+    params: IdParamsSchema,
+    query: ListItemAssetsQuerySchema,
+    response: listSchema(AssetSchema),
+    status: 200,
+  }),
+
+  "reviews.create": route({
+    method: "POST",
+    path: "/api/content/:id/reviews",
+    auth: "session",
+    params: IdParamsSchema,
+    body: CreateReviewRequestSchema,
+    response: CreateReviewResponseSchema,
+    status: 201,
+  }),
+  /** The item's reviews, newest first. */
+  "reviews.list": route({
+    method: "GET",
+    path: "/api/content/:id/reviews",
+    auth: "session",
+    params: IdParamsSchema,
+    response: listSchema(ReviewSchema),
+    status: 200,
+  }),
+  "reviews.queue": route({
+    method: "GET",
+    path: "/api/reviews/queue",
+    auth: "session",
+    query: ReviewQueueQuerySchema,
+    response: cursorPageSchema(ContentItemSchema),
+    status: 200,
+  }),
+
+  /** Answers `upload: null` when a ready asset with the same kind and SHA-256 already exists. */
+  "assets.createUpload": route({
+    method: "POST",
+    path: "/api/assets/uploads",
+    auth: "session",
+    body: CreateUploadRequestSchema,
+    response: CreateUploadResponseSchema,
+    status: 201,
+  }),
+  "assets.finalize": route({
+    method: "POST",
+    path: "/api/assets/:id/finalize",
+    auth: "session",
+    params: IdParamsSchema,
+    body: FinalizeAssetRequestSchema,
+    response: AssetSchema,
+    status: 200,
+  }),
+  "assets.get": route({
+    method: "GET",
+    path: "/api/assets/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: AssetDetailSchema,
+    status: 200,
+  }),
+  /** A presigned GET URL for a ready asset. */
+  "assets.url": route({
+    method: "GET",
+    path: "/api/assets/:id/url",
+    auth: "session",
+    params: IdParamsSchema,
+    query: AssetUrlQuerySchema,
+    response: AssetUrlSchema,
+    status: 200,
+  }),
+
+  "skills.list": route({
+    method: "GET",
+    path: "/api/skills",
+    auth: "session",
+    response: listSchema(SkillSummarySchema),
+    status: 200,
+  }),
+  "skills.get": route({
+    method: "GET",
+    path: "/api/skills/:name",
+    auth: "session",
+    params: SkillNameParamsSchema,
+    query: GetSkillQuerySchema,
+    response: SkillVersionDetailSchema,
+    status: 200,
+  }),
+  /** Every published version, newest first. */
+  "skills.versions": route({
+    method: "GET",
+    path: "/api/skills/:name/versions",
+    auth: "session",
+    params: SkillNameParamsSchema,
+    response: listSchema(SkillVersionSummarySchema),
+    status: 200,
   }),
 
   "devices.list": route({

@@ -10,6 +10,14 @@ export const API_ERROR_CODES = [
   "conflict",
   "rate_limited",
   "internal",
+  /** The pipeline state machine refuses the change (409). */
+  "invalid_transition",
+  /** The item already has a production job queued or running (409). */
+  "job_in_progress",
+  /** The action needs an artifact the current version lacks, such as a voice before a render (422). */
+  "missing_artifact",
+  /** The `voice` step needs a `voiceId` in the format rules (422). */
+  "voice_not_configured",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -46,6 +54,26 @@ export function cursorPageSchema<T extends z.ZodType>(item: T) {
 export interface CursorPage<T> {
   items: T[];
   nextCursor: string | null;
+}
+
+/**
+ * A list of enum values in a query string: comma-separated (`states=idea,script`) or repeated
+ * values, already split into an array. Values must not repeat.
+ */
+export function csvEnumQuerySchema<const T extends readonly [string, ...string[]]>(values: T) {
+  const item = z.enum(values);
+  const list = z
+    .array(item)
+    .min(1)
+    .max(values.length)
+    .refine((items) => new Set(items).size === items.length, { message: "Values must not repeat" });
+  return z.union([
+    list,
+    z
+      .string()
+      .transform((value) => value.split(",").map((part) => part.trim()))
+      .pipe(list),
+  ]);
 }
 
 /** An unpaginated list. Used for collections that stay small, such as projects and devices. */

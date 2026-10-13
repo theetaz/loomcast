@@ -37,7 +37,17 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
  * Fixed allow-list of job types. A value is added only together with a migration and an entry in
  * the job registry (`jobRegistry`).
  */
-export const JOB_TYPES = ["system.ping", "producer.chat", "kb.analyze_reference"] as const;
+export const JOB_TYPES = [
+  "system.ping",
+  "producer.chat",
+  "kb.analyze_reference",
+  "content.write_script",
+  "content.storyboard",
+  "content.revise",
+  "content.voice",
+  "content.render",
+  "skills.sync",
+] as const;
 export const JobTypeSchema = z.enum(JOB_TYPES);
 export type JobType = (typeof JOB_TYPES)[number];
 
@@ -108,3 +118,101 @@ export type ReferenceAnalysisStatus = (typeof REFERENCE_ANALYSIS_STATUSES)[numbe
 export const PASSWORD_TOKEN_PURPOSES = ["invite", "reset"] as const;
 export const PasswordTokenPurposeSchema = z.enum(PASSWORD_TOKEN_PURPOSES);
 export type PasswordTokenPurpose = (typeof PASSWORD_TOKEN_PURPOSES)[number];
+
+/**
+ * States of a content item. The production stages run `idea` to `render`; `review` waits for a
+ * user's decision; `approved`, `scheduled` and `published` follow; `archived` sits outside the flow
+ * and can be restored to `idea`. `PIPELINE_TRANSITIONS` says who may move an item between them.
+ */
+export const PIPELINE_STATES = [
+  "idea",
+  "script",
+  "storyboard",
+  "voice",
+  "render",
+  "review",
+  "approved",
+  "scheduled",
+  "published",
+  "archived",
+] as const;
+export const PipelineStateSchema = z.enum(PIPELINE_STATES);
+export type PipelineState = (typeof PIPELINE_STATES)[number];
+
+/** The production stages, in order. Each one is reached by adding one artifact to a version. */
+export const PRODUCTION_STATES = [
+  "idea",
+  "script",
+  "storyboard",
+  "voice",
+  "render",
+] as const satisfies readonly PipelineState[];
+export const ProductionStateSchema = z.enum(PRODUCTION_STATES);
+export type ProductionState = (typeof PRODUCTION_STATES)[number];
+
+/**
+ * Production work a user (or autopilot) can start on an item. Each of the first five runs one job;
+ * `produce` runs the missing steps one after another, up to a target state.
+ */
+export const CONTENT_ACTIONS = [
+  "write_script",
+  "storyboard",
+  "voice",
+  "render",
+  "revise",
+  "produce",
+] as const;
+export const ContentActionSchema = z.enum(CONTENT_ACTIONS);
+export type ContentAction = (typeof CONTENT_ACTIONS)[number];
+
+/**
+ * How a content version was written: in the web app, through an MCP tool, from a job result, or by
+ * the server itself (for example the first, empty version of a new item).
+ */
+export const VERSION_CREATED_VIA = ["ui", "mcp", "job", "system"] as const;
+export const VersionCreatedViaSchema = z.enum(VERSION_CREATED_VIA);
+export type VersionCreatedVia = (typeof VERSION_CREATED_VIA)[number];
+
+/**
+ * How a content item was created: in the web app, by an MCP client with a user token, by a
+ * producer session with a job token, or by the server (for example a scheduler).
+ */
+export const CONTENT_CREATED_VIA = ["ui", "mcp", "producer", "system"] as const;
+export const ContentCreatedViaSchema = z.enum(CONTENT_CREATED_VIA);
+export type ContentCreatedVia = (typeof CONTENT_CREATED_VIA)[number];
+
+/** A series either feeds the calendar, is paused, or is archived. */
+export const SERIES_STATUSES = ["active", "paused", "archived"] as const;
+export const SeriesStatusSchema = z.enum(SERIES_STATUSES);
+export type SeriesStatus = (typeof SERIES_STATUSES)[number];
+
+/** Whether a series publishes approved items on its own or waits for each approval. */
+export const PUBLISH_MODES = ["auto", "approval"] as const;
+export const PublishModeSchema = z.enum(PUBLISH_MODES);
+export type PublishMode = (typeof PUBLISH_MODES)[number];
+
+/** What a stored file is for. `reference_media` is a reference video or audio the user uploaded. */
+export const ASSET_KINDS = [
+  "voice",
+  "render",
+  "poster",
+  "frame",
+  "reference_media",
+  "other",
+] as const;
+export const AssetKindSchema = z.enum(ASSET_KINDS);
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/** `pending` until the upload is finalized and its checksum verified; `failed` on a mismatch. */
+export const ASSET_STATUSES = ["pending", "ready", "failed"] as const;
+export const AssetStatusSchema = z.enum(ASSET_STATUSES);
+export type AssetStatus = (typeof ASSET_STATUSES)[number];
+
+export const REVIEW_DECISIONS = ["approve", "request_changes", "reject"] as const;
+export const ReviewDecisionSchema = z.enum(REVIEW_DECISIONS);
+export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
+
+/** A `skill` teaches one step; a `recipe` strings steps together for one kind of video. */
+export const SKILL_KINDS = ["skill", "recipe"] as const;
+export const SkillKindSchema = z.enum(SKILL_KINDS);
+export type SkillKind = (typeof SKILL_KINDS)[number];

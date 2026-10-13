@@ -201,6 +201,11 @@ export const KbReferenceDetailSchema = z.object({
   transcript: z.string().nullable(),
   analysis: ReferenceAnalysisSchema.nullable(),
   analysisStatus: ReferenceAnalysisStatusSchema,
+  /**
+   * An uploaded `reference_media` asset of the same project, analysed when there is no
+   * transcript. Optional until every server sends it.
+   */
+  mediaAssetId: IdSchema.nullable().optional(),
   /** The latest `kb.analyze_reference` job. */
   analysisJobId: IdSchema.nullable(),
   analyzedAt: TimestampSchema.nullable(),
@@ -242,6 +247,8 @@ export const CreateKbEntrySchema = z.discriminatedUnion("kind", [
     likedReason: z.string().trim().max(KB_LIKED_REASON_MAX_LENGTH).optional(),
     author: z.string().trim().max(KB_AUTHOR_MAX_LENGTH).optional(),
     transcript: TranscriptSchema.optional(),
+    /** A ready `reference_media` asset of the same project, uploaded by the user. */
+    mediaAssetId: IdSchema.optional(),
     tags: KbTagsSchema.optional(),
   }),
 ]);
@@ -266,6 +273,7 @@ export const UpdateKbEntrySchema = z
     likedReason: z.string().trim().max(KB_LIKED_REASON_MAX_LENGTH).nullable().optional(),
     author: z.string().trim().max(KB_AUTHOR_MAX_LENGTH).nullable().optional(),
     transcript: TranscriptSchema.nullable().optional(),
+    mediaAssetId: IdSchema.nullable().optional(),
   })
   .refine(
     (update) =>

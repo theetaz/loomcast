@@ -7,6 +7,7 @@ import {
   InviteUserRequestSchema,
   InviteUserResponseSchema,
   isPlainText,
+  type JobType,
   KB_MAX_TAGS,
   KB_SNIPPET_MATCH_END,
   KB_SNIPPET_MATCH_START,
@@ -368,9 +369,7 @@ describe("knowledge-base and user routes", () => {
 
   it("derives knowledge-base request and response types", () => {
     expectTypeOf<RouteBody<"kb.update">["expectedUpdatedAt"]>().toEqualTypeOf<string>();
-    expectTypeOf<RouteResponse<"kb.analyze">["type"]>().toEqualTypeOf<
-      "system.ping" | "producer.chat" | "kb.analyze_reference"
-    >();
+    expectTypeOf<RouteResponse<"kb.analyze">["type"]>().toEqualTypeOf<JobType>();
     expectTypeOf<RouteResponse<"kb.list">["nextCursor"]>().toEqualTypeOf<string | null>();
     expectTypeOf<RouteQuery<"kb.search">["q"]>().toEqualTypeOf<string>();
     expectTypeOf<RouteResponse<"auth.setPassword">>().toEqualTypeOf<undefined>();

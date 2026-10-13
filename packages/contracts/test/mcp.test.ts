@@ -2,20 +2,36 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   adminTools,
+  DEFAULT_FORMAT_RULES,
   kbTools,
   MCP_JOB_TOKEN_POLICIES,
   MCP_PROJECT_BINDINGS,
   MCP_TOKEN_SCOPES,
   mcpTools,
+  pipelineTools,
   projectTools,
 } from "../src";
-import { analysis, at, fakeSecret, ids, kbEntry } from "./fixtures";
+import {
+  alignment,
+  analysis,
+  asset,
+  at,
+  contentItem,
+  fakeSecret,
+  ids,
+  kbEntry,
+  script,
+  storyboard,
+  version,
+} from "./fixtures";
 
 const tools = Object.entries(mcpTools);
 
 describe("mcp tool contracts", () => {
   it("collects every tool once", () => {
-    const names = [projectTools, kbTools, adminTools].flatMap((group) => Object.keys(group));
+    const names = [projectTools, kbTools, adminTools, pipelineTools].flatMap((group) =>
+      Object.keys(group),
+    );
 
     expect(new Set(names).size).toBe(names.length);
     expect(Object.keys(mcpTools).sort()).toEqual(names.sort());
@@ -34,13 +50,20 @@ describe("mcp tool contracts", () => {
     expect(() => z.toJSONSchema(tool.output)).not.toThrow();
   });
 
-  it("lets job tokens read and write the knowledge base but not create projects or users", () => {
+  it("lets job tokens use the knowledge base and production tools, but not create projects or users or publish skills", () => {
     const allowed = tools
       .filter(([, tool]) => tool.jobTokens === "allow")
       .map(([name]) => name)
       .sort();
 
     expect(allowed).toEqual([
+      "asset.get_url",
+      "content.create_idea",
+      "content.finalize_asset",
+      "content.get",
+      "content.submit_for_review",
+      "content.upload_asset",
+      "format.get_rules",
       "kb.add_decision",
       "kb.add_reference",
       "kb.get",
@@ -48,15 +71,21 @@ describe("mcp tool contracts", () => {
       "kb.search",
       "project.get",
       "project.list",
+      "skill.pull",
     ]);
   });
 
   it("binds a project through the input wherever one is named", () => {
     for (const [name, tool] of tools) {
       const fields = Object.keys(tool.input.shape);
-      const namesProject = ["projectId", "idOrSlug", "entryId"].some((field) =>
-        fields.includes(field),
-      );
+      const namesProject = [
+        "projectId",
+        "idOrSlug",
+        "entryId",
+        "seriesId",
+        "itemId",
+        "assetId",
+      ].some((field) => fields.includes(field));
 
       expect([name, tool.projectBinding]).toEqual([name, namesProject ? "input" : "none"]);
     }
@@ -68,6 +97,140 @@ describe("mcp tool contracts", () => {
     expect(kbTools["kb.save_brainstorm"].scope).toBe("mcp:write");
     expect(kbTools["kb.save_session_summary"].scope).toBe("mcp:write");
     expect(adminTools["admin.create_user"].scope).toBe("mcp:admin");
+    expect(pipelineTools["format.get_rules"].scope).toBe("mcp:read");
+    expect(pipelineTools["content.get"].scope).toBe("mcp:read");
+    expect(pipelineTools["asset.get_url"].scope).toBe("mcp:read");
+    expect(pipelineTools["skill.pull"].scope).toBe("mcp:read");
+    expect(pipelineTools["content.create_idea"].scope).toBe("mcp:write");
+    expect(pipelineTools["content.submit_for_review"].scope).toBe("mcp:write");
+    expect(pipelineTools["content.upload_asset"].scope).toBe("mcp:write");
+    expect(pipelineTools["content.finalize_asset"].scope).toBe("mcp:write");
+    expect(pipelineTools["skill.publish"].scope).toBe("mcp:write");
+  });
+});
+
+describe("pipeline tools", () => {
+  it("gets format rules by series", () => {
+    const { input, output } = pipelineTools["format.get_rules"];
+    const rules = {
+      formatId: ids.format,
+      name: "Rust shorts",
+      formatVersionId: ids.formatVersion,
+      version: 2,
+      rules: DEFAULT_FORMAT_RULES,
+    };
+
+    expect(input.safeParse({ seriesId: ids.series }).success).toBe(true);
+    expect(input.safeParse({}).success).toBe(false);
+    expect(output.parse(rules)).toEqual(rules);
+  });
+
+  it("creates an idea with a pitch", () => {
+    const { input, output } = pipelineTools["content.create_idea"];
+    const idea = { projectId: ids.project, title: "Lifetimes", pitch: "Why 'a exists." };
+
+    expect(input.safeParse(idea).success).toBe(true);
+    expect(input.safeParse({ ...idea, pitch: " " }).success).toBe(false);
+    expect(input.safeParse({ ...idea, seriesId: "rust" }).success).toBe(false);
+    expect(output.parse({ itemId: ids.item })).toEqual({ itemId: ids.item });
+  });
+
+  it("gets an item with a version and its format", () => {
+    const { input, output } = pipelineTools["content.get"];
+    const got = {
+      item: contentItem,
+      version,
+      format: { formatVersionId: ids.formatVersion, rules: DEFAULT_FORMAT_RULES },
+    };
+
+    expect(input.safeParse({ itemId: ids.item, versionId: ids.version }).success).toBe(true);
+    expect(output.parse(got)).toEqual(got);
+    expect(output.safeParse({ ...got, format: null }).success).toBe(true);
+  });
+
+  it("submits a script or storyboard, never an approval", () => {
+    const { input, output } = pipelineTools["content.submit_for_review"];
+
+    expect(input.safeParse({ itemId: ids.item, script }).success).toBe(true);
+    expect(input.safeParse({ itemId: ids.item, storyboard, notes: "Tighter." }).success).toBe(true);
+    expect(input.safeParse({ itemId: ids.item, notes: "Only notes." }).success).toBe(false);
+    expect(input.shape).not.toHaveProperty("state");
+    expect(output.parse({ versionId: ids.version, versionNo: 2, state: "script" })).toEqual({
+      versionId: ids.version,
+      versionNo: 2,
+      state: "script",
+    });
+  });
+
+  it("uploads, finalizes and links assets with the REST rules", () => {
+    const upload = pipelineTools["content.upload_asset"];
+    const request = {
+      itemId: ids.item,
+      kind: "voice",
+      filename: "voice.mp3",
+      mime: "audio/mpeg",
+      bytes: 1_234_567,
+      sha256: "c".repeat(64),
+    };
+
+    expect(upload.input.safeParse(request).success).toBe(true);
+    expect(upload.input.safeParse({ ...request, mime: "video/mp4" }).success).toBe(false);
+    expect(upload.input.safeParse({ ...request, bytes: 101 * 1024 * 1024 }).success).toBe(false);
+    expect(upload.output.safeParse({ asset, upload: null }).success).toBe(true);
+
+    const finalize = pipelineTools["content.finalize_asset"];
+    expect(
+      finalize.input.safeParse({ assetId: ids.voice, probe: { durationMs: 41_000 }, alignment })
+        .success,
+    ).toBe(true);
+    expect(finalize.input.safeParse({ probe: {} }).success).toBe(false);
+
+    const url = pipelineTools["asset.get_url"];
+    expect(url.input.safeParse({ assetId: ids.render, disposition: "attachment" }).success).toBe(
+      true,
+    );
+    expect(
+      url.output.safeParse({
+        url: "https://media.example.test/a.mp4",
+        expiresAt: at,
+        asset: { ...asset, alignment: null },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("pulls and publishes skills", () => {
+    const pull = pipelineTools["skill.pull"];
+    const publish = pipelineTools["skill.publish"];
+    const files = [{ path: "SKILL.md", content: "# Scriptwriting" }];
+
+    expect(pull.input.safeParse({}).success).toBe(true);
+    expect(pull.input.safeParse({ name: "scriptwriting", version: 2 }).success).toBe(true);
+    expect(pull.input.safeParse({ version: 2 }).success).toBe(false);
+    expect(
+      pull.output.safeParse({
+        skills: [
+          { name: "scriptwriting", kind: "skill", version: 2, checksum: "d".repeat(64), files },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(publish.input.safeParse({ name: "scriptwriting", kind: "skill", files }).success).toBe(
+      true,
+    );
+    expect(
+      publish.input.safeParse({
+        name: "scriptwriting",
+        kind: "skill",
+        files: [{ path: "../../.ssh/config", content: "x" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      publish.output.parse({
+        name: "scriptwriting",
+        version: 2,
+        checksum: "d".repeat(64),
+        created: false,
+      }).created,
+    ).toBe(false);
   });
 });
 
