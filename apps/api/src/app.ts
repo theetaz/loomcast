@@ -108,6 +108,55 @@ export function mediaOrigins(
   return [...new Set(origins)];
 }
 
+/**
+ * Headers every response carries, besides the content security policy. HSTS is set by the app
+ * (nginx adds none) and only takes effect over HTTPS. `X-Frame-Options` matches
+ * `frame-ancestors 'none'` for browsers that predate CSP level 2.
+ */
+export const SECURITY_HEADERS = {
+  strictTransportSecurity: "max-age=31536000; includeSubDomains",
+  xFrameOptions: "DENY",
+  referrerPolicy: "no-referrer",
+  xContentTypeOptions: true,
+  crossOriginOpenerPolicy: true,
+  crossOriginResourcePolicy: true,
+  // The web app uses none of these. The clipboard stays allowed: settings copy tokens with it.
+  permissionsPolicy: {
+    camera: false,
+    microphone: false,
+    geolocation: false,
+    payment: false,
+    usb: false,
+  },
+} as const;
+
+/** The policy for `/api`, `/mcp`, `/bridge`, `/healthz` and `/readyz`: JSON only, nothing loads. */
+export const SERVER_CONTENT_SECURITY_POLICY = {
+  defaultSrc: ["'none'"],
+  baseUri: ["'none'"],
+  formAction: ["'none'"],
+  frameAncestors: ["'none'"],
+};
+
+/** The policy for the web app's documents and files: same origin, plus the media origins. */
+export function webContentSecurityPolicy(media: readonly string[]) {
+  return {
+    defaultSrc: ["'self'"],
+    // The web app checksums uploads with WebAssembly (hash-wasm). `'wasm-unsafe-eval'` allows
+    // compiling WebAssembly only; JavaScript `eval` stays blocked.
+    scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "data:", "blob:", ...media],
+    mediaSrc: ["'self'", "blob:", ...media],
+    fontSrc: ["'self'", "data:"],
+    connectSrc: ["'self'", ...media],
+    objectSrc: ["'none'"],
+    baseUri: ["'self'"],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"],
+  };
+}
+
 export interface CreateAppOptions {
   /** Extra modules registered after the built-in ones. Tests use it to mount probe routes. */
   modules?: readonly RegisterModule[];
@@ -185,24 +234,18 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
       log.info(fields, "request");
     }
   });
-  app.use(
-    secureHeaders({
-      contentSecurityPolicy: {
-        defaultSrc: ["'self'"],
-        // The web app checksums uploads with WebAssembly (hash-wasm). `'wasm-unsafe-eval'` allows
-        // compiling WebAssembly only; JavaScript `eval` stays blocked.
-        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:", ...media],
-        mediaSrc: ["'self'", "blob:", ...media],
-        fontSrc: ["'self'", "data:"],
-        connectSrc: ["'self'", ...media],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'none'"],
-      },
-    }),
+  // Two policies: the web app's documents get what the SPA needs, and every server path (`/api`,
+  // `/mcp`, `/bridge`, the probes) gets one that allows nothing, as it never serves a document.
+  const webHeaders = secureHeaders({
+    ...SECURITY_HEADERS,
+    contentSecurityPolicy: webContentSecurityPolicy(media),
+  });
+  const serverHeaders = secureHeaders({
+    ...SECURITY_HEADERS,
+    contentSecurityPolicy: SERVER_CONTENT_SECURITY_POLICY,
+  });
+  app.use((c, next) =>
+    SERVER_PATH_RE.test(c.req.path) ? serverHeaders(c, next) : webHeaders(c, next),
   );
   app.use(
     "/api/*",

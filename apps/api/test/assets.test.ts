@@ -776,7 +776,7 @@ describe("content security policy", () => {
   async function directivesFor(config: Parameters<typeof createTestApp>[1]) {
     const app = createTestApp(testDb.db, config);
     try {
-      return policy(await app.app.request("/healthz"));
+      return policy(await app.app.request("/"));
     } finally {
       await app.deps.lifecycle.close();
     }
