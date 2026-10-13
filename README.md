@@ -65,7 +65,9 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 | Document | Contents |
 |---|---|
 | [Architecture](docs/architecture.md) | Components, decisions, data model, live events and the security model |
-| [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, tests, the M1 acceptance runbook and troubleshooting |
+| [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, tests, the M1 and M2 acceptance runbooks and troubleshooting |
+| [Knowledge base](docs/knowledge-base.md) | Entry kinds, the Knowledge tab, reference analysis, search and the ⌘K palette |
+| [Session-end hook](docs/session-hook.md) | The optional hook that files session summaries in the knowledge base: what it sends, redaction, setup |
 | [Bridge protocol](docs/bridge-protocol.md) | Pairing, the `/bridge/v1` WebSocket protocol, the job lifecycle and its reliability rules |
 | [MCP server](docs/mcp.md) | Endpoint, authentication, client configuration and the tool reference |
 

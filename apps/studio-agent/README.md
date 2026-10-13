@@ -91,6 +91,15 @@ The producer runtime names MCP tools `mcp__<server>__<tool>` with every characte
 
 Handlers are registered in `src/jobs/index.ts`. The runner validates every payload and result against the contracts job registry, rejects unknown job types, enforces the per-class credits and the registry timeout, and aborts a job on `job.cancel`.
 
+## Session-end hook
+
+`hooks/session-end.mjs` is an optional hook for any client that runs a session-end hook with a
+JSON payload on stdin. It digests the session transcript, redacts secrets and files the result
+in the project's knowledge base with the `kb.save_session_summary` MCP tool. It is off by
+default, has no dependencies, gives the server 5 seconds and always exits 0.
+`hooks/install.mjs` prints the hook entry and its environment, or merges the entry into a JSON
+settings file with `--write <file>`. See [docs/session-hook.md](../../docs/session-hook.md).
+
 ## launchd service
 
 ```bash
@@ -112,6 +121,7 @@ The plist is loaded with `launchctl bootstrap gui/$UID`. Running `service instal
 
 ```bash
 pnpm --filter @loomcast/studio-agent test
+pnpm --filter @loomcast/studio-agent exec vitest run hooks   # the session-end hook only
 pnpm --filter @loomcast/studio-agent typecheck
 pnpm --filter @loomcast/studio-agent build
 ```
