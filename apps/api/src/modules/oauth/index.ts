@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import {
   AcceptConnectionSchema,
   type CandidateAccount,
+  CandidateAccountIdSchema,
   type ConnectionCandidates,
   candidateAccountId,
+  connectionPicturePath,
   OAUTH_CONNECT_PAGE_PATH,
   OAUTH_CONNECTION_TTL_MS,
   OAuthCallbackQuerySchema,
@@ -23,6 +25,7 @@ import { transaction } from "../../lib/db";
 import { HttpError, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, readJson } from "../../lib/http";
 import { MetaGraphError } from "../../lib/meta-graph";
+import { fetchPicture, pictureResponse } from "../../lib/pictures";
 import { oauthConnectionAad } from "../../lib/vault";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
@@ -65,8 +68,9 @@ function redirect(c: Context<AppEnv>, location: string): Response {
  * - `oauth.callback` consumes the state, exchanges the code for long-lived credentials, keeps them
  *   sealed in a pending connection with the accounts they can publish as, and redirects to the
  *   connect page. Failures redirect there with `?error=`.
- * - `oauth.connection` lists the accounts (never the credentials); `oauth.accept` consumes the
- *   connection and creates or reconnects the chosen channels.
+ * - `oauth.connection` lists the accounts (never the credentials) and `oauth.connectionPicture`
+ *   passes their profile pictures through; `oauth.accept` consumes the connection and creates or
+ *   reconnects the chosen channels.
  *
  * Codes, tokens and secrets are never logged, audited or returned.
  */
@@ -254,9 +258,10 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
         }
       }
     }
-    const accounts: CandidateAccount[] = row.candidates.map((candidate) => ({
+    const accounts: CandidateAccount[] = row.candidates.map(({ picture, ...candidate }) => ({
       ...candidate,
       alreadyConnected: known.has(candidateAccountId(candidate.platform, candidate.externalId)),
+      pictureUrl: picture === undefined ? null : connectionPicturePath(row.id, candidate.id),
     }));
     const body: ConnectionCandidates = {
       id: row.id,
@@ -266,6 +271,23 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     };
     c.header("Cache-Control", "no-store");
     return c.json(body, 200);
+  });
+
+  router.get(routes["oauth.connectionPicture"].path, async (c) => {
+    const user = currentUser(c);
+    const id = idParam(c);
+    const accountId = CandidateAccountIdSchema.safeParse(c.req.param("accountId"));
+    if (!accountId.success) {
+      throw notFound();
+    }
+    const row = await pendingConnection(id, user.id);
+    const picture = row.candidates.find((candidate) => candidate.id === accountId.data)?.picture;
+    const fetched =
+      picture === undefined ? null : await fetchPicture(picture, { signal: c.req.raw.signal });
+    if (fetched === null) {
+      throw notFound("That account has no picture.");
+    }
+    return pictureResponse(fetched);
   });
 
   router.post(routes["oauth.accept"].path, async (c) => {

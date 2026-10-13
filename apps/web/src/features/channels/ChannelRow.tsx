@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { RelativeTime } from "@/components/RelativeTime";
-import { channelLabel, PlatformTile, platformLabel } from "./platforms";
+import { ChannelPicture, channelLabel, platformLabel } from "./platforms";
 import { dryRunSwitchState, isPlatformLocked, tokenExpiryWarning } from "./rules";
 import { SwitchField } from "./SwitchField";
 
@@ -66,7 +66,7 @@ export function ChannelRow({
         channel.status === "disabled" && "opacity-70",
       )}
     >
-      <PlatformTile platform={channel.platform} />
+      <ChannelPicture platform={channel.platform} pictureUrl={channel.pictureUrl} />
       <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-body text-foreground">

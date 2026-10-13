@@ -73,6 +73,7 @@ export async function ensureChannelSweeps(
 export interface SweepChannel {
   id: string;
   platform: Platform;
+  externalId: string | null;
   status: string;
   displayName: string;
   tokenExpiresAt: Date | null;
@@ -87,6 +88,7 @@ export async function sweepChannels(
     .select({
       id: channels.id,
       platform: channels.platform,
+      externalId: channels.externalId,
       status: channels.status,
       displayName: channels.displayName,
       tokenExpiresAt: channels.tokenExpiresAt,

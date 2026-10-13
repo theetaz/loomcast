@@ -1,8 +1,10 @@
 import type { Platform } from "@loomcast/contracts";
+import { Avatar, AvatarFallback, AvatarImage } from "@loomcast/ui/components/avatar";
 import { cn } from "@loomcast/ui/lib/cn";
 
 // Platform colours mark channels in the sidebar, the calendar and settings. They are not brand
-// tokens, and no platform artwork is drawn: a channel shows a coloured dot or a lettered tile.
+// tokens, and no platform artwork is drawn: a channel shows a coloured dot, a lettered tile, or
+// the account's own profile picture with a dot in its platform's colour.
 
 interface PlatformMeta {
   label: string;
@@ -68,6 +70,43 @@ export function PlatformTile({ platform, className }: { platform: Platform; clas
       style={{ background: meta?.color, color: meta?.ink }}
     >
       {meta?.mark ?? platform.slice(0, 2)}
+    </span>
+  );
+}
+
+/**
+ * The account's profile picture, served by the API, with a dot in its platform's colour; the
+ * lettered tile while it loads, when it fails, or when the account has none. Decorative: the row
+ * names the account.
+ */
+export function ChannelPicture({
+  platform,
+  pictureUrl,
+  className,
+}: {
+  platform: Platform;
+  pictureUrl?: string | null | undefined;
+  className?: string;
+}) {
+  if (!pictureUrl) {
+    return <PlatformTile platform={platform} className={className} />;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      data-platform={platform}
+      className={cn("relative flex size-7 shrink-0", className)}
+    >
+      <Avatar className="size-full rounded-md after:rounded-md">
+        <AvatarImage src={pictureUrl} alt="" className="rounded-md" />
+        <AvatarFallback className="rounded-md bg-transparent">
+          <PlatformTile platform={platform} className="size-full" />
+        </AvatarFallback>
+      </Avatar>
+      <PlatformDot
+        platform={platform}
+        className="absolute -right-0.5 -bottom-0.5 size-2.5 ring-2 ring-card"
+      />
     </span>
   );
 }

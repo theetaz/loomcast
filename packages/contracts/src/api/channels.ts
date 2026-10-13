@@ -11,6 +11,29 @@ export const MAX_SERIES_CHANNELS = 50;
 
 export const ChannelNameSchema = z.string().trim().min(1).max(CHANNEL_NAME_MAX_LENGTH);
 
+/** Longest same-origin picture path the API hands out (`channelPicturePath`). */
+export const PICTURE_PATH_MAX_LENGTH = 512;
+
+/**
+ * A profile picture as the web app loads it: a path on the API itself, never the platform's
+ * address, because the content security policy allows no image hosts. The server fetches the
+ * picture from the platform and passes it through.
+ */
+export const PicturePathSchema = z
+  .string()
+  .max(PICTURE_PATH_MAX_LENGTH)
+  .refine((path) => path.startsWith("/api/") && !path.includes("\\"), {
+    message: "A picture is served by the API",
+  });
+
+/**
+ * The path of a channel's picture (`channels.picture`). `version` changes with the platform's
+ * picture, so a browser that cached the old one loads the new one.
+ */
+export function channelPicturePath(channelId: string, version: string): string {
+  return `/api/channels/${channelId}/picture?v=${encodeURIComponent(version)}`;
+}
+
 /**
  * Why a channel cannot leave dry-run, as the server decides it:
  * - `not_connected`: no stored credentials (a planning channel).
@@ -42,6 +65,11 @@ export const ChannelSchema = z.object({
   username: z.string().nullable(),
   /** The channel this one was connected through, such as an Instagram account's Facebook Page. */
   parentChannelId: IdSchema.nullable(),
+  /**
+   * The account's profile picture (`meta.picture` of the row), when the platform gave one. Optional
+   * until the server sends it.
+   */
+  pictureUrl: PicturePathSchema.nullable().optional(),
   status: ChannelStatusSchema,
   /** On by default. While on, the publisher only records what it would send. */
   dryRun: z.boolean(),

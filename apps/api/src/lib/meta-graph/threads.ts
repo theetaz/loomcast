@@ -11,7 +11,7 @@ import { parseGraph } from "./parse";
 // - long-lived token (60 days): `GET /access_token?grant_type=th_exchange_token`;
 // - refresh (60 more days, for a token at least a day old): `GET /refresh_access_token?
 //   grant_type=th_refresh_token`;
-// - profile: `GET /v1.0/me?fields=id,username`;
+// - profile: `GET /v1.0/me?fields=id,username,threads_profile_picture_url`;
 // - app check: `GET /oauth/access_token?grant_type=client_credentials`.
 // The Threads API takes the token as the `access_token` parameter and does not document
 // `appsecret_proof`, so the client sends none.
@@ -127,6 +127,7 @@ export async function refreshThreadsToken(
 const ProfileSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   username: z.string().optional(),
+  threads_profile_picture_url: z.string().optional(),
 });
 export type ThreadsProfile = z.infer<typeof ProfileSchema>;
 
@@ -137,7 +138,7 @@ export async function getThreadsProfile(
 ): Promise<ThreadsProfile> {
   const response = await client.request({
     path: "/me",
-    query: { fields: "id,username" },
+    query: { fields: "id,username,threads_profile_picture_url" },
     accessToken: input.accessToken,
     signal: input.signal,
   });

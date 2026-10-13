@@ -64,9 +64,9 @@ export interface AcceptInput {
 /**
  * Consumes the pending connection and creates or reconnects one channel per account, in `tx`. A
  * channel of the same platform and account id is reconnected: its credentials are replaced, it
- * turns `active` (unless disabled) and its last error is cleared, while its name and dry-run
- * switch stay as the user left them. New channels are `active` with dry-run on. Throws
- * `connection_expired` when the connection was used or expired meanwhile.
+ * turns `active` (unless disabled), its last error is cleared and its profile picture replaced,
+ * while its name and dry-run switch stay as the user left them. New channels are `active` with
+ * dry-run on. Throws `connection_expired` when the connection was used or expired meanwhile.
  */
 export async function acceptConnection(
   tx: Transaction,
@@ -148,6 +148,11 @@ async function upsertChannel(
   const tokenExpiresAt =
     credentials.tokenExpiresAt === null ? null : new Date(credentials.tokenExpiresAt);
   const values = {
+    // The picture is replaced, or dropped when the platform no longer gives one.
+    meta:
+      account.picture === undefined
+        ? sql`${channels.meta} - 'picture'`
+        : sql`${channels.meta} || ${JSON.stringify({ picture: account.picture })}::jsonb`,
     username: account.username ?? null,
     parentChannelId: input.parentChannelId,
     secretCiphertext: sealed.secretCiphertext,
@@ -168,6 +173,7 @@ async function upsertChannel(
       dryRun: true,
       createdBy: input.userId,
       ...values,
+      meta: account.picture === undefined ? {} : { picture: account.picture },
     });
   } else {
     await tx

@@ -1,4 +1,5 @@
 import { candidateAccountId } from "@loomcast/contracts";
+import { pictureUrlOf } from "../../lib/pictures";
 import { XApiError } from "../publisher/adapters/x/client";
 import { usableXApp, xClientFor } from "../publisher/adapters/x/config";
 import { exchangeXCode, getXUser, xAuthorizeUrl } from "../publisher/adapters/x/oauth";
@@ -54,6 +55,8 @@ export const xProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
       const user = await getXUser(client, { accessToken: pair.accessToken, signal });
       const id = candidateAccountId("x", user.id);
       const username = candidateUsername(user.username);
+      // The profile's address is a 48-pixel picture; the same address with `_400x400` is larger.
+      const picture = pictureUrlOf(user.profile_image_url?.replace("_normal.", "_400x400."));
       return {
         candidates: [
           {
@@ -63,6 +66,7 @@ export const xProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
             name: candidateName(user.name ?? user.username, `X ${user.id}`),
             ...(username === undefined ? {} : { username }),
             parentId: null,
+            ...(picture === undefined ? {} : { picture }),
           },
         ],
         secret: {

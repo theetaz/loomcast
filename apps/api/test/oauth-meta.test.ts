@@ -3,6 +3,7 @@ import {
   type Channel,
   ChannelSchema,
   ConnectionCandidatesSchema,
+  connectionPicturePath,
   OAUTH_CONNECTION_TTL_MS,
   OAUTH_STATE_TTL_MS,
 } from "@loomcast/contracts";
@@ -86,16 +87,39 @@ interface Page {
   id: string;
   name: string;
   token: string;
-  ig?: { id: string; username: string };
+  picture?: string;
+  ig?: { id: string; username: string; picture?: string };
 }
 
-function fakePage(withInstagram = true): Page {
+const PAGE_PICTURES = "https://scontent.xx.fbcdn.net";
+const IG_PICTURES = "https://scontent.cdninstagram.com";
+
+function fakePage(withInstagram = true, withPictures = false): Page {
+  const pictures = (origin: string) =>
+    withPictures ? { picture: `${origin}/v/t39/${fakeId()}.jpg?oe=${fakeId()}` } : {};
   return {
     id: fakeId(),
     name: `Page ${fakeId()}`,
     token: fakeCredential("page"),
-    ...(withInstagram ? { ig: { id: fakeId(), username: `ig_${fakeId()}` } } : {}),
+    ...pictures(PAGE_PICTURES),
+    ...(withInstagram
+      ? { ig: { id: fakeId(), username: `ig_${fakeId()}`, ...pictures(IG_PICTURES) } }
+      : {}),
   };
+}
+
+/** Answers the next request for `url` on its image host with `body` as `contentType`. */
+function answerPicture(
+  url: string,
+  body: Uint8Array,
+  contentType = "image/jpeg",
+  status = 200,
+): void {
+  const { origin, pathname, search } = new URL(url);
+  h.agent
+    .get(origin)
+    .intercept({ method: "GET", path: `${pathname}${search}` })
+    .reply(status, Buffer.from(body), { headers: { "content-type": contentType } });
 }
 
 interface Exchange {
@@ -144,9 +168,18 @@ function answerSignIn(pages: Page[], scopes = ["pages_show_list", "pages_manage_
           id: page.id,
           name: page.name,
           access_token: page.token,
+          ...(page.picture === undefined ? {} : { picture: { data: { url: page.picture } } }),
           ...(page.ig === undefined
             ? {}
-            : { instagram_business_account: { id: page.ig.id, username: page.ig.username } }),
+            : {
+                instagram_business_account: {
+                  id: page.ig.id,
+                  username: page.ig.username,
+                  ...(page.ig.picture === undefined
+                    ? {}
+                    : { profile_picture_url: page.ig.picture }),
+                },
+              }),
         })),
         paging: { cursors: { before: "b", after: "a" } },
       },
@@ -228,7 +261,8 @@ describe("meta sign-in", () => {
     expect(accounts?.headers.authorization).toBe(`Bearer ${exchange.longToken}`);
     expect(accounts?.query.get("appsecret_proof")).toBe(proofOf(exchange.longToken));
     expect(accounts?.query.get("fields")).toBe(
-      "id,name,access_token,instagram_business_account{id,username}",
+      "id,name,access_token,picture.type(large){url}," +
+        "instagram_business_account{id,username,profile_picture_url}",
     );
 
     const [row] = await h.db
@@ -257,6 +291,7 @@ describe("meta sign-in", () => {
         name: pages[0]?.name,
         parentId: null,
         alreadyConnected: false,
+        pictureUrl: null,
       },
       {
         id: `instagram:${pages[0]?.ig?.id}`,
@@ -266,6 +301,7 @@ describe("meta sign-in", () => {
         username: pages[0]?.ig?.username,
         parentId: `facebook:${pages[0]?.id}`,
         alreadyConnected: false,
+        pictureUrl: null,
       },
       {
         id: `facebook:${pages[1]?.id}`,
@@ -274,8 +310,67 @@ describe("meta sign-in", () => {
         name: pages[1]?.name,
         parentId: null,
         alreadyConnected: false,
+        pictureUrl: null,
       },
     ]);
+  });
+
+  it("passes the accounts' profile pictures through, before and after connecting", async () => {
+    const page = fakePage(true, true);
+    const { connection } = await signIn([page]);
+    const pageId = `facebook:${page.id}`;
+    const igId = `instagram:${page.ig?.id}`;
+
+    const body = ConnectionCandidatesSchema.parse(
+      await (await get(`/api/oauth/connections/${connection}`)).json(),
+    );
+    expect(body.accounts.map((account) => account.pictureUrl)).toEqual([
+      connectionPicturePath(connection, pageId),
+      connectionPicturePath(connection, igId),
+    ]);
+    // The platforms' addresses stay on the server.
+    expect(JSON.stringify(body)).not.toContain(PAGE_PICTURES);
+
+    const bytes = randomBytes(64);
+    answerPicture(page.picture ?? "", bytes);
+    const picture = await get(connectionPicturePath(connection, pageId));
+    expect(picture.status).toBe(200);
+    expect(picture.headers.get("content-type")).toBe("image/jpeg");
+    expect(picture.headers.get("cache-control")).toBe("private, max-age=86400");
+    expect(Buffer.from(await picture.arrayBuffer())).toEqual(bytes);
+
+    // Another user, an unknown account and an image host that refuses all answer 404.
+    const other = await h.otherUser();
+    expect((await get(connectionPicturePath(connection, pageId), other.cookie)).status).toBe(404);
+    expect((await get(connectionPicturePath(connection, "facebook:1"))).status).toBe(404);
+    answerPicture(page.ig?.picture ?? "", bytes, "image/jpeg", 403);
+    expect((await get(connectionPicturePath(connection, igId))).status).toBe(404);
+
+    const response = await accept(connection, [igId]);
+    expect(response.status).toBe(200);
+    const { channels: created } = (await response.json()) as { channels: Channel[] };
+    const [fb, ig] = created.map((channel) => ChannelSchema.parse(channel));
+    expect(fb?.pictureUrl).toMatch(new RegExp(`^/api/channels/${fb?.id}/picture\\?v=\\w+$`));
+    expect(ig?.pictureUrl).toMatch(new RegExp(`^/api/channels/${ig?.id}/picture\\?v=\\w+$`));
+    expect((await channelRow(fb?.id ?? "")).meta).toEqual({ picture: page.picture });
+
+    answerPicture(page.ig?.picture ?? "", bytes, "image/png");
+    const channelPicture = await get(ig?.pictureUrl ?? "");
+    expect(channelPicture.status).toBe(200);
+    expect(channelPicture.headers.get("content-type")).toBe("image/png");
+
+    // Not an image, or a channel without a picture: 404, and the initials show.
+    answerPicture(page.picture ?? "", bytes, "text/html");
+    expect((await get(fb?.pictureUrl ?? "")).status).toBe(404);
+    await h.db
+      .update(channels)
+      .set({ meta: {} })
+      .where(eq(channels.id, fb?.id ?? ""));
+    expect((await get(`/api/channels/${fb?.id}/picture`)).status).toBe(404);
+    const [listed] = (
+      (await (await get("/api/channels")).json()) as { items: Channel[] }
+    ).items.filter((channel) => channel.id === fb?.id);
+    expect(listed?.pictureUrl).toBeNull();
   });
 
   it("accepting an Instagram account connects it and its Page, active and in dry-run", async () => {

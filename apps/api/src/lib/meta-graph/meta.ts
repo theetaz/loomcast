@@ -112,12 +112,20 @@ export async function exchangeMetaLongLivedToken(
   return parseGraph(TokenResponseSchema, response, "the long-lived token exchange");
 }
 
+/** A `picture{url}` edge, as Pages return it. */
+const PictureEdgeSchema = z.object({ data: z.object({ url: z.string().optional() }).optional() });
+
 const PageSchema = z.object({
   id: z.string().min(1),
   name: z.string().default(""),
   access_token: z.string().min(1).optional(),
+  picture: PictureEdgeSchema.optional(),
   instagram_business_account: z
-    .object({ id: z.string().min(1), username: z.string().optional() })
+    .object({
+      id: z.string().min(1),
+      username: z.string().optional(),
+      profile_picture_url: z.string().optional(),
+    })
     .optional(),
 });
 export type MetaPage = z.infer<typeof PageSchema>;
@@ -131,6 +139,11 @@ const PagesResponseSchema = z.object({
     })
     .optional(),
 });
+
+/** What `listMetaPages` asks for: each Page, its token and picture, and its Instagram account. */
+export const META_PAGE_FIELDS =
+  "id,name,access_token,picture.type(large){url}," +
+  "instagram_business_account{id,username,profile_picture_url}";
 
 /**
  * The Pages the user manages, each with its Page token and linked Instagram professional account,
@@ -147,7 +160,7 @@ export async function listMetaPages(
     const response = await client.request({
       path: "/me/accounts",
       query: {
-        fields: "id,name,access_token,instagram_business_account{id,username}",
+        fields: META_PAGE_FIELDS,
         limit: PAGE_SIZE,
         after,
       },
@@ -167,6 +180,36 @@ export async function listMetaPages(
     }
   }
   return pages;
+}
+
+const PageAccountPictureSchema = z.object({
+  picture: PictureEdgeSchema.optional(),
+  profile_picture_url: z.string().optional(),
+});
+
+/**
+ * The current profile picture address of a Facebook Page or an Instagram professional account,
+ * read with the Page token; undefined when the account has none.
+ */
+export async function getMetaPicture(
+  client: GraphClient,
+  input: {
+    platform: "facebook" | "instagram";
+    accountId: string;
+    accessToken: string;
+    signal?: AbortSignal;
+  },
+): Promise<string | undefined> {
+  const response = await client.request({
+    path: `/${encodeURIComponent(input.accountId)}`,
+    query: {
+      fields: input.platform === "facebook" ? "picture.type(large){url}" : "profile_picture_url",
+    },
+    accessToken: input.accessToken,
+    signal: input.signal,
+  });
+  const body = parseGraph(PageAccountPictureSchema, response, "the profile picture");
+  return input.platform === "facebook" ? body.picture?.data?.url : body.profile_picture_url;
 }
 
 const DebugTokenSchema = z.object({

@@ -79,6 +79,7 @@ import {
 import {
   AcceptConnectionResponseSchema,
   AcceptConnectionSchema,
+  CandidateAccountIdSchema,
   ConnectionCandidatesSchema,
   OAuthCallbackQuerySchema,
   type OAuthStartQuery,
@@ -138,8 +139,16 @@ export interface RouteDefinition {
   readonly params?: z.ZodType;
   readonly query?: z.ZodType;
   readonly body?: z.ZodType;
-  /** Schema of the success body, or `null` for `204 No Content` and `302 Found`. */
+  /**
+   * Schema of the success body, or `null` for `204 No Content`, `302 Found` and an image body
+   * (`image`).
+   */
   readonly response: z.ZodType | null;
+  /**
+   * The success body is an image for an `<img>` element, never JSON: the web app puts the path in
+   * `src` and never calls it with `fetch`.
+   */
+  readonly image?: true;
   /**
    * `302`: a browser navigation that answers with a redirect, such as a sign-in with a platform.
    * Open it with a full-page navigation, never with `fetch`.
@@ -157,6 +166,10 @@ const IdOrSlugParamsSchema = z.object({ idOrSlug: z.string().min(1).max(64) });
 const VersionParamsSchema = z.object({ id: IdSchema, versionId: IdSchema });
 const SkillNameParamsSchema = z.object({ name: SkillNameSchema });
 const OAuthProviderParamsSchema = z.object({ provider: OAuthProviderSchema });
+const ConnectionAccountParamsSchema = z.object({
+  id: IdSchema,
+  accountId: CandidateAccountIdSchema,
+});
 
 /**
  * Every REST route of the API. The web client and the API both build on this map.
@@ -792,6 +805,19 @@ export const routes = {
     response: ChannelSchema,
     status: 200,
   }),
+  /**
+   * The channel's profile picture, fetched from the platform and passed through as an image.
+   * `404 not_found` when the channel has none or the platform no longer serves it.
+   */
+  "channels.picture": route({
+    method: "GET",
+    path: "/api/channels/:id/picture",
+    auth: "session",
+    params: IdParamsSchema,
+    response: null,
+    image: true,
+    status: 200,
+  }),
 
   /**
    * Starts a sign-in with the provider: a full-page navigation that redirects to the platform's
@@ -830,6 +856,19 @@ export const routes = {
     auth: "session",
     params: IdParamsSchema,
     response: ConnectionCandidatesSchema,
+    status: 200,
+  }),
+  /**
+   * The profile picture of one account of a pending connection, as an image, like
+   * `channels.picture`. `410 connection_expired` once expired or used.
+   */
+  "oauth.connectionPicture": route({
+    method: "GET",
+    path: "/api/oauth/connections/:id/accounts/:accountId/picture",
+    auth: "session",
+    params: ConnectionAccountParamsSchema,
+    response: null,
+    image: true,
     status: 200,
   }),
   /** Connects the chosen accounts. `410 connection_expired` once expired or used. */

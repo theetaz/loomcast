@@ -71,7 +71,10 @@ export const channels = pgTable(
     /** Permissions the stored credentials were granted. */
     scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`),
     tokenExpiresAt: timestamptz("token_expires_at"),
-    /** Platform details that need no column of their own, such as a profile picture URL. */
+    /**
+     * Platform details that need no column of their own, such as `picture`: the platform's
+     * address of the account's profile picture.
+     */
     meta: jsonb("meta").$type<JsonObject>().notNull().default({}),
     /** When the daily check last found the credentials valid; null until the first check. */
     lastVerifiedAt: timestamptz("last_verified_at"),

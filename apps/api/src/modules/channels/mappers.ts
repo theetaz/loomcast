@@ -1,11 +1,13 @@
-import type { Channel } from "@loomcast/contracts";
+import { type Channel, channelPicturePath } from "@loomcast/contracts";
 import { type ChannelRow, channels } from "@loomcast/db";
 import { sql } from "drizzle-orm";
+import { pictureVersion } from "../../lib/pictures";
 import { type LiveGateSettings, livePublishingBlocker } from "../publisher/gates";
 
 /**
  * The columns a channel response is built from. The sealed credentials are never selected: only
- * whether there are any (`connected`).
+ * whether there are any (`connected`). `picture` is the platform's picture address, which the
+ * response replaces with the API path that passes it through.
  */
 export const channelColumns = {
   id: channels.id,
@@ -26,12 +28,13 @@ export const channelColumns = {
   lastError: channels.lastError,
   rateLimit: channels.rateLimit,
   connected: sql<boolean>`${channels.secretCiphertext} is not null`,
+  picture: sql<string | null>`${channels.meta}->>'picture'`,
 };
 
 export type ChannelView = Omit<
   ChannelRow,
   "secretCiphertext" | "secretNonce" | "keyVersion" | "meta" | "createdBy"
-> & { connected: boolean };
+> & { connected: boolean; picture: string | null };
 
 /**
  * A channel as the API shows it, with the reason it cannot go live under the server's `settings`
@@ -45,6 +48,8 @@ export function toChannel(row: ChannelView, settings: LiveGateSettings): Channel
     externalId: row.externalId,
     username: row.username,
     parentChannelId: row.parentChannelId,
+    pictureUrl:
+      row.picture === null ? null : channelPicturePath(row.id, pictureVersion(row.picture)),
     status: row.status,
     dryRun: row.dryRun,
     requiresApproval: row.requiresApproval,

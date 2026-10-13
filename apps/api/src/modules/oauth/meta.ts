@@ -9,6 +9,7 @@ import {
   MetaGraphError,
   metaDialogUrl,
 } from "../../lib/meta-graph";
+import { pictureUrlOf } from "../../lib/pictures";
 import { candidateName, candidateUsername } from "./names";
 import type { ConnectionSecret, OAuthProviderFactory } from "./types";
 
@@ -17,7 +18,7 @@ import type { ConnectionSecret, OAuthProviderFactory } from "./types";
  * long-lived user token, then the user's Pages, each with its own Page token and its linked
  * Instagram professional account. Every Page becomes a Facebook candidate and every linked
  * Instagram account an Instagram candidate whose parent is the Page: both publish with the Page
- * token, which does not expire.
+ * token, which does not expire. Each keeps its profile picture address, when it has one.
  */
 export const metaProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
   const client = createMetaGraphClient(platforms, fetch === undefined ? {} : { fetch });
@@ -75,12 +76,14 @@ export const metaProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
           break;
         }
         seen.add(pageCandidateId);
+        const pagePicture = pictureUrlOf(page.picture?.data?.url);
         candidates.push({
           id: pageCandidateId,
           platform: "facebook",
           externalId: page.id,
           name: candidateName(page.name, `Facebook Page ${page.id}`),
           parentId: null,
+          ...(pagePicture === undefined ? {} : { picture: pagePicture }),
         });
         secret.accounts[pageCandidateId] = {
           accessToken: pageToken,
@@ -91,6 +94,7 @@ export const metaProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
         if (withIg && ig !== undefined && igCandidateId !== null) {
           seen.add(igCandidateId);
           const username = candidateUsername(ig.username);
+          const igPicture = pictureUrlOf(ig.profile_picture_url);
           candidates.push({
             id: igCandidateId,
             platform: "instagram",
@@ -98,6 +102,7 @@ export const metaProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
             name: candidateName(ig.username, page.name || `Instagram ${ig.id}`),
             ...(username === undefined ? {} : { username }),
             parentId: pageCandidateId,
+            ...(igPicture === undefined ? {} : { picture: igPicture }),
           });
           secret.accounts[igCandidateId] = {
             accessToken: pageToken,

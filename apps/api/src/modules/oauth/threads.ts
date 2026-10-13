@@ -7,6 +7,7 @@ import {
   THREADS_SCOPES,
   threadsAuthorizeUrl,
 } from "../../lib/meta-graph";
+import { pictureUrlOf } from "../../lib/pictures";
 import { candidateName, candidateUsername } from "./names";
 import type { OAuthProviderFactory } from "./types";
 
@@ -42,6 +43,7 @@ export const threadsProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
       const profile = await getThreadsProfile(client, { accessToken: long.access_token, signal });
       const id = candidateAccountId("threads", profile.id);
       const username = candidateUsername(profile.username);
+      const picture = pictureUrlOf(profile.threads_profile_picture_url);
       return {
         candidates: [
           {
@@ -51,6 +53,7 @@ export const threadsProvider: OAuthProviderFactory = ({ platforms, fetch }) => {
             name: candidateName(profile.username, `Threads ${profile.id}`),
             ...(username === undefined ? {} : { username }),
             parentId: null,
+            ...(picture === undefined ? {} : { picture }),
           },
         ],
         secret: {

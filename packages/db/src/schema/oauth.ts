@@ -80,10 +80,14 @@ export const oauthStates = pgTable(
 
 /**
  * An account a pending connection offers, as stored: the contracts' `CandidateAccount` without
- * `alreadyConnected`, which is worked out from `channels` when the connection is read. It holds no
- * credential; the tokens of every candidate are in the connection's sealed secret.
+ * `alreadyConnected`, which is worked out from `channels` when the connection is read, and with
+ * the platform's address of its profile picture (`picture`) in place of the API path the web app
+ * gets. It holds no credential; the tokens of every candidate are in the connection's sealed
+ * secret.
  */
-export type OAuthCandidateRow = Omit<CandidateAccount, "alreadyConnected">;
+export type OAuthCandidateRow = Omit<CandidateAccount, "alreadyConnected" | "pictureUrl"> & {
+  picture?: string;
+};
 
 /**
  * A finished sign-in waiting for the user to choose the accounts to connect. The callback stores
