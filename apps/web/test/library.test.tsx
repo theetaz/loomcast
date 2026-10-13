@@ -335,6 +335,13 @@ describe("new idea", () => {
 
     await user.type(within(dialog).getByLabelText("Title"), "Traits as contracts");
     await user.type(within(dialog).getByLabelText(/Pitch/), "One trait, three impls.");
+    // The dialog defaults to the most recently updated project, and both fixture projects are
+    // created in the same millisecond, so pick the project explicitly.
+    const projectSelect = within(dialog).getByRole("combobox", { name: /Project/ });
+    await waitFor(() => expect(projectSelect).toBeEnabled());
+    await user.click(projectSelect);
+    await user.click(await screen.findByRole("option", { name: rust.name }));
+
     // The series select stays disabled until the project's series have loaded.
     const seriesSelect = within(dialog).getByRole("combobox", { name: /Series/ });
     await waitFor(() => expect(seriesSelect).toBeEnabled());
