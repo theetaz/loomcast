@@ -2,7 +2,7 @@
  * Facts the public legal pages share. The contact address is the one place
  * people write to for privacy questions and deletion requests.
  */
-export const LEGAL_CONTACT_EMAIL = "CONTACT_EMAIL_PLACEHOLDER";
+export const LEGAL_CONTACT_EMAIL = "info@prabhavalabs.com";
 
 /** The operator named on the legal pages. */
 export const LEGAL_OPERATOR = "Prabhava Labs";
