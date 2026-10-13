@@ -2,7 +2,9 @@ import type { TokenKind, TokenScope } from "@loomcast/contracts";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Config } from "../../env";
 import type { Clock } from "../../lib/clock";
-import { HttpError, unauthorized } from "../../lib/errors";
+import { HttpError, rateLimited, unauthorized } from "../../lib/errors";
+import { clientIp } from "../../lib/http";
+import { createRateLimiter, type RateLimitOptions } from "../../lib/rate-limit";
 import type { AppEnv, AuthSession, AuthUser, VerifiedToken } from "../../types";
 import { hasScopes, type TokensService } from "../tokens/service";
 import { clearSessionCookie, readSessionCookie, setSessionCookie } from "./cookies";
@@ -40,8 +42,27 @@ export interface AuthGuardDeps {
 
 const BEARER_RE = /^Bearer[ \t]+([^\s]+)[ \t]*$/i;
 
+/**
+ * Credentials that fail to verify, per client address: a session cookie that resolves to no
+ * session, or a bearer token that is unknown, expired or revoked. Once a client address has used
+ * them up it gets 429 before any lookup, until the bucket refills. Requests without credentials
+ * cost nothing and are not counted, so a signed-out browser is never limited by this.
+ */
+export const AUTH_FAILURE_LIMIT: RateLimitOptions = { capacity: 30, intervalMs: 60_000 };
+
 export function createAuthGuards(deps: AuthGuardDeps): AuthGuards {
   const { config, clock, sessions, tokens } = deps;
+  const failures = createRateLimiter(AUTH_FAILURE_LIMIT, clock);
+
+  /** Throws 429 when the client has failed too often; returns its address for `recordFailure`. */
+  function checkFailures(c: Context<AppEnv>): string {
+    const ip = clientIp(c, config.trustProxy);
+    const result = failures.peek(ip);
+    if (!result.allowed) {
+      throw rateLimited(result.retryAfterMs);
+    }
+    return ip;
+  }
 
   function checkCsrf(c: Context<AppEnv>): void {
     if (SAFE_METHODS.has(c.req.method)) {
@@ -73,8 +94,10 @@ export function createAuthGuards(deps: AuthGuardDeps): AuthGuards {
     if (token === undefined || token === "") {
       throw unauthorized();
     }
+    const ip = checkFailures(c);
     const resolved = await sessions.resolve(token);
     if (resolved === null) {
+      failures.take(ip);
       clearSessionCookie(c, config);
       throw unauthorized("Your session has ended. Sign in again.");
     }
@@ -108,8 +131,10 @@ export function createAuthGuards(deps: AuthGuardDeps): AuthGuards {
             "WWW-Authenticate": 'Bearer realm="loomcast"',
           });
         }
+        const ip = checkFailures(c);
         const token = await tokens.verify(raw, kind);
         if (token === null) {
+          failures.take(ip);
           throw unauthorized("The token is invalid, expired or revoked.", {
             "WWW-Authenticate": 'Bearer realm="loomcast", error="invalid_token"',
           });

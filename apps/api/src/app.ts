@@ -11,6 +11,8 @@ import type { AppDeps, ModuleDeps, Presence, RegisterModule } from "./deps";
 import { type Alert, createAlerts } from "./lib/alerts";
 import { HttpError, notFound } from "./lib/errors";
 import { type CheckStatus, createHealthRegistry, type HealthRegistry } from "./lib/health";
+import { clientIp } from "./lib/http";
+import { consume, createRateLimiter, type RateLimitOptions } from "./lib/rate-limit";
 import {
   createS3Storage,
   createUnconfiguredStorage,
@@ -61,6 +63,13 @@ export const API_BODY_LIMIT_BYTES = 1024 * 1024;
 /** Paths the web app never owns; the SPA fallback leaves them alone. */
 const SERVER_PATH_RE = /^\/(api|mcp|bridge|healthz|readyz)(\/|$)/;
 
+/**
+ * `/healthz` and `/readyz` per client address. The container health check, the deploy script
+ * (at most 30 polls in 60 s) and the uptime workflow stay far below it; `/readyz` reaches the
+ * database, so a flood from one address is cut off.
+ */
+export const PROBE_RATE_LIMIT: RateLimitOptions = { capacity: 60, intervalMs: 60_000 };
+
 /** Requests logged at debug rather than info, to keep probes out of the logs. */
 const QUIET_PATHS: ReadonlySet<string> = new Set(["/healthz", "/readyz"]);
 
@@ -106,6 +115,55 @@ export function mediaOrigins(
     origins.unshift(presignedUrlOrigin(config.storage));
   }
   return [...new Set(origins)];
+}
+
+/**
+ * Headers every response carries, besides the content security policy. HSTS is set by the app
+ * (nginx adds none) and only takes effect over HTTPS. `X-Frame-Options` matches
+ * `frame-ancestors 'none'` for browsers that predate CSP level 2.
+ */
+export const SECURITY_HEADERS = {
+  strictTransportSecurity: "max-age=31536000; includeSubDomains",
+  xFrameOptions: "DENY",
+  referrerPolicy: "no-referrer",
+  xContentTypeOptions: true,
+  crossOriginOpenerPolicy: true,
+  crossOriginResourcePolicy: true,
+  // The web app uses none of these. The clipboard stays allowed: settings copy tokens with it.
+  permissionsPolicy: {
+    camera: false,
+    microphone: false,
+    geolocation: false,
+    payment: false,
+    usb: false,
+  },
+} as const;
+
+/** The policy for `/api`, `/mcp`, `/bridge`, `/healthz` and `/readyz`: JSON only, nothing loads. */
+export const SERVER_CONTENT_SECURITY_POLICY = {
+  defaultSrc: ["'none'"],
+  baseUri: ["'none'"],
+  formAction: ["'none'"],
+  frameAncestors: ["'none'"],
+};
+
+/** The policy for the web app's documents and files: same origin, plus the media origins. */
+export function webContentSecurityPolicy(media: readonly string[]) {
+  return {
+    defaultSrc: ["'self'"],
+    // The web app checksums uploads with WebAssembly (hash-wasm). `'wasm-unsafe-eval'` allows
+    // compiling WebAssembly only; JavaScript `eval` stays blocked.
+    scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "data:", "blob:", ...media],
+    mediaSrc: ["'self'", "blob:", ...media],
+    fontSrc: ["'self'", "data:"],
+    connectSrc: ["'self'", ...media],
+    objectSrc: ["'none'"],
+    baseUri: ["'self'"],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"],
+  };
 }
 
 export interface CreateAppOptions {
@@ -185,24 +243,18 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
       log.info(fields, "request");
     }
   });
-  app.use(
-    secureHeaders({
-      contentSecurityPolicy: {
-        defaultSrc: ["'self'"],
-        // The web app checksums uploads with WebAssembly (hash-wasm). `'wasm-unsafe-eval'` allows
-        // compiling WebAssembly only; JavaScript `eval` stays blocked.
-        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:", ...media],
-        mediaSrc: ["'self'", "blob:", ...media],
-        fontSrc: ["'self'", "data:"],
-        connectSrc: ["'self'", ...media],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'none'"],
-      },
-    }),
+  // Two policies: the web app's documents get what the SPA needs, and every server path (`/api`,
+  // `/mcp`, `/bridge`, the probes) gets one that allows nothing, as it never serves a document.
+  const webHeaders = secureHeaders({
+    ...SECURITY_HEADERS,
+    contentSecurityPolicy: webContentSecurityPolicy(media),
+  });
+  const serverHeaders = secureHeaders({
+    ...SECURITY_HEADERS,
+    contentSecurityPolicy: SERVER_CONTENT_SECURITY_POLICY,
+  });
+  app.use((c, next) =>
+    SERVER_PATH_RE.test(c.req.path) ? serverHeaders(c, next) : webHeaders(c, next),
   );
   app.use(
     "/api/*",
@@ -226,6 +278,11 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     await auth.sessionGuard(c, next);
   });
 
+  const probes = createRateLimiter(PROBE_RATE_LIMIT, deps.clock);
+  app.on("GET", ["/healthz", "/readyz"], async (c, next) => {
+    consume(probes, clientIp(c, config.trustProxy));
+    await next();
+  });
   app.get("/healthz", (c) => c.json({ status: "ok" }));
   // Readiness: every registered check (database, object storage, scheduler and any a module
   // adds), each bounded to 2 s. Only statuses are public; the owner sees details on the ops status.

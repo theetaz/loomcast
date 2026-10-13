@@ -39,10 +39,10 @@ export { createSkillTools, type SkillToolsDeps } from "./skills";
  * with `defineTool` from its contract in `@loomcast/contracts`, and is added here.
  */
 export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
-  const { db, clock, config, sessions, tokens, kb } = deps;
+  const { db, bus, clock, config, sessions, tokens, kb } = deps;
   const projects = createProjectsService(deps);
   const passwordTokens = createPasswordTokensService({ db, clock, config });
-  const users = createUsersService({ db, clock, sessions, tokens, passwordTokens });
+  const users = createUsersService({ db, bus, clock, sessions, tokens, passwordTokens });
   const content = contentServiceFor(deps);
   return [
     ...createProjectTools({ projects, appOrigin: config.appOrigin }),

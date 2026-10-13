@@ -133,7 +133,7 @@ function MembersList({ me }: { me: Me }) {
         open={confirmingDisable}
         onOpenChange={setConfirmingDisable}
         title={`Disable ${disableTarget?.name || disableTarget?.email || "this member"}?`}
-        description="They are signed out everywhere and can't sign in again. Their access tokens and unused links stop working; their work stays in the workspace."
+        description="They are signed out everywhere and can't sign in again. Their access tokens and unused links stop working, and the studio devices they paired are disconnected and revoked; their work stays in the workspace."
         confirmLabel="Disable access"
         pendingLabel="Disabling…"
         pending={disable.isPending}

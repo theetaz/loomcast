@@ -131,8 +131,10 @@ describe("middleware", () => {
     const response = await app.request("/healthz");
     expect(response.headers.get("x-request-id")).toMatch(/.+/);
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
-    const csp = response.headers.get("content-security-policy") ?? "";
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    // The web app's policy; test/security covers every route class exactly.
+    const page = await app.request("/");
+    const csp = page.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
     expect(csp).not.toContain("'unsafe-eval'");

@@ -78,14 +78,14 @@ export function toMe(user: AuthUser): Me {
  * `POST /api/auth/set-password`) and the owner's user routes (`/api/users`).
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
-  const { db, clock, config, sessions, tokens } = deps;
+  const { db, bus, clock, config, sessions, tokens } = deps;
   const router = new Hono<AppEnv>();
   const loginPerIp = createRateLimiter(LOGIN_LIMITS.perIp, clock);
   const loginPerAccount = createRateLimiter(LOGIN_LIMITS.perAccount, clock);
   const passwordChanges = createRateLimiter(PASSWORD_CHANGE_LIMIT, clock);
   const passwordLinks = createRateLimiter(PASSWORD_LINK_LIMIT, clock);
   const passwordTokens = createPasswordTokensService({ db, clock, config });
-  const usersService = createUsersService({ db, clock, sessions, tokens, passwordTokens });
+  const usersService = createUsersService({ db, bus, clock, sessions, tokens, passwordTokens });
 
   // Public route: the app-level session guard lets it through, so it applies the CSRF check itself.
   router.post(routes["auth.login"].path, deps.auth.csrfGuard, async (c) => {
