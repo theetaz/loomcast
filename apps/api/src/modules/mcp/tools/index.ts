@@ -5,12 +5,14 @@ import { contentServiceFor } from "../../content";
 import { formatsServiceFor } from "../../formats";
 import { createProjectsService } from "../../projects/service";
 import { seriesServiceFor } from "../../series";
+import { skillsServiceFor } from "../../skills";
 import { createAdminTools } from "./admin";
 import { createAssetTools } from "./assets";
 import { createKbTools } from "./kb";
 import { createPipelineTools } from "./pipeline";
 import { createProjectTools } from "./projects";
 import type { ToolDefinition } from "./registry";
+import { createSkillTools } from "./skills";
 
 export { type AdminToolsDeps, createAdminTools } from "./admin";
 export { type AssetToolsDeps, createAssetTools } from "./assets";
@@ -28,6 +30,7 @@ export {
   type ToolDefinition,
   type ToolImplementation,
 } from "./registry";
+export { createSkillTools, type SkillToolsDeps } from "./skills";
 
 /**
  * Every tool served on `/mcp`. A new group of tools lives in its own file under `tools/`, built
@@ -50,5 +53,6 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
       series: seriesServiceFor(deps),
     }),
     ...createAssetTools({ assets: deps.assets, content }),
+    ...createSkillTools({ skills: skillsServiceFor(deps) }),
   ];
 }
