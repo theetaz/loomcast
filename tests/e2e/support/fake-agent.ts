@@ -1,8 +1,9 @@
 /**
  * A fake studio agent for the smoke tests and for local development without a producer runtime.
  * It speaks the real bridge protocol through the contracts codec over a real WebSocket: it pairs
- * with `POST /api/bridge/pair`, connects to `/bridge/v1` with the device token, and answers
- * `producer.chat` jobs with streamed text instead of a producer session.
+ * with `POST /api/bridge/pair`, connects to `/bridge/v1` with the device token, answers
+ * `producer.chat` jobs with streamed text instead of a producer session, and answers
+ * `kb.analyze_reference` jobs with a fixed, schema-valid analysis.
  *
  * As a script it pairs and then answers every message with an echo until stopped:
  *
@@ -18,7 +19,12 @@ import {
   BRIDGE_PATH,
   type Credits,
   encode,
+  type JobCredentials,
   type JobEvent,
+  type KbAnalyzeReferencePayload,
+  KbAnalyzeReferencePayloadSchema,
+  type KbAnalyzeReferenceResult,
+  KbAnalyzeReferenceResultSchema,
   PairResponseSchema,
   PROTOCOL_VERSION,
   type ProducerChatPayload,
@@ -40,6 +46,8 @@ export interface ChatTurn {
   readonly payload: ProducerChatPayload;
   /** The producer session this turn runs in: the payload's, or a new one. */
   readonly sessionId: string;
+  /** The job's MCP credentials from `job.assign`, as a producer session would get them. */
+  readonly credentials: JobCredentials | undefined;
   /** An ephemeral `job.stream` delta, shown in the UI while the reply is written. */
   stream(text: string): void;
   /** A durable `status` event. */
@@ -53,6 +61,11 @@ export interface ChatTurn {
 /** Answers a turn. Returning resolves the job as succeeded with the last reply. */
 export type ChatHandler = (turn: ChatTurn) => Promise<void> | void;
 
+/** Analyses a reference. The result is checked against the job registry before it is sent. */
+export type AnalyzeHandler = (
+  payload: KbAnalyzeReferencePayload,
+) => Promise<KbAnalyzeReferenceResult> | KbAnalyzeReferenceResult;
+
 export interface PairedDevice {
   deviceId: string;
   token: string;
@@ -64,6 +77,8 @@ export interface FakeAgentOptions {
   token: string;
   /** Defaults to `echoHandler`. */
   onChat?: ChatHandler;
+  /** Defaults to `sampleAnalysisHandler`. */
+  onAnalyze?: AnalyzeHandler;
 }
 
 /** Streams "You said: …" in two deltas, then stores it as the reply. */
@@ -76,6 +91,57 @@ export const echoHandler: ChatHandler = async (turn) => {
   turn.stream(reply.slice(middle));
   turn.reply(reply);
 };
+
+/** A fixed analysis that names the first transcript line as the hook. */
+export const sampleAnalysisHandler: AnalyzeHandler = (payload) => {
+  const firstLine =
+    (payload.transcript ?? "")
+      .split("\n")
+      .map((line) => line.replace(/^\[[\d:]+\]\s*/, "").trim())
+      .find((line) => line !== "") ?? "The opening line";
+  return {
+    analysis: {
+      hook: { text: firstLine.slice(0, 500), type: "question", timeToHookMs: 0 },
+      structure: [
+        { label: "Hook", startMs: 0, endMs: 3_000, summary: "Opens on the question." },
+        { label: "Payoff", startMs: 3_000, endMs: 20_000, summary: "Answers it step by step." },
+      ],
+      pacing: { wordsPerMinute: 180, notes: "Fast, with no dead air." },
+      retention: [{ technique: "Open loop", evidence: "The answer waits for the last beat." }],
+      takeaways: ["Open on the question the viewer already has."],
+      applicability: "Use a question hook for the next explainer.",
+    },
+    summaryMd: "A question hook answered step by step.",
+  };
+};
+
+/** Calls an MCP tool with a job's credentials, as a producer session does; returns the result. */
+export async function callMcpTool(
+  serverUrl: string,
+  credentials: JobCredentials,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ isError?: boolean; structuredContent?: Record<string, unknown> }> {
+  const response = await fetch(new URL(credentials.mcp.endpoint, serverUrl), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${credentials.mcp.token}`,
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
+  });
+  const body = (await response.json()) as { result?: Record<string, unknown>; error?: unknown };
+  if (response.status !== 200 || body.result === undefined) {
+    throw new Error(`MCP ${name} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+  }
+  return body.result as { isError?: boolean; structuredContent?: Record<string, unknown> };
+}
 
 /** Exchanges a pairing code for a device token, as `studio-agent pair` does. */
 export async function pairDevice(
@@ -111,15 +177,19 @@ export class FakeStudioAgent {
   readonly received: ServerToAgent[] = [];
   /** Payloads of the `producer.chat` jobs this agent ran, in order. */
   readonly turns: ProducerChatPayload[] = [];
+  /** Payloads of the `kb.analyze_reference` jobs this agent ran, in order. */
+  readonly analyses: KbAnalyzeReferencePayload[] = [];
   /** Results this agent sent with `job.complete`, by job id. */
   readonly results = new Map<string, ProducerChatResult>();
   /** Frames from the server that did not parse; the smoke expects none. */
   readonly invalidFrames: string[] = [];
   onChat: ChatHandler;
+  onAnalyze: AnalyzeHandler;
 
   constructor(options: FakeAgentOptions) {
     this.#options = options;
     this.onChat = options.onChat ?? echoHandler;
+    this.onAnalyze = options.onAnalyze ?? sampleAnalysisHandler;
   }
 
   get connected(): boolean {
@@ -149,7 +219,7 @@ export class FakeStudioAgent {
         protocol: PROTOCOL_VERSION,
         agentVersion: AGENT_VERSION,
         platform: PLATFORM,
-        jobTypes: ["system.ping", "producer.chat"],
+        jobTypes: ["system.ping", "producer.chat", "kb.analyze_reference"],
         credits: this.#credits,
         resume: [],
       },
@@ -184,13 +254,14 @@ export class FakeStudioAgent {
     }
     this.received.push(parsed.message);
     if (parsed.message.type === "job.assign") {
-      void this.#run(parsed.message.payload.job).catch((error: unknown) => {
+      const { job, credentials } = parsed.message.payload;
+      void this.#run(job, credentials).catch((error: unknown) => {
         process.stderr.write(`[fake agent] job failed: ${(error as Error).message}\n`);
       });
     }
   }
 
-  async #run(job: AssignedJob): Promise<void> {
+  async #run(job: AssignedJob, credentials: JobCredentials | undefined): Promise<void> {
     if (job.type === "system.ping") {
       this.#send({ type: "job.accept", payload: { jobId: job.id } });
       this.#send({
@@ -204,6 +275,10 @@ export class FakeStudioAgent {
           },
         },
       });
+      return;
+    }
+    if (job.type === "kb.analyze_reference") {
+      await this.#analyze(job);
       return;
     }
     if (job.type !== "producer.chat") {
@@ -233,6 +308,7 @@ export class FakeStudioAgent {
       job,
       payload,
       sessionId,
+      credentials,
       stream: (text) =>
         this.#send({
           type: "job.stream",
@@ -263,6 +339,33 @@ export class FakeStudioAgent {
         payload: {
           jobId: job.id,
           error: { code: "producer_failed", message: (error as Error).message, retryable: true },
+        },
+      });
+    } finally {
+      this.#setCredits({ producer: this.#credits.producer + 1 });
+    }
+  }
+
+  async #analyze(job: AssignedJob): Promise<void> {
+    const payload = KbAnalyzeReferencePayloadSchema.parse(job.payload);
+    this.analyses.push(payload);
+    this.#send({ type: "job.accept", payload: { jobId: job.id } });
+    this.#setCredits({ producer: this.#credits.producer - 1 });
+    let seq = 0;
+    const event = (kind: JobEvent["kind"], data: JobEvent["data"]) => {
+      seq += 1;
+      this.#send({ type: "job.event", payload: { jobId: job.id, seq, kind, data } as JobEvent });
+    };
+    try {
+      event("status", { state: "running", message: "Reading the transcript" });
+      const result = KbAnalyzeReferenceResultSchema.parse(await this.onAnalyze(payload));
+      this.#send({ type: "job.complete", payload: { jobId: job.id, result } });
+    } catch (error) {
+      this.#send({
+        type: "job.fail",
+        payload: {
+          jobId: job.id,
+          error: { code: "analysis_invalid", message: (error as Error).message, retryable: false },
         },
       });
     } finally {
