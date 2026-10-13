@@ -112,7 +112,7 @@ describe("default deny", () => {
 
   it("answers 404 with an ApiError body outside the API", async () => {
     const { app } = createTestApp(testDb.db);
-    for (const path of ["/", "/mcp", "/bridge/v1", "/projects/abc"]) {
+    for (const path of ["/", "/bridge/v1", "/projects/abc"]) {
       const response = await app.request(path);
       expect(response.status, path).toBe(404);
       expect(await response.json()).toEqual({
@@ -256,7 +256,7 @@ describe("web app in production", () => {
     expect((await app.request("/api/projects")).status).toBe(401);
     expect((await app.request("/healthz")).status).toBe(200);
     expect((await app.request("/assets/missing.js")).status).toBe(404);
-    expect((await app.request("/mcp")).status).toBe(404);
+    expect((await app.request("/mcp")).status).toBe(401);
   });
 
   it("does not serve the web app outside production", async () => {
