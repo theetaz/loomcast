@@ -3,6 +3,7 @@ import { demoContent } from "./content";
 import { seedItemDemo } from "./content-item";
 import { demoConversations, resumeQueuedJobs } from "./conversations";
 import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
+import { seedFormatDemo } from "./formats";
 import { createHandlers, createStreamHandler } from "./handlers";
 import { demoKb } from "./kb";
 import { demoMembers } from "./users";
@@ -39,6 +40,7 @@ export async function startMockApi() {
   });
 
   seedItemDemo(db, now);
+  seedFormatDemo(db);
 
   window.loomcastMock = {
     setStudioOnline(online) {

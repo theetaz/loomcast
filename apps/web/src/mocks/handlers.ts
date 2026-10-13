@@ -26,7 +26,9 @@ import {
   setSignedIn,
   tokenPrefix,
 } from "./db";
+import { createFormatHandlers } from "./formats";
 import { createKbHandlers } from "./kb";
+import { createSeriesHandlers } from "./series";
 import { createUserHandlers } from "./users";
 
 /** Hono paths (`:id`) and MSW paths share the same syntax. */
@@ -199,6 +201,8 @@ export function createHandlers(db: MockDb) {
     ...createKbHandlers(db),
     ...createUserHandlers(db),
     ...createContentHandlers(db),
+    ...createFormatHandlers(db),
+    ...createSeriesHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

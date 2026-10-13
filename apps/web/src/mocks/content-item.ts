@@ -8,9 +8,7 @@ import {
   type ContentVersion,
   type ContentVersionSummary,
   CreateReviewRequestSchema,
-  DEFAULT_FORMAT_RULES,
   EditVersionRequestSchema,
-  type Format,
   findTransition,
   type PipelineState,
   REVIEW_DECISION_STATES,
@@ -188,47 +186,6 @@ function onlyCaptionOrNotes(body: z.infer<typeof EditVersionRequestSchema>): boo
   return (
     body.script === undefined && body.storyboard === undefined && body.voiceAssetId === undefined
   );
-}
-
-// Formats ------------------------------------------------------------------------------
-
-const formatsByDb = new WeakMap<MockDb, Map<string, Format>>();
-
-/**
- * The format behind a demo series, built from the default rules on first read. Formats a series
- * does not name are left to other handlers.
- */
-function seriesFormat(db: MockDb, id: string): Format | undefined {
-  let formats = formatsByDb.get(db);
-  if (!formats) {
-    formats = new Map();
-    formatsByDb.set(db, formats);
-  }
-  const cached = formats.get(id);
-  if (cached) return cached;
-  const series = db.series.find((entry) => entry.formatId === id);
-  if (!series) return undefined;
-  const rules = structuredClone(DEFAULT_FORMAT_RULES);
-  rules.lengthSec = { min: 30, max: 60 };
-  const format: Format = {
-    id,
-    projectId: series.projectId,
-    name: `${series.name} format`,
-    slug: `${series.slug}-format`,
-    currentVersion: {
-      id: mockId(),
-      formatId: id,
-      versionNo: 1,
-      rules,
-      createdBy: null,
-      createdAt: series.createdAt,
-    },
-    createdAt: series.createdAt,
-    updatedAt: series.createdAt,
-    archivedAt: null,
-  };
-  formats.set(id, format);
-  return format;
 }
 
 // Media bytes ------------------------------------------------------------------------------
@@ -587,18 +544,6 @@ export function createContentItemHandlers(db: MockDb) {
         if (db.simulateProducer) runSingleStep(db, item.id, job.id, "revise");
       }
       return HttpResponse.json({ review, item: updated }, { status: 201 });
-    }),
-
-    http.get(path("formats.get"), ({ params }) => {
-      if (!db.signedIn) return unauthorized();
-      const format = seriesFormat(db, String(params.id));
-      return format ? HttpResponse.json(format) : undefined;
-    }),
-
-    http.get(path("formats.versions"), ({ params }) => {
-      if (!db.signedIn) return unauthorized();
-      const format = seriesFormat(db, String(params.id));
-      return format ? HttpResponse.json({ items: [format.currentVersion] }) : undefined;
     }),
   ];
 }
