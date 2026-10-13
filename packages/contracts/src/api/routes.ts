@@ -688,7 +688,10 @@ export const routes = {
     status: 200,
   }),
 
-  /** Answers `upload: null` when a ready asset with the same kind and SHA-256 already exists. */
+  /**
+   * Answers `upload: null` when a ready asset with the same kind and SHA-256 already exists for
+   * the same item (or, without `itemId`, among the project's project-level media).
+   */
   "assets.createUpload": route({
     method: "POST",
     path: "/api/assets/uploads",

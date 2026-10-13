@@ -581,7 +581,7 @@ Save a new version of an item with a script, a storyboard or both. The item move
 
 ### `content.upload_asset`
 
-Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when an identical file is already stored.
+Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when the item already holds an identical file of that kind.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
