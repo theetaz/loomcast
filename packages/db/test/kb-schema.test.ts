@@ -1,16 +1,25 @@
 import {
   ACTOR_KINDS,
+  ASSET_KINDS,
+  ASSET_STATUSES,
+  CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
   KB_CREATED_VIA,
   KB_ENTRY_KINDS,
   MESSAGE_ROLES,
   PASSWORD_TOKEN_PURPOSES,
+  PIPELINE_STATES,
+  PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
+  REVIEW_DECISIONS,
+  SERIES_STATUSES,
+  SKILL_KINDS,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
+  VERSION_CREATED_VIA,
 } from "@loomcast/contracts";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -355,6 +364,15 @@ describe("pg enums", () => {
     kb_created_via: KB_CREATED_VIA,
     reference_platform: REFERENCE_PLATFORMS,
     password_token_purpose: PASSWORD_TOKEN_PURPOSES,
+    series_status: SERIES_STATUSES,
+    pipeline_state: PIPELINE_STATES,
+    produce_target: PRODUCE_TARGETS,
+    content_created_via: CONTENT_CREATED_VIA,
+    version_created_via: VERSION_CREATED_VIA,
+    review_decision: REVIEW_DECISIONS,
+    asset_kind: ASSET_KINDS,
+    asset_status: ASSET_STATUSES,
+    skill_kind: SKILL_KINDS,
   };
 
   it("hold exactly the contracts values, in order", async () => {
