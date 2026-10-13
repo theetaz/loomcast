@@ -281,16 +281,28 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [keyboardTargetId]);
 
-  // After a keyboard drop the chip re-mounts in its new cell: give it focus back once it is there
-  // (or wherever it settled, if the move was refused).
+  // After a keyboard move the chip re-mounts in its new cell, and again as the save, the refetch or
+  // a live event re-render it. Until the post settles (its save finished), every commit looks the
+  // chip up again by post id and gives it focus, so focus never stays on a node that was replaced.
+  // Focus the user moved elsewhere in the meantime (Tab, a click) is left alone.
   useEffect(() => {
     if (!refocus) return;
+    const settled = !saving.has(refocus.postId);
     const chip = document.querySelector<HTMLElement>(`[data-post-chip="${refocus.postId}"]`);
+    const active = document.activeElement;
+    const elsewhere =
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active.dataset.postChip !== refocus.postId;
+    if (elsewhere) {
+      setRefocus(null);
+      return;
+    }
     if (!chip) return;
     const cell = chip.closest<HTMLElement>("[data-cell]")?.dataset.cell;
-    if (cell !== refocus.cell && saving.has(refocus.postId)) return;
-    if (document.activeElement !== chip) chip.focus();
-    setRefocus(null);
+    if (cell !== refocus.cell && !settled) return;
+    if (active !== chip) chip.focus();
+    if (settled) setRefocus(null);
   });
 
   const value: BoardContextValue = { ...context, view, drag, saving };
@@ -302,6 +314,8 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
         sensors={sensors}
         collisionDetection={collisionDetection}
         accessibility={{
+          // The effect above returns focus once the moved chip is in its new cell.
+          restoreFocus: false,
           announcements,
           screenReaderInstructions: { draggable: INSTRUCTIONS },
         }}

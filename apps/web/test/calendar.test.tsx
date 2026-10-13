@@ -189,11 +189,17 @@ describe("rescheduling", () => {
         "2026-10-15T09:00:00.000Z",
       ),
     );
-    // Focus follows the post to its new cell.
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: new RegExp(`^${MOVES}`) }),
-      ),
+    // Focus follows the post to its new cell, and stays there once the save settles. The chip is
+    // looked up again on every check: the move, the save and the live event re-render it.
+    const movedChip = () =>
+      document.querySelector<HTMLElement>(`[data-post-chip="${setup.posts.moves.id}"]`);
+    await waitFor(
+      () => {
+        expect(cellOf(movedChip() as HTMLElement)).toBe("cell:2026-10-15:8");
+        expect(movedChip()).not.toHaveAttribute("aria-busy");
+        expect(document.activeElement).toBe(movedChip());
+      },
+      { timeout: 10_000 },
     );
   });
 
