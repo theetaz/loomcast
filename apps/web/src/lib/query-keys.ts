@@ -13,6 +13,7 @@ export const queryKeys = {
   },
   devices: ["devices"] as const,
   tokens: ["tokens"] as const,
+  users: ["users"] as const,
   jobs: {
     detail: (id: string) => ["jobs", id] as const,
   },

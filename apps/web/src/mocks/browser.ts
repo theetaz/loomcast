@@ -3,6 +3,7 @@ import { demoConversations, resumeQueuedJobs } from "./conversations";
 import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { createHandlers, createStreamHandler } from "./handlers";
 import { demoKb } from "./kb";
+import { demoMembers } from "./users";
 
 const SESSION_KEY = "loomcast-mock-session";
 
@@ -25,6 +26,7 @@ export async function startMockApi() {
     ...seed,
     ...(firstProject ? demoConversations(firstProject.id, MOCK_USER.id, now) : {}),
     kbEntries: firstProject ? demoKb(firstProject.id, MOCK_USER.id, now) : [],
+    members: demoMembers(now),
     simulateProducer: true,
     signedIn: sessionStorage.getItem(SESSION_KEY) === "1",
     onSessionChange: (signedIn) => {
