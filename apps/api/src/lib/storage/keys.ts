@@ -21,17 +21,30 @@ export function extensionForMime(mime: string): string {
   return (MIME_EXTENSIONS as Readonly<Record<string, string>>)[mime] ?? "bin";
 }
 
+/** Who holds an asset: a content item of a project, or the project itself (`itemId` null). */
+export interface AssetOwner {
+  projectId: string;
+  itemId?: string | null;
+}
+
 /**
- * Private key of an asset: `projects/<projectId>/<kind>/<sha256>.<ext>`. Content-addressed, so the
- * same bytes uploaded twice to a project as the same kind land on the same key.
+ * Private key of an asset, content-addressed within its owner, as uploads are deduplicated:
+ * `projects/<projectId>/items/<itemId>/<kind>/<sha256>.<ext>` for an item's asset and
+ * `projects/<projectId>/media/<kind>/<sha256>.<ext>` for project-level media such as references.
+ * Two items holding the same bytes get one object each, so deleting one asset's object never
+ * removes another's. Assets stored before uploads were deduplicated per item keep their keys
+ * (`projects/<projectId>/<kind>/<sha256>.<ext>`); no kind is named `items` or `media`, so a new
+ * key never lands on one of those objects.
  */
 export function assetStorageKey(
-  projectId: string,
+  owner: AssetOwner,
   kind: AssetKind,
   sha256: string,
   mime: string,
 ): string {
-  return `projects/${projectId}/${kind}/${sha256.toLowerCase()}.${extensionForMime(mime)}`;
+  const scope =
+    owner.itemId === undefined || owner.itemId === null ? "media" : `items/${owner.itemId}`;
+  return `projects/${owner.projectId}/${scope}/${kind}/${sha256.toLowerCase()}.${extensionForMime(mime)}`;
 }
 
 const SHA256_FILE_RE = /(?:^|\/)([0-9a-f]{64})(?:\.([a-z0-9]{1,8}))?$/;

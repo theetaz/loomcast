@@ -31,11 +31,15 @@ export interface AssetMeta {
  * storage under `bucket` and `storageKey`, which are never exposed. An asset is `pending` until
  * its upload is finalized and its size and SHA-256 verified, then `ready` (or `failed`).
  *
- * A project holds one live asset per kind and SHA-256, so uploading the same bytes again returns
- * the existing asset. Failed assets are left out of that index, so a failed upload can be retried;
- * an `ON CONFLICT` target must repeat the predicate (`status <> 'failed'`). The predicate uses the
- * enum literal because an index predicate must be immutable and an enum-to-text cast is not; that
- * is safe here because `asset_status` is created, not extended, by the same migration.
+ * Uploading the same bytes again returns the existing asset, within the asset's owner: an item
+ * holds one live asset per kind and SHA-256 (`assets_project_id_item_id_kind_sha256_uq`), and the
+ * project holds one per kind and SHA-256 among its project-level media, those without an item
+ * (`assets_project_id_kind_sha256_uq`). So two items may each hold the same voice take or render,
+ * and a version can always point at an asset of its own item. Failed assets are left out of both
+ * indexes, so a failed upload can be retried; an `ON CONFLICT` target must repeat the index's
+ * predicate. The predicates use the enum literal because an index predicate must be immutable and
+ * an enum-to-text cast is not; that is safe because `asset_status` is created, not extended, by
+ * the migration that created the table.
  */
 export const assets = pgTable(
   "assets",
@@ -71,7 +75,10 @@ export const assets = pgTable(
     uniqueIndex("assets_storage_key_uq").on(t.storageKey),
     uniqueIndex("assets_project_id_kind_sha256_uq")
       .on(t.projectId, t.kind, t.sha256)
-      .where(sql`${t.status} <> 'failed'`),
+      .where(sql`${t.itemId} is null and ${t.status} <> 'failed'`),
+    uniqueIndex("assets_project_id_item_id_kind_sha256_uq")
+      .on(t.projectId, t.itemId, t.kind, t.sha256)
+      .where(sql`${t.itemId} is not null and ${t.status} <> 'failed'`),
     index("assets_item_id_created_at_idx")
       .on(t.itemId, t.createdAt.desc())
       .where(sql`${t.itemId} is not null`),

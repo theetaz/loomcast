@@ -242,7 +242,7 @@ export const pipelineTools = {
     jobTokens: "allow",
     projectBinding: "input",
     description:
-      "Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when an identical file is already stored.",
+      "Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when the item already holds an identical file of that kind.",
     input: ContentUploadAssetInputSchema,
     output: ContentUploadAssetOutputSchema,
   },

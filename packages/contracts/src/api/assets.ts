@@ -154,7 +154,8 @@ export function checkUploadFile(
 
 /**
  * Asks for an upload. The MIME type must suit the kind (`ASSET_KIND_MIME_TYPES`) and the size its
- * cap (`ASSET_KIND_MAX_BYTES`). `itemId` must belong to `projectId`.
+ * cap (`ASSET_KIND_MAX_BYTES`). `itemId` must belong to `projectId`; the asset belongs to that item,
+ * and without it to the project (reference media).
  */
 export const CreateUploadRequestSchema = z
   .object({
@@ -178,8 +179,9 @@ export const UploadInstructionsSchema = z.object({
 export type UploadInstructions = z.infer<typeof UploadInstructionsSchema>;
 
 /**
- * The asset and its upload. When the project already has a ready asset of the same kind and
- * SHA-256, that asset is returned with `upload: null` and nothing needs uploading.
+ * The asset and its upload. When the item (or, for an upload without `itemId`, the project's
+ * project-level media) already has a ready asset of the same kind and SHA-256, that asset is
+ * returned with `upload: null` and nothing needs uploading. Another item's copy is never returned.
  */
 export const CreateUploadResponseSchema = z.object({
   asset: AssetSchema,

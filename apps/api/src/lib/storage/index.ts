@@ -1,4 +1,5 @@
 export {
+  type AssetOwner,
   assetStorageKey,
   contentDisposition,
   extensionForMime,

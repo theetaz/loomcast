@@ -1,0 +1,3 @@
+DROP INDEX "assets_project_id_kind_sha256_uq";--> statement-breakpoint
+CREATE UNIQUE INDEX "assets_project_id_item_id_kind_sha256_uq" ON "assets" USING btree ("project_id","item_id","kind","sha256") WHERE "assets"."item_id" is not null and "assets"."status" <> 'failed';--> statement-breakpoint
+CREATE UNIQUE INDEX "assets_project_id_kind_sha256_uq" ON "assets" USING btree ("project_id","kind","sha256") WHERE "assets"."item_id" is null and "assets"."status" <> 'failed';

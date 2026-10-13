@@ -17,8 +17,10 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AppDeps, ModuleDeps } from "../src/deps";
 import { createEventBus } from "../src/lib/bus";
+import { transaction } from "../src/lib/db";
 import { createLifecycle } from "../src/lib/lifecycle";
 import { createLogger } from "../src/lib/logger";
+import { contentServiceFor, SYSTEM_ACTOR } from "../src/modules/content";
 import { formatsServiceFor } from "../src/modules/formats";
 import { TOOL_CALL_AUDIT_ACTION } from "../src/modules/mcp";
 import { seriesServiceFor } from "../src/modules/series";
@@ -487,6 +489,64 @@ describe("asset tools", () => {
     expect(repeated.upload).toBeNull();
     expect(repeated.asset.id).toBe(asset.id);
     expect(textOf(again)).toContain("no upload needed");
+  });
+
+  it("gives two items their own copies of an identical voice take and render", async () => {
+    const content = contentServiceFor(moduleDeps);
+    const items = [
+      await item({ projectId: projectA, state: "storyboard", level: "storyboard" }),
+      await item({ projectId: projectA, state: "storyboard", level: "storyboard" }),
+    ];
+    const job = await jobClient(projectA);
+    const voice = voiceFile(1_024);
+    const render = randomFile(1_536);
+    const files = [
+      { field: "voiceAssetId", file: voice.file, args: voice.args },
+      {
+        field: "renderAssetId",
+        file: render,
+        args: {
+          kind: "render",
+          filename: "final.mp4",
+          mime: "video/mp4",
+          bytes: render.bytes.length,
+          sha256: render.sha256,
+        },
+      },
+    ] as const;
+
+    for (const { field, file, args } of files) {
+      const ids: string[] = [];
+      for (const { itemId } of items) {
+        const started = await call(job.client, "content.upload_asset", { itemId, ...args });
+        expectOk(started);
+        const { asset, upload } = ContentUploadAssetOutputSchema.parse(started.structuredContent);
+        await storageKeyOf(asset.id);
+        expect(asset.itemId).toBe(itemId);
+        // Never the other item's asset, so the bytes go up once per item.
+        expect(ids).not.toContain(asset.id);
+        expect(upload).not.toBeNull();
+        if (upload === null) return;
+        expect((await putUpload(upload, file.bytes)).status).toBe(200);
+        expectOk(await call(job.client, "content.finalize_asset", { assetId: asset.id }));
+        ids.push(asset.id);
+
+        // The item's next version may use it, as a production job's result does.
+        const result = await transaction(testDb.db, (tx) =>
+          content.createVersion(tx, itemId, { [field]: asset.id }, SYSTEM_ACTOR),
+        );
+        expect(result.version[field]).toBe(asset.id);
+      }
+
+      // Each item still deduplicates its own upload.
+      for (const [index, { itemId }] of items.entries()) {
+        const again = await call(job.client, "content.upload_asset", { itemId, ...args });
+        expectOk(again);
+        const repeated = ContentUploadAssetOutputSchema.parse(again.structuredContent);
+        expect(repeated.asset.id).toBe(ids[index]);
+        expect(repeated.upload).toBeNull();
+      }
+    }
   });
 
   it("reports a pending asset as not ready and unknown assets as not found", async () => {

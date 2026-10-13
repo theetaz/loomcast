@@ -12,7 +12,7 @@ import type {
   UploadInstructions,
 } from "@loomcast/contracts";
 import { type AssetMeta, type AssetRow, assets, contentItems, type Database } from "@loomcast/db";
-import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
@@ -46,7 +46,10 @@ export interface AssetActor {
 
 export interface CreateUploadInput {
   projectId: string;
-  /** Must be an item of `projectId`. */
+  /**
+   * Must be an item of `projectId`. The asset belongs to the item, and uploads are deduplicated
+   * per item; without it the asset is project-level media, deduplicated per project.
+   */
   itemId?: string;
   kind: AssetKind;
   filename: string;
@@ -58,7 +61,7 @@ export interface CreateUploadInput {
 
 export interface CreateUploadResult {
   asset: Asset;
-  /** Null when the project already has this file as a ready asset of the same kind. */
+  /** Null when the asset's owner already has this file as a ready asset of the same kind. */
   upload: UploadInstructions | null;
   /** False when an existing asset was returned. */
   created: boolean;
@@ -70,10 +73,13 @@ export type VerificationFailure = "size_mismatch" | "checksum_mismatch" | "unver
 export interface AssetsService {
   /**
    * Starts an upload: inserts a `pending` asset and presigns a PUT to its content-addressed key.
-   * When the project already holds the same kind and SHA-256 (a live asset, not a failed one),
-   * that asset is returned instead: `upload: null` when it is ready, a fresh upload URL when it is
-   * still pending. A failed asset with the same key is reset to pending and reused. 404 for an
-   * unknown project, 409 for an archived one, 400 when `itemId` is not an item of the project.
+   * When the asset's owner already holds the same kind and SHA-256 (a live asset, not a failed
+   * one), that asset is returned instead: `upload: null` when it is ready, a fresh upload URL when
+   * it is still pending. The owner is the item when `itemId` is given, so another item's copy of
+   * the same bytes is never returned and a version can always use the asset; without `itemId` it
+   * is the project's project-level media (reference media). A failed asset with the same key is
+   * reset to pending and reused. 404 for an unknown project, 409 for an archived one, 400 when
+   * `itemId` is not an item of the project.
    */
   createUpload(input: CreateUploadInput, actor: AssetActor): Promise<CreateUploadResult>;
   /**
@@ -118,7 +124,11 @@ type Verification =
 export const storageUnavailable = () =>
   new HttpError(503, "storage_unavailable", "Object storage is not configured on this server.");
 
-/** `status <> 'failed'`, the predicate of the dedupe index `assets_project_id_kind_sha256_uq`. */
+/**
+ * `status <> 'failed'`, the shared part of the predicates of the dedupe indexes
+ * `assets_project_id_item_id_kind_sha256_uq` (item assets) and `assets_project_id_kind_sha256_uq`
+ * (project-level media).
+ */
 const LIVE = ne(assets.status, "failed");
 
 /** SHA-256 of a stream as lowercase hex; null when it runs past `maxBytes`. */
@@ -173,6 +183,10 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
     }
   }
 
+  /**
+   * The live asset an upload deduplicates against: same owner (the item, or the project's
+   * project-level media when there is no item), kind and SHA-256. Locked until the transaction ends.
+   */
   async function findLive(tx: Transaction, input: CreateUploadInput): Promise<AssetRow | null> {
     const [row] = await tx
       .select()
@@ -180,6 +194,7 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
       .where(
         and(
           eq(assets.projectId, input.projectId),
+          input.itemId === undefined ? isNull(assets.itemId) : eq(assets.itemId, input.itemId),
           eq(assets.kind, input.kind),
           eq(assets.sha256, input.sha256),
           LIVE,
@@ -251,7 +266,12 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
       requireStorage();
       const sha256 = input.sha256.toLowerCase();
       const request = { ...input, sha256 };
-      const storageKey = assetStorageKey(input.projectId, input.kind, sha256, input.mime);
+      const storageKey = assetStorageKey(
+        { projectId: input.projectId, itemId: input.itemId ?? null },
+        input.kind,
+        sha256,
+        input.mime,
+      );
 
       const { row, created } = await transaction(db, async (tx) => {
         await requireActiveProject(tx, input.projectId);

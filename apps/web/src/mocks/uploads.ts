@@ -57,8 +57,8 @@ function listed(asset: AssetDetail) {
 /**
  * Uploads: `assets.createUpload`, the presigned PUT and `assets.finalize`. Assets live in
  * `db.assets` beside the item page's voice takes, renders and posters, so `assets.get` and
- * `assets.url` (in `content-item.ts`) serve both. A ready asset with the same project, kind and
- * SHA-256 answers `upload: null`, like the API.
+ * `assets.url` (in `content-item.ts`) serve both. A ready asset with the same owner (the item, or
+ * the project when there is no item), kind and SHA-256 answers `upload: null`, like the API.
  */
 export function createUploadHandlers(db: MockDb) {
   const uploads = mockUploads(db);
@@ -75,6 +75,7 @@ export function createUploadHandlers(db: MockDb) {
       const existing = db.assets.find(
         (asset) =>
           asset.projectId === input.projectId &&
+          asset.itemId === (input.itemId ?? null) &&
           asset.kind === input.kind &&
           asset.sha256 === input.sha256 &&
           asset.status === "ready",

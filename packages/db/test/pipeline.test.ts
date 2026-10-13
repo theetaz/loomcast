@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_FORMAT_RULES } from "@loomcast/contracts";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Database } from "../src/client";
 import { nextFormatVersionNo, nextSkillVersion, nextVersionNo } from "../src/queries/versions";
@@ -483,20 +483,26 @@ describe("reviews", () => {
 });
 
 describe("assets", () => {
-  it("keep one live asset per project, kind and sha256", async () => {
+  it("keep one live project-level asset per project, kind and sha256", async () => {
     const { user, project } = await setup();
     const other = await insertProject(testDb.db, user.id);
     const sha256 = randomHash();
+    const reference = {
+      projectId: project.id,
+      kind: "reference_media",
+      mime: "video/mp4",
+    } as const;
 
     const [first] = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, sha256 }))
+      .values(assetValues({ ...reference, sha256 }))
       .returning();
     expect(first?.status).toBe("pending");
+    expect(first?.itemId).toBeNull();
     expect(first?.meta).toEqual({});
 
     const error = await pgError(
-      testDb.db.insert(assets).values(assetValues({ projectId: project.id, sha256 })),
+      testDb.db.insert(assets).values(assetValues({ ...reference, sha256 })),
     );
     expect(error).toEqual({
       code: PG.uniqueViolation,
@@ -506,21 +512,23 @@ describe("assets", () => {
     // Insert-or-return-existing, as the upload route does.
     const skipped = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, sha256 }))
+      .values(assetValues({ ...reference, sha256 }))
       .onConflictDoNothing({
         target: [assets.projectId, assets.kind, assets.sha256],
-        where: sql`status <> 'failed'`,
+        where: sql`item_id is null and status <> 'failed'`,
       })
       .returning();
     expect(skipped).toEqual([]);
 
-    // Another kind or another project may hold the same bytes.
+    // Another kind, another project or an item may hold the same bytes.
+    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
     await testDb.db
       .insert(assets)
-      .values(
-        assetValues({ projectId: project.id, sha256, kind: "reference_media", mime: "video/mp4" }),
-      );
-    await testDb.db.insert(assets).values(assetValues({ projectId: other.id, sha256 }));
+      .values([
+        assetValues({ projectId: project.id, sha256 }),
+        assetValues({ ...reference, projectId: other.id, sha256 }),
+        assetValues({ ...reference, itemId: item.id, sha256 }),
+      ]);
 
     // A failed upload does not block a retry of the same bytes.
     await testDb.db
@@ -529,7 +537,59 @@ describe("assets", () => {
       .where(eq(assets.id, first?.id ?? ""));
     const [retry] = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, sha256 }))
+      .values(assetValues({ ...reference, sha256 }))
+      .returning();
+    expect(retry?.status).toBe("pending");
+  });
+
+  it("keep one live asset per item, kind and sha256, so items never share one", async () => {
+    const { project } = await setup();
+    const { item: first } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { item: second } = await insertContentItem(testDb.db, { projectId: project.id });
+    const sha256 = randomHash();
+
+    for (const kind of ["voice", "render"] as const) {
+      const mime = kind === "voice" ? "audio/mpeg" : "video/mp4";
+      const values = { projectId: project.id, kind, mime, sha256 };
+      const [own] = await testDb.db
+        .insert(assets)
+        .values(assetValues({ ...values, itemId: first.id }))
+        .returning();
+
+      const error = await pgError(
+        testDb.db.insert(assets).values(assetValues({ ...values, itemId: first.id })),
+      );
+      expect(error).toEqual({
+        code: PG.uniqueViolation,
+        constraint: "assets_project_id_item_id_kind_sha256_uq",
+      });
+      const skipped = await testDb.db
+        .insert(assets)
+        .values(assetValues({ ...values, itemId: first.id }))
+        .onConflictDoNothing({
+          target: [assets.projectId, assets.itemId, assets.kind, assets.sha256],
+          where: sql`item_id is not null and status <> 'failed'`,
+        })
+        .returning();
+      expect(skipped).toEqual([]);
+
+      // The second item gets an asset of its own for the same bytes.
+      const [copy] = await testDb.db
+        .insert(assets)
+        .values(assetValues({ ...values, itemId: second.id }))
+        .returning();
+      expect(copy?.id).not.toBe(own?.id);
+      expect(copy?.itemId).toBe(second.id);
+    }
+
+    // A failed upload does not block a retry of the same bytes for the item.
+    await testDb.db
+      .update(assets)
+      .set({ status: "failed" })
+      .where(and(eq(assets.itemId, first.id), eq(assets.kind, "voice")));
+    const [retry] = await testDb.db
+      .insert(assets)
+      .values(assetValues({ projectId: project.id, itemId: first.id, kind: "voice", sha256 }))
       .returning();
     expect(retry?.status).toBe("pending");
   });

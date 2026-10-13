@@ -92,6 +92,13 @@
       "when": 1791881902816,
       "tag": "0012_add_post_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791885194773,
+      "tag": "0013_scope_asset_dedupe_to_items",
+      "breakpoints": true
     }
   ]
 }
