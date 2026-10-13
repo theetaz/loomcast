@@ -184,6 +184,13 @@ ports, creates a scratch database `loomcast_e2e_<time>_<random>`, migrates it, s
 (with the local SeaweedFS when it answers) and the Vite dev server, creates an owner with
 `pnpm admin:create`, and drives the runbooks in Chromium with the fake studio agent:
 
+- `specs/calendar.spec.ts` (M4): link a series whose format publishes automatically to a
+  planning channel and watch it fill the calendar 14 days ahead, have the first slot (a few
+  minutes ahead, one-hour lead time) produced and approved by the system, approve a second
+  series' video for a channel that requires approval in the approvals inbox, drag a planned post
+  to the next day, and check both posts publish in dry-run at the slot with their `dryrun://`
+  permalinks and recorded requests. It waits for the slot, so it takes about five minutes. It
+  pauses its series and revokes its device when it ends.
 - `specs/kb.spec.ts` (M2): write a brainstorm and find it with ⌘K, have a chat turn save a
   brainstorm over MCP with its job token while the Knowledge tab is open, analyze a reference
   from its transcript, file a session summary with the session-end hook, and invite a user over
@@ -201,9 +208,11 @@ ports, creates a scratch database `loomcast_e2e_<time>_<random>`, migrates it, s
 When it ends it stops both servers and drops the database; databases left by an aborted run are
 dropped by a later run after six hours.
 
+- The API under test runs its scheduler every 500 ms and always publishes in dry-run with a
+  14-day planning horizon, whatever `.env` says (`apiEnvironment` in `tests/e2e/support/env.ts`).
 - `LOOMCAST_E2E_S3` picks the object storage: `auto` (default) uses the local store when it
-  answers at `S3_ENDPOINT` (default `http://127.0.0.1:59000`) and skips the pipeline spec
-  otherwise; `required` fails the run instead (CI); `off` skips it. The keys come from `S3_*` or
+  answers at `S3_ENDPOINT` (default `http://127.0.0.1:59000`) and skips the pipeline and
+  calendar specs otherwise; `required` fails the run instead (CI); `off` skips it. The keys come from `S3_*` or
   `infra/seaweedfs/s3.json`.
 - Set `LOOMCAST_E2E_LOG_LEVEL=info` to see the API's log.
 - Failures leave a trace and a screenshot in `tests/e2e/test-results/`; open a trace with
@@ -334,6 +343,55 @@ including the one-time Mac setup (owner checkpoint C6), are in the
 `pnpm test:e2e` checks the same flow with the fake studio agent, whose script, storyboard and
 media are fixtures rather than a producer session's, the TTS provider's and a render's.
 
+## Scheduling and publishing (M4)
+
+Milestone 4 adds cadences, the calendar, approval rules and the publisher. The
+[scheduling and publishing guide](scheduling-and-publishing.md) explains the cadence model, the
+approval rules, dry-run, dead letters and time zones. Locally everything publishes in dry-run:
+
+- `PUBLISHING_MODE=dry-run` (the default in `.env.example`) records each post's requests and a
+  `dryrun://` permalink instead of sending it. Keep it locally; live publishing needs connected
+  accounts and is set up as in the guide's [live publishing](scheduling-and-publishing.md#live-publishing)
+  section.
+- `SCHEDULER_ENABLED=true` runs the scheduled tasks in `pnpm dev`; `SCHEDULER_TICK_MS` (5000)
+  is how often it looks for due ones. `PUBLISHING_ENABLED=false` pauses publishing.
+- `CADENCE_HORIZON_DAYS` (14) is how far ahead series are planned.
+- `LOOMCAST_ENCRYPTION_KEY` is needed only to connect real accounts. Planning channels
+  (**Settings → Channels → Add planning channel**) need nothing: they are disconnected and always
+  dry-run.
+
+## M4 acceptance runbook
+
+Milestone 4 is done when this passes on the workstation, on top of the M3 setup (stack up,
+`pnpm dev` running, studio agent paired and running, skills seeded) with `PUBLISHING_MODE=dry-run`.
+
+1. **A planning channel.** In **Settings → Channels**, add a planning channel (Instagram, say).
+   It shows **Dry run** on and a banner says the server only dry-runs.
+2. **A cadence.** Open a series' format and set a voice, every day at a time a few minutes past
+   the next hour, your time zone, a one-hour lead time and **Publish automatically**. Save. The
+   series page's **Cadence** card lists the next slots.
+3. **The calendar fills.** On the series page, switch the channel on in the **Channels** card.
+   Within a few seconds **Calendar** shows one planned post a day for the next 14 days, titled
+   `<series> · <date>`.
+4. **Items are produced ahead of each slot.** An hour before the first slot, its item is produced
+   (script, storyboard, voice, render) on the studio agent. On reaching review the system approves
+   it: the post turns **Queued** and the item **Scheduled**, with a system review in its history.
+5. **Approval mode holds.** Add a second planning channel with **Approval** on and switch it on
+   for the series too, or use a series whose format says **Wait for approval**. Its video waits in
+   **Approvals** with the time left before its slot; its post stays **Planned**. Approve it there
+   and the post turns **Queued**. A video left unapproved past its slot shows under **Missed
+   posts**, where it can be rescheduled.
+6. **Drag rescheduling works.** Drag a planned post to another day or time on the calendar. It
+   stays there after a reload; a time less than two minutes ahead is refused.
+7. **The dry-run publisher records the payload.** At the slot the posts turn **Published**.
+   `GET /api/scheduled-posts/<postId>/attempts` (with the session cookie) shows the attempt with
+   `dryRun: true`, the requests the platform would have received (caption, video URL on
+   `dry-run.invalid`, credentials `[redacted]`) and the `dryrun://<platform>/<postId>` permalink.
+8. **Nothing is dead.** **Settings → Scheduler** lists no dead tasks.
+
+`pnpm test:e2e` checks steps 1 to 8 with the fake studio agent (`specs/calendar.spec.ts`), with
+a slot a few minutes ahead instead of the next hour.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -367,4 +425,9 @@ media are fixtures rather than a producer session's, the TTS provider's and a re
 | Uploads or media links answer 503 `storage_unavailable` | The API started without `S3_*`. Copy them from `.env.example` and restart `pnpm dev` |
 | Production stops before the voice with `voice_not_configured` | The format has no voice ID. Set one in the format editor and produce again |
 | A voice or render job fails | See the [studio runtime troubleshooting](studio-runtime.md#troubleshooting) |
+| A series has slots but nothing appears on the calendar | It has no channel switched on, the series or its project is paused, or the slot is less than two minutes away. Switch a channel on in the series' **Channels** card |
+| A post turns **Missed** | Its time came before its video was approved (or produced). Approve the video and reschedule the post from **Approvals → Missed posts** |
+| A channel's **Dry run** switch is locked (`409 dry_run_locked` from the API) | Its tooltip says why: the server is in `PUBLISHING_MODE=dry-run`, or the channel is a planning channel or needs reconnecting. See [dry-run and going live](scheduling-and-publishing.md#dry-run-and-going-live) |
+| Due posts stay **Queued** | Publishing is paused (`PUBLISHING_ENABLED=false`) or the scheduler is off (`SCHEDULER_ENABLED=false`); **Settings → Scheduler** shows its last run |
+| A task shows in **Settings → Scheduler** as dead | Every attempt failed. Read its last error, fix the cause and use **Retry** |
 | Old `t_*`, `loomcast_template_*` or `loomcast_e2e_*` databases pile up | Test runs drop their own databases; a crashed run may leave some. They are safe to drop when no tests are running (templates first need `alter database <name> is_template false`) |
