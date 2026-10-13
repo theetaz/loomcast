@@ -10,6 +10,13 @@ import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppDeps, ModuleDeps, Presence, RegisterModule } from "./deps";
 import { HttpError, notFound } from "./lib/errors";
+import {
+  createS3Storage,
+  createUnconfiguredStorage,
+  type Storage,
+  type StorageConfig,
+} from "./lib/storage";
+import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
 import { createSessionsService } from "./modules/auth/sessions";
 import { register as registerBridge } from "./modules/bridge";
@@ -83,6 +90,10 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   deps.lifecycle.onClose(subscribeJobStatusHooks(deps.bus, hooks));
   const auth = createAuthGuards({ config, clock: deps.clock, sessions, tokens });
   const presence: Presence = { connectedDevices: () => NO_DEVICES };
+  const storage: Storage =
+    deps.storage ??
+    (config.storage === null ? createUnconfiguredStorage() : ownStorage(deps, config.storage));
+  const assets = createAssetsService({ ...deps, storage });
   const moduleDeps: ModuleDeps = {
     ...deps,
     sessions,
@@ -92,6 +103,8 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     hooks,
     auth,
     presence,
+    storage,
+    assets,
   };
 
   const app = new Hono<AppEnv>();
@@ -175,6 +188,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerProjects(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerKb(app, moduleDeps);
+  registerAssets(app, moduleDeps);
   registerStream(app, moduleDeps);
   registerDevices(app, moduleDeps);
   registerBridge(app, moduleDeps);
@@ -192,6 +206,13 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   app.onError((error, c) => errorResponse(error, c, deps));
 
   return app;
+}
+
+/** The S3 client for `config.storage`, closed with the app. */
+function ownStorage(deps: AppDeps, config: StorageConfig): Storage {
+  const storage = createS3Storage(config);
+  deps.lifecycle.onClose(() => storage.destroy());
+  return storage;
 }
 
 function errorResponse(error: Error, c: Context<AppEnv>, deps: AppDeps): Response {

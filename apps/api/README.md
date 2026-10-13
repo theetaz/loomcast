@@ -70,6 +70,24 @@ router is mounted. `createApp` already registers every module, so a module never
 - `presence.connectedDevices()`: an empty set until the bridge module replaces it.
 - `lifecycle.onClose(hook)`: close sockets, streams and timers during shutdown.
 - `httpServer`: the Node server when served by `startServer` (the bridge attaches `upgrade`).
+- `storage`: object storage (below). `AppDeps.storage` overrides the S3 client built from config.
+- `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
+
+### Object storage and assets
+
+Bytes never pass through the API. `POST /api/assets/uploads` (or `deps.assets.createUpload`)
+inserts a `pending` asset and returns a 15-minute presigned PUT whose content type, length and
+`x-amz-checksum-sha256` are signed; the client sends exactly the returned headers. The private key
+is `projects/<projectId>/<kind>/<sha256>.<ext>`, so the same file uploaded again as the same kind
+returns the existing asset (`upload: null` once it is ready). `POST /api/assets/:id/finalize`
+checks the stored size and the checksum the store verified (or hashes the object, up to
+`ASSET_VERIFY_MAX_BYTES`, when the store kept none), then marks the asset `ready`, or `failed` and
+deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. An hourly timer deletes
+pending uploads older than 24 hours.
+
+`storage.promoteToPublic(key)` copies a private object to the public bucket under
+`p/<ulid>/<sha256>.<ext>` and returns its anonymous URL under `PUBLIC_BASE_URL`. Only the publisher
+uses it, for final renders.
 
 ### Authentication
 
