@@ -13,6 +13,12 @@
 # BACKUP_DIR/last-success.json; a failed one writes last-failure.json and calls the alert
 # webhook when ALERT_WEBHOOK_URL is set.
 #
+# Off-site copy: with BACKUP_UPLOAD=true (or `auto` and BACKUP_S3_ENDPOINT set) the new backup is
+# uploaded to s3://$BACKUP_S3_BUCKET/daily/ (and weekly/ for the weekly copy) with its checksum,
+# and the stored size is checked. With BACKUP_AGE_RECIPIENT set (age public keys, separated by
+# commas) it is encrypted with age first and only the .age file leaves the host. Old objects are
+# removed by the bucket's lifecycle rule, never by this script.
+#
 # BACKUP_NOW (epoch seconds) replaces the clock for naming and rotation; the drill uses it.
 set -euo pipefail
 
@@ -23,6 +29,7 @@ BACKUP_AT=${BACKUP_AT:-02:30}
 BACKUP_KEEP_DAILY=${BACKUP_KEEP_DAILY:-14}
 BACKUP_KEEP_WEEKLY=${BACKUP_KEEP_WEEKLY:-8}
 BACKUP_WEEKLY_DAY=${BACKUP_WEEKLY_DAY:-7}
+BACKUP_UPLOAD=${BACKUP_UPLOAD:-auto}
 
 usage() {
   sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
@@ -81,14 +88,87 @@ rotate_dir() {
   done
 }
 
+# Whether this run uploads. `auto` uploads when an endpoint is configured.
+upload_enabled() {
+  case "$BACKUP_UPLOAD" in
+    auto) [ -n "${BACKUP_S3_ENDPOINT:-}" ] ;;
+    *) is_true "$BACKUP_UPLOAD" ;;
+  esac
+}
+
+# Prints the age recipient arguments for BACKUP_AGE_RECIPIENT, one per line.
+age_recipient_args() {
+  local recipient
+  local -a recipients
+  IFS=, read -r -a recipients <<<"${BACKUP_AGE_RECIPIENT:-}"
+  for recipient in "${recipients[@]}"; do
+    recipient=$(printf '%s' "$recipient" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    [ -z "$recipient" ] || printf -- '-r\n%s\n' "$recipient"
+  done
+}
+
+# Uploads daily/$1 (and the weekly copy when $2 is true). Sets UPLOADED_KEY and ENCRYPTED.
+upload_backup() {
+  local name=$1 weekly_copy=$2 source object key sum size stored stage
+  local -a age_args
+  s3_env
+  source=$BACKUP_DIR/daily/$name
+  stage=$BACKUP_DIR/.staging
+  mapfile -t age_args < <(age_recipient_args)
+
+  if [ "${#age_args[@]}" -gt 0 ]; then
+    mkdir -p "$stage"
+    rm -f -- "$stage"/loomcast-*.dump.age
+    object=$stage/$name.age
+    age --encrypt "${age_args[@]}" --output "$object" "$source" || die "age encryption failed"
+    ENCRYPTED=true
+  else
+    log "warning: BACKUP_AGE_RECIPIENT is not set; uploading the backup unencrypted"
+    object=$source
+    ENCRYPTED=false
+  fi
+
+  key=daily/${object##*/}
+  sum=$(sha256sum "$object" | cut -d' ' -f1)
+  size=$(wc -c <"$object" | tr -d ' ')
+  log "uploading $key ($size bytes) to bucket $BACKUP_S3_BUCKET"
+  s3 s3 cp --only-show-errors --no-progress "$object" "s3://$BACKUP_S3_BUCKET/$key" ||
+    die "upload of $key failed"
+  printf '%s  %s\n' "$sum" "${object##*/}" |
+    s3 s3 cp --only-show-errors - "s3://$BACKUP_S3_BUCKET/$key.sha256" ||
+    die "upload of $key.sha256 failed"
+  stored=$(s3 s3api head-object --bucket "$BACKUP_S3_BUCKET" --key "$key" --query ContentLength --output text) ||
+    die "could not read back $key"
+  [ "$stored" = "$size" ] || die "stored size of $key is $stored bytes, expected $size"
+
+  if [ "$weekly_copy" = true ]; then
+    s3 s3 cp --only-show-errors "s3://$BACKUP_S3_BUCKET/$key" "s3://$BACKUP_S3_BUCKET/weekly/${object##*/}" ||
+      die "weekly copy of $key failed"
+    s3 s3 cp --only-show-errors "s3://$BACKUP_S3_BUCKET/$key.sha256" "s3://$BACKUP_S3_BUCKET/weekly/${object##*/}.sha256" ||
+      die "weekly copy of $key.sha256 failed"
+  fi
+  [ "$object" = "$source" ] || rm -f -- "$object"
+  UPLOADED_KEY=$key
+  log "upload complete: $key"
+}
+
 backup_once() {
   local now stamp day name daily weekly tmp sum bytes started weekly_copy=false
+  UPLOADED_KEY=
+  ENCRYPTED=false
 
   pg_env
   check_backup_dir
   require_count BACKUP_KEEP_DAILY "$BACKUP_KEEP_DAILY"
   require_count BACKUP_KEEP_WEEKLY "$BACKUP_KEEP_WEEKLY"
   [[ $BACKUP_WEEKLY_DAY =~ ^[1-7]$ ]] || die "BACKUP_WEEKLY_DAY must be 1 (Monday) to 7 (Sunday)"
+  case "$BACKUP_UPLOAD" in
+    auto | false | FALSE | 0 | no | off) ;;
+    *)
+      is_true "$BACKUP_UPLOAD" || die "BACKUP_UPLOAD must be true, false or auto (got '$BACKUP_UPLOAD')"
+      [ -n "${BACKUP_S3_ENDPOINT:-}" ] || die "BACKUP_UPLOAD is true but BACKUP_S3_ENDPOINT is not set"
+      ;;
+  esac
 
   umask 077
   daily=$BACKUP_DIR/daily
@@ -141,14 +221,24 @@ backup_once() {
   rotate_dir "$daily" "$((10#$BACKUP_KEEP_DAILY))"
   rotate_dir "$weekly" "$((10#$BACKUP_KEEP_WEEKLY))"
 
+  if upload_enabled; then
+    upload_backup "$name" "$weekly_copy"
+  else
+    log "upload disabled (BACKUP_UPLOAD=$BACKUP_UPLOAD); the backup is kept on this host only"
+  fi
+
   jq -n \
     --arg at "$(epoch_fmt "$now" %Y-%m-%dT%H:%M:%SZ)" \
     --argjson bytes "$bytes" \
     --arg sha256 "$sum" \
     --arg file "daily/$name" \
     --argjson weekly "$weekly_copy" \
+    --arg uploaded "$UPLOADED_KEY" \
+    --argjson encrypted "$ENCRYPTED" \
     --argjson durationSeconds "$(($(date -u +%s) - started))" \
-    '{at: $at, bytes: $bytes, sha256: $sha256, file: $file, weekly: $weekly, durationSeconds: $durationSeconds}' |
+    '{at: $at, bytes: $bytes, sha256: $sha256, file: $file, weekly: $weekly,
+      uploaded: (if $uploaded == "" then null else $uploaded end), encrypted: $encrypted,
+      durationSeconds: $durationSeconds}' |
     write_atomic "$BACKUP_DIR/last-success.json" 644
   rm -f -- "$BACKUP_DIR/last-failure.json"
   log "backup succeeded: daily/$name"

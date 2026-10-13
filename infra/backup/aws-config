@@ -1,0 +1,15 @@
+# Command line client settings for the backup image (AWS_CONFIG_FILE). No credentials here: they
+# come from the environment. The low concurrency keeps uploads inside the 128 MiB memory cap.
+[default]
+region = auto
+retry_mode = standard
+max_attempts = 5
+# Object stores that reject the newer default checksums still accept these.
+request_checksum_calculation = when_required
+response_checksum_validation = when_required
+s3 =
+  addressing_style = path
+  max_concurrent_requests = 2
+  max_queue_size = 4
+  multipart_threshold = 64MB
+  multipart_chunksize = 16MB

@@ -113,3 +113,20 @@ write_atomic() {
   cat >"$target.tmp" || return 1
   chmod "$mode" "$target.tmp" && mv -f "$target.tmp" "$target"
 }
+
+# Object storage (Cloudflare R2 in production; any S3 API works). The scoped credentials come
+# from BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY and are handed to the CLI through
+# its environment only.
+s3_env() {
+  BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-loomcast-backups}
+  [ -n "${BACKUP_S3_ENDPOINT:-}" ] || die "BACKUP_S3_ENDPOINT is not set"
+  export AWS_ACCESS_KEY_ID=${BACKUP_S3_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
+  export AWS_SECRET_ACCESS_KEY=${BACKUP_S3_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
+  export AWS_DEFAULT_REGION=${BACKUP_S3_REGION:-auto}
+  [ -n "$AWS_ACCESS_KEY_ID" ] || die "BACKUP_S3_ACCESS_KEY_ID is not set"
+  [ -n "$AWS_SECRET_ACCESS_KEY" ] || die "BACKUP_S3_SECRET_ACCESS_KEY is not set"
+}
+
+s3() {
+  aws --endpoint-url "$BACKUP_S3_ENDPOINT" "$@"
+}

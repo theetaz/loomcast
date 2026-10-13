@@ -100,8 +100,9 @@ services:
       - backend
 
   # Nightly pg_dump of the Loomcast database into LOOMCAST_BACKUP_DIR (default
-  # /opt/loomcast/backups), with local rotation. It reads only this project's database and
-  # writes only to that directory.
+  # /opt/loomcast/backups), with local rotation and an off-site copy in the private backups
+  # bucket, encrypted with age. It reads only this project's database and writes only to that
+  # directory and that bucket.
   backup:
     <<: *hardening
     image: ghcr.io/theetaz/loomcast-backup:${LOOMCAST_TAG:?set LOOMCAST_TAG in compose.env}
@@ -134,7 +135,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # backend reaches postgres; egress is for the alert webhook.
+    # backend reaches postgres; egress is for object storage and the alert webhook.
     networks:
       - backend
       - egress
