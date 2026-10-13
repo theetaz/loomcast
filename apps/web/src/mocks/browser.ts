@@ -1,4 +1,5 @@
 import { setupWorker } from "msw/browser";
+import { seedAnalyticsDemo } from "./analytics";
 import { seedCalendarDemo } from "./calendar";
 import { demoContent } from "./content";
 import { seedItemDemo } from "./content-item";
@@ -43,6 +44,7 @@ export async function startMockApi() {
   seedItemDemo(db, now);
   seedFormatDemo(db);
   seedCalendarDemo(db, now);
+  seedAnalyticsDemo(db, now);
 
   window.loomcastMock = {
     setStudioOnline(online) {

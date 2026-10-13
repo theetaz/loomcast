@@ -26,6 +26,7 @@ import {
   TOKEN_SECRET_LENGTH,
   type UserSummary,
 } from "@loomcast/contracts";
+import type { MockLivePost } from "./analytics";
 
 /** A set-password link the mock API handed out. The real API keeps only a hash of the token. */
 export interface MockPasswordToken {
@@ -81,6 +82,8 @@ export interface MockDb {
   seriesChannels: SeriesChannels[];
   /** Scheduled posts of every item on every channel. */
   posts: ScheduledPost[];
+  /** Live posts (published, never dry-run) and their insights captures, for the analytics. */
+  livePosts: MockLivePost[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -129,6 +132,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     channels: [],
     seriesChannels: [],
     posts: [],
+    livePosts: [],
     ...seed,
     listeners: new Set(),
   };
