@@ -14,11 +14,11 @@ import { type LibrarySort, type LibrarySortKey, parseSort } from "./search";
 const COLUMNS: { key: LibrarySortKey; label: string; className: string }[] = [
   { key: "title", label: "Title", className: "" },
   { key: "series", label: "Series", className: "hidden w-[150px] md:table-cell" },
-  { key: "state", label: "State", className: "w-[108px]" },
+  { key: "state", label: "State", className: "w-[100px] sm:w-[108px]" },
   { key: "version", label: "Version", className: "hidden w-[68px] md:table-cell" },
   { key: "target", label: "Target", className: "hidden w-[84px] sm:table-cell" },
   { key: "duration", label: "Length", className: "hidden w-[64px] md:table-cell" },
-  { key: "updated", label: "Updated", className: "w-[72px]" },
+  { key: "updated", label: "Updated", className: "w-[60px] sm:w-[88px]" },
 ];
 
 /** States after which a passed target date is no longer a problem. */
@@ -109,7 +109,7 @@ export function LibraryTable({
               </th>
             );
           })}
-          <th scope="col" className="w-10 pr-2">
+          <th scope="col" className="w-9 pr-2 sm:w-10">
             <span className="sr-only">Actions</span>
           </th>
         </tr>

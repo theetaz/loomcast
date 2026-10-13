@@ -155,6 +155,13 @@ tab (`/projects/:id/content`), the same view scoped to one project.
   (`upsertContentItem` in `queries.ts`): an item is replaced, dropped when it no longer matches,
   or added at the top. Searched lists refetch instead, since only the server knows what a search
   matches. `content.version.created` refetches the open item.
+- The Board view groups the same rows into one column per state (every state but archived,
+  or the filtered states). It is read-only: items move through production and review, never
+  by dragging. The table or board choice is kept in localStorage (`loomcast.library.view`).
+- Each row and card has quick actions: Produce through review (`content.actions` with
+  `produce` through `review`), Open, and Archive after a confirmation. What is enabled comes
+  from `allowedActions` in the contracts; listed items carry no artifacts, and these actions
+  need none.
 - New idea asks for a title, an optional pitch and series, and, in the library, the project.
 - Item pages (`/content/:itemId`) and the review queue (`/review`) are placeholders until their
   screens land; the project's Series tab is one too.

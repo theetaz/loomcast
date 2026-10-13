@@ -1,11 +1,12 @@
 import type { ContentItem, CursorPage } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import {
   type InfiniteData,
   type UseInfiniteQueryResult,
   useInfiniteQuery,
 } from "@tanstack/react-query";
-import { FilterXIcon, LibraryBigIcon, PlusIcon } from "lucide-react";
+import { FilterXIcon, KanbanIcon, LibraryBigIcon, PlusIcon, Rows3Icon } from "lucide-react";
 import { type ReactNode, useCallback, useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
@@ -13,6 +14,8 @@ import { nextSort, sortItems } from "./items";
 import { LibraryFilters } from "./LibraryFilters";
 import { LibraryTable, LibraryTableSkeleton } from "./LibraryTable";
 import { NewIdeaDialog } from "./NewIdeaDialog";
+import { PipelineBoard } from "./PipelineBoard";
+import { QuickActions } from "./QuickActions";
 import { contentListQueryOptions, useSeriesOptions } from "./queries";
 import {
   DEFAULT_LIBRARY_SORT,
@@ -23,6 +26,7 @@ import {
   searchFromFilter,
 } from "./search";
 import { useContentLive } from "./use-content-live";
+import { type LibraryView as LibraryViewMode, useLibraryView } from "./view-preference";
 
 export interface LibraryViewProps {
   /** The project of a Content tab; `null` for the library across projects. */
@@ -33,7 +37,8 @@ export interface LibraryViewProps {
 
 /**
  * Content items with their filters: the Library page across projects, or a project's Content
- * tab. Filters and sort live in the address; `content.*` events keep the rows current.
+ * tab, as a table or a read-only pipeline board (remembered per browser). Filters and sort live
+ * in the address; `content.*` events keep the rows current.
  */
 export function LibraryView({ projectId, search, onSearchChange }: LibraryViewProps) {
   useContentLive();
@@ -47,6 +52,8 @@ export function LibraryView({ projectId, search, onSearchChange }: LibraryViewPr
   const items = useMemo(() => sortItems(loaded, sort, seriesName), [loaded, sort, seriesName]);
 
   const changeFilter = (next: LibraryFilter) => onSearchChange(searchFromFilter(next, sort));
+  const [view, setView] = useLibraryView();
+  const actions = (item: ContentItem) => <QuickActions item={item} />;
 
   return (
     <section
@@ -54,32 +61,66 @@ export function LibraryView({ projectId, search, onSearchChange }: LibraryViewPr
       aria-busy={list.isPending || undefined}
       className="overflow-hidden rounded-lg bg-card shadow-card"
     >
-      <LibraryFilters filter={filter} onChange={changeFilter} series={series.options} />
-      <p aria-live="polite" className="sr-only">
-        {list.data ? `${loaded.length} ${loaded.length === 1 ? "video" : "videos"}` : ""}
-      </p>
-      <ListBody
-        list={list}
-        filter={filter}
-        onClearFilters={() =>
-          changeFilter({ ...filter, states: [], seriesId: null, from: null, to: null, q: "" })
-        }
-        emptyAction={
-          <NewIdeaDialog projectId={projectId}>
-            <Button variant="outline">
-              <PlusIcon aria-hidden="true" />
-              New idea
-            </Button>
-          </NewIdeaDialog>
-        }
+      <Tabs
+        value={view}
+        onValueChange={(value) => setView(value as LibraryViewMode)}
+        className="gap-0"
       >
-        <LibraryTable
-          items={items}
-          sort={sort}
-          seriesName={seriesName}
-          onSortChange={(key) => onSearchChange(searchFromFilter(filter, nextSort(sort, key)))}
-        />
-      </ListBody>
+        <div className="flex h-11 items-center gap-2 border-divider border-b px-2">
+          <TabsList aria-label="View">
+            <TabsTrigger value="table" className="flex-none">
+              <Rows3Icon aria-hidden="true" />
+              Table
+            </TabsTrigger>
+            <TabsTrigger value="board" className="flex-none">
+              <KanbanIcon aria-hidden="true" />
+              Board
+            </TabsTrigger>
+          </TabsList>
+          <p aria-live="polite" className="ml-auto pr-1.5 text-small text-muted-foreground">
+            {list.data
+              ? `${loaded.length}${list.hasNextPage ? "+" : ""} ${loaded.length === 1 ? "video" : "videos"}`
+              : ""}
+          </p>
+        </div>
+        <LibraryFilters filter={filter} onChange={changeFilter} series={series.options} />
+        <TabsContent value={view} tabIndex={-1} className="min-h-[228px]">
+          <ListBody
+            list={list}
+            filter={filter}
+            onClearFilters={() =>
+              changeFilter({ ...filter, states: [], seriesId: null, from: null, to: null, q: "" })
+            }
+            emptyAction={
+              <NewIdeaDialog projectId={projectId}>
+                <Button variant="outline">
+                  <PlusIcon aria-hidden="true" />
+                  New idea
+                </Button>
+              </NewIdeaDialog>
+            }
+          >
+            {view === "board" ? (
+              <PipelineBoard
+                items={items}
+                states={filter.states}
+                seriesName={seriesName}
+                actions={actions}
+              />
+            ) : (
+              <LibraryTable
+                items={items}
+                sort={sort}
+                seriesName={seriesName}
+                onSortChange={(key) =>
+                  onSearchChange(searchFromFilter(filter, nextSort(sort, key)))
+                }
+                actions={actions}
+              />
+            )}
+          </ListBody>
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
