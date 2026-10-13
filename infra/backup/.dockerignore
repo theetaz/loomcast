@@ -1,0 +1,4 @@
+# Only the scripts go into the image.
+*
+!Dockerfile
+!*.sh

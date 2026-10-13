@@ -5,8 +5,8 @@
 #   docker compose -p loomcast -f compose.prod.yml --env-file /opt/loomcast/env/compose.env up -d --wait
 #
 # Interpolation variables come from compose.env (see env/compose.env.example). Service settings
-# come from api.env and postgres.env in LOOMCAST_ENV_DIR. The README next to this file explains
-# each file.
+# come from api.env, postgres.env and backup.env in LOOMCAST_ENV_DIR. The README next to this
+# file explains each file; docs/runbooks/backup-and-restore.md covers the backup service.
 
 name: loomcast
 
@@ -98,6 +98,46 @@ services:
     # No ports: only the api reaches it, over the internal backend network.
     networks:
       - backend
+
+  # Nightly pg_dump of the Loomcast database into LOOMCAST_BACKUP_DIR (default
+  # /opt/loomcast/backups), with local rotation. It reads only this project's database and
+  # writes only to that directory.
+  backup:
+    <<: *hardening
+    image: ghcr.io/theetaz/loomcast-backup:${LOOMCAST_TAG:?set LOOMCAST_TAG in compose.env}
+    init: true
+    # The image's postgres user (uid 70) owns the backup directory on the host.
+    user: "70:70"
+    env_file:
+      # The database user, name and password, so they are kept in one file.
+      - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/postgres.env${LOOMCAST_ENV_SUFFIX:-}
+      - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/backup.env${LOOMCAST_ENV_SUFFIX:-}
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      BACKUP_DIR: /backups
+    volumes:
+      # Created by the operator with the right owner (see the runbook); never created here as root.
+      - type: bind
+        source: ${LOOMCAST_BACKUP_DIR:-/opt/loomcast/backups}
+        target: /backups
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:size=32m,mode=1777,noexec,nosuid,nodev
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    # Lets a dump in progress finish on a redeploy.
+    stop_grace_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # backend reaches postgres; egress is for the alert webhook.
+    networks:
+      - backend
+      - egress
 
 networks:
   # No route out of the host: postgres lives only here.
