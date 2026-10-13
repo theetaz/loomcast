@@ -265,7 +265,12 @@ describe("channel.refresh_token", () => {
           event.payload.channel.status === "needs_reauth",
       ),
     ).toBe(true);
-    expect(h.t.logs.some((line) => line.includes(`channel.needs_reauth:${soon.id}`))).toBe(true);
+    const alert = h.alerts.find((entry) => entry.key === `channel.reauth:${soon.id}`);
+    expect(alert).toMatchObject({
+      title: "A channel needs reconnecting",
+      data: { channelId: soon.id, code: "auth" },
+    });
+    expect(JSON.stringify(alert)).not.toContain(soon.token);
     expect(h.t.logs.join("\n")).not.toContain(soon.token);
   });
 

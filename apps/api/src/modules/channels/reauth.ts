@@ -2,28 +2,32 @@ import type { PublishError } from "@loomcast/contracts";
 import { channels } from "@loomcast/db";
 import { eq, sql } from "drizzle-orm";
 import type { ModuleDeps } from "../../deps";
+import type { Alert } from "../../lib/alerts";
 import { audit } from "../../lib/audit";
 import { afterCommit, transaction } from "../../lib/db";
 import type { Logger } from "../../lib/logger";
-import type { SchedulerAlert } from "../scheduler/scheduler";
 import { channelColumns, toChannel } from "./mappers";
 
 export type ReauthDeps = Pick<ModuleDeps, "db" | "bus" | "config" | "alert">;
 
-/** Sends `alert` to the alert hook, or logs it at error level without one. Never throws. */
+/** Dedupe key of the alert raised when a channel needs reconnecting. */
+export function channelReauthAlertKey(channelId: string): string {
+  return `channel.reauth:${channelId}`;
+}
+
+/**
+ * Raises `alert` through the app's alerts (logged, and posted to the webhook at most once an hour
+ * per key). `deps.alert` never throws; the guard keeps a broken sink from failing a sweep.
+ */
 export async function raiseChannelAlert(
   deps: Pick<ModuleDeps, "alert">,
   logger: Logger,
-  alert: SchedulerAlert,
+  alert: Alert,
 ): Promise<void> {
   try {
-    if (deps.alert === undefined) {
-      logger.error({ alert: alert.key, ...alert.data }, alert.title);
-    } else {
-      await deps.alert(alert);
-    }
+    await deps.alert(alert);
   } catch (error) {
-    logger.error({ err: error, alert: alert.key }, "could not send a channel alert");
+    logger.error({ err: error, alert: alert.key }, "could not raise a channel alert");
   }
 }
 
@@ -90,7 +94,7 @@ export async function flagNeedsReauth(
     return false;
   }
   await raiseChannelAlert(deps, logger, {
-    key: `channel.needs_reauth:${input.channelId}`,
+    key: channelReauthAlertKey(input.channelId),
     title: "A channel needs reconnecting",
     message:
       `The ${flagged.platform} channel "${flagged.displayName}" was refused by the platform ` +

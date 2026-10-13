@@ -133,7 +133,12 @@ describe("channel.verify", () => {
           event.payload.channel.lastError?.code === "auth",
       ),
     ).toBe(true);
-    expect(h.t.logs.some((line) => line.includes(`channel.needs_reauth:${ig.id}`))).toBe(true);
+    const alert = h.alerts.find((entry) => entry.key === `channel.reauth:${ig.id}`);
+    expect(alert).toMatchObject({
+      title: "A channel needs reconnecting",
+      data: { channelId: ig.id, code: "auth" },
+    });
+    expect(JSON.stringify(alert)).not.toContain(ig.token);
 
     // A later check that passes turns the channel active again.
     answer(h.graph, "GET", `/${GRAPH_VERSION}/debug_token`, debugReply({ is_valid: true }));

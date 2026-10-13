@@ -11,6 +11,7 @@ import {
 } from "undici";
 import type { ModuleDeps } from "../src/deps";
 import type { MetaAppConfig, PlatformsConfig, ThreadsAppConfig } from "../src/env";
+import type { Alert } from "../src/lib/alerts";
 import { testKeyring } from "./publisher-support";
 import { createTestApp, insertUser, login, type TestApp } from "./support";
 
@@ -168,6 +169,8 @@ export interface OAuthHarness {
   cookie: string;
   userId: string;
   live: LiveEvent[];
+  /** Every alert the app raised, in order. */
+  alerts: Alert[];
   meta: MetaAppConfig | null;
   threads: ThreadsAppConfig | null;
   agent: MockAgent;
@@ -219,6 +222,11 @@ export async function createOAuthHarness(
   t.bus.subscribeLive((event) => {
     live.push(event);
   });
+  // The app's alert sink reads `AppDeps.alert` on every call: capture alerts instead of logging.
+  const alerts: Alert[] = [];
+  t.deps.alert = (alert) => {
+    alerts.push(alert);
+  };
   const user = await insertUser(testDb.db);
   const { cookie } = await login(t.app, user.email);
   const mock = installMockAgent();
@@ -230,6 +238,7 @@ export async function createOAuthHarness(
     cookie,
     userId: user.id,
     live,
+    alerts,
     meta,
     threads,
     agent: mock.agent,
