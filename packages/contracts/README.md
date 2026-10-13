@@ -22,7 +22,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 
 | Module | Contents |
 |---|---|
-| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes |
+| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
 | `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`); `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
@@ -36,6 +36,10 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/kb-tools.ts` | `kbTools`: the `kb.*` tools |
 | `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
+| `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
+| `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
+| `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
+| `src/pipeline/skills.ts` | Skill names and version numbers |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -87,6 +91,62 @@ Entries belong to a project and have a `kind`: `brainstorm`, `reference`, `decis
 ## Users and set-password links
 
 There is no sign-up. The owner invites a user (`users.invite`, or `admin.create_user` over MCP) and hands over the one-time `setPasswordUrl`; `users.resetLink` issues a new one. Invitation links last 7 days and reset links 24 hours (`PASSWORD_TOKEN_TTL_MS`). The set-password page calls `auth.inspectPasswordToken` to show the email, then `auth.setPassword` with `{token, newPassword}`. A password is never returned.
+
+## Production pipeline
+
+A content item moves through `PIPELINE_STATES`:
+
+| State | Meaning |
+|---|---|
+| `idea` | A title and pitch, no artifacts yet |
+| `script`, `storyboard`, `voice`, `render` | The production stage the current version has reached |
+| `review` | A rendered version waits for a user's decision |
+| `approved` | Ready to schedule |
+| `scheduled`, `published` | On the calendar, then live (M4) |
+| `archived` | Out of the pipeline; restoring makes it an `idea` again |
+
+`PIPELINE_TRANSITIONS` is the single source of truth for state changes. Each row is `{from, to, via, actors, requiresRender}`; anything not listed is refused. The API checks every change with `canTransition(from, to, actor, version)` (or `findTransition` to get the row), and the web app offers only what `allowedActions(state, actor, role, version)` returns.
+
+| `via` | Moves | Actors |
+|---|---|---|
+| `version` | from `idea`, a production stage or `review` to the new version's stage (`script` to `render`) | user, device, token, system |
+| `version` | `review` to `review` (only the caption or notes changed; needs a render) | user |
+| `submit` | a production stage to `review` (needs a render) | user, device, token, system |
+| `approve` | `review` to `approved` (needs a render) | user |
+| `request_changes` | `review` to `script` | user |
+| `reject` | `review` to `archived` | user |
+| `edit` | `approved` to `script`, `storyboard` or `voice`; `approved` to `approved` when only the caption or notes changed | user |
+| `schedule`, `unschedule` | `approved` to `scheduled` and back (needs a render) | user, system |
+| `publish` | `scheduled` to `published` (needs a render) | system |
+| `archive` | any state except `archived` to `archived` | user |
+| `restore` | `archived` to `idea` | user |
+
+- `from === to` rows allow a new version that leaves the state unchanged.
+- Devices and tokens only ever add versions and submit to review. Approving, rejecting, archiving and restoring are for users; from M4, approval may also come from `system` under a series' `auto` publish mode.
+- `version` is the version the item ends up on. Rows with `requiresRender` are refused when it is missing or has no `renderAssetId`.
+- `stageForArtifacts(version)` is the last of script, storyboard, voice and render present without a gap; a version with nothing is at `idea`. `nextProductionStep(version)` is the action that adds the next artifact, or `null` once there is a render.
+- `allowedActions` returns `ITEM_ACTIONS`: the `CONTENT_ACTIONS` (`write_script`, `storyboard`, `voice`, `render`, `revise`, `produce`), `submit`, the review decisions, `edit`, `archive` and `restore`. Users and autopilot (`system`) may start production work in a production stage or in `review` once the previous artifact exists (`storyboard` needs a script, `voice` a storyboard, `render` a voice, `revise` a script); `produce` does not start from `review`. A user without a role gets nothing; both roles have the same pipeline rights.
+- `REVIEW_DECISION_STATES` maps each decision to its target state. `produce` runs the missing steps up to a `ProduceTarget` (`DEFAULT_PRODUCE_TARGET` is `review`).
+
+### Format rules
+
+A format is versioned; every update stores a new `FormatRules` version. Production jobs carry a snapshot of the rules they run with.
+
+| Field | Rule |
+|---|---|
+| `tone` | at most 200 characters |
+| `readingLevel.grade` | integer 3 to 16 |
+| `hookStyle`, `hookNotes?` | `question`, `bold_claim`, `statistic`, `story`, `contrarian` or `demo`; notes at most 1,000 characters |
+| `lengthSec` | `{min, max}`, integers 5 to 180, `min <= max` |
+| `voiceId?`, `voiceSpeed?` | the TTS provider's voice id; speed 0.7 to 1.3. Without a voice the `voice` step answers `voice_not_configured` |
+| `visualTemplate` | `{styleId, templateId?, captions: {enabled, style: word\|line}}` |
+| `topicPool`, `avoid` | at most 500 and 200 entries of 1 to 200 characters |
+| `cadence` | `{days, slots, tz, leadTimeHours}`: distinct `mon` to `sun`; at most 12 distinct `HH:mm` slots; an IANA time zone this runtime knows (`isTimeZone`, offsets refused); lead time 1 to 336 hours |
+| `publishMode` | `auto` or `approval` |
+| `caption` | `{hashtags, cta?}`: at most 30 hashtags without repeats (case ignored), stored without `#`; CTA at most 300 characters |
+| `recipe?` | `{name, version?}` of a recipe skill |
+
+`DEFAULT_FORMAT_RULES` is frozen; copy it before changing it. Style ids such as `vox-explainer` and card ids such as `vox-explainer.t1.section.circle` are checked for shape only (`StyleIdSchema`, `CardIdSchema`, `SlotNameSchema`); the studio runtime checks them against its registry.
 
 ## Live events
 
