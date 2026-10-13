@@ -97,11 +97,18 @@ export function slugWithSuffix(base: string, n: number): string {
   return `${stem}${suffix}`;
 }
 
-/** The first of `base`, `base-2`, `base-3`, … that no project uses yet. */
+/**
+ * The first of `base`, `base-2`, `base-3`, … that no project uses yet. Must run inside the
+ * transaction that inserts the project: it holds a transaction-level advisory lock on the slug
+ * prefix, so parallel creates of the same name queue up instead of racing for one candidate.
+ */
 async function freeSlug(executor: Executor, base: string): Promise<string> {
   // Every candidate starts with this prefix, so one query finds all the slugs in the way. Slugs
   // hold only `[a-z0-9-]`, so the prefix needs no LIKE escaping.
   const prefix = base.slice(0, SLUG_MAX_LENGTH - MAX_SUFFIX_LENGTH).replace(/-+$/, "");
+  await executor.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`loomcast:project-slug:${prefix}`}))`,
+  );
   const rows = await executor
     .select({ slug: projects.slug })
     .from(projects)
@@ -188,8 +195,8 @@ export function createProjectsService(deps: ProjectsServiceDeps): ProjectsServic
           throw error;
         }
       }
-      // A parallel create can take the derived slug between the lookup and the insert; the
-      // unique index catches it and the next attempt picks the following suffix.
+      // Creates of the same name are serialised by the slug lock; the retry only covers an
+      // explicit slug taken between this lookup and the insert by a create of another name.
       for (let attempt = 1; ; attempt += 1) {
         try {
           return await insert(input, actor);
