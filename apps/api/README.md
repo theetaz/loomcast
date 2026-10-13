@@ -23,13 +23,24 @@ production the repository's `.env` is loaded first; variables already set win.
 |---|---|---|
 | `DATABASE_URL` | required | Postgres connection string |
 | `APP_ORIGIN` | required | Origin of the web app; unsafe requests must come from it |
-| `PUBLIC_BASE_URL` | required | Public base URL for published media |
+| `PUBLIC_BASE_URL` | required | Base URL of the public media bucket (published renders) |
 | `API_PORT` | `8790` | Port to listen on |
 | `API_HOST` | `127.0.0.1`, or `0.0.0.0` in production | Interface to bind |
 | `NODE_ENV` | `development` | `production` switches on `__Host-` cookies and static serving |
 | `LOG_LEVEL` | `info` | pino level |
 | `WEB_DIST_DIR` | unset | Built web app to serve in production |
 | `TRUST_PROXY` | `false` | Take the client address from the last `X-Forwarded-For` entry |
+| `S3_ENDPOINT` | required in production | S3 API endpoint: R2 in production, SeaweedFS locally |
+| `S3_REGION` | `auto` | Signing region (R2 expects `auto`) |
+| `S3_FORCE_PATH_STYLE` | `true` | Path-style URLs (`<endpoint>/<bucket>/<key>`) |
+| `S3_BUCKET` | `loomcast-media` | Private bucket for every upload |
+| `S3_PUBLIC_BUCKET` | `loomcast-public` | Public-read bucket served at `PUBLIC_BASE_URL` |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | required in production | Object storage keys |
+| `ASSET_VERIFY_MAX_BYTES` | 512 MiB | Largest upload finalize hashes itself when the store kept no checksum |
+
+Outside production, `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` may all be left out (not
+just some of them): the API then starts without object storage, and uploads and downloads answer
+503 `storage_unavailable`.
 
 ## Layout
 
@@ -39,6 +50,7 @@ production the repository's `.env` is loaded first; variables already set win.
 | `src/server.ts` | `startServer(deps, {port, host})` and the process entry point with graceful shutdown |
 | `src/deps.ts` | `AppDeps` (db, bus, clock, logger, config, lifecycle, httpServer) and `ModuleDeps` |
 | `src/lib/` | Event bus, rate limiter, audit log, crypto, passwords, transactions, errors, logger |
+| `src/lib/storage/` | Object storage: presigned PUT and GET, verification reads, `promoteToPublic` |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
 | `src/cli/admin.ts` | The admin CLI |
 

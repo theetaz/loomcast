@@ -139,6 +139,7 @@ describe("logger", () => {
       password: testPassword("logged"),
       device: `lc_dev_${testPassword("device")}`,
       deep: testPassword("deep"),
+      storageKey: testPassword("storage"),
     };
     const lines: string[] = [];
     const logger = createLogger({
@@ -154,6 +155,7 @@ describe("logger", () => {
         body: { password: sensitive.password, newPassword: "n", currentPassword: "c" },
         result: { token: sensitive.device, secret: "s" },
         deep: { a: { b: { token: sensitive.deep } } },
+        config: { storage: { secretAccessKey: sensitive.storageKey } },
       },
       "check",
     );
@@ -170,6 +172,9 @@ describe("config", () => {
     DATABASE_URL: "postgres://loomcast:loomcast@127.0.0.1:55434/loomcast",
     APP_ORIGIN: "http://localhost:5173/",
     PUBLIC_BASE_URL: "https://media.example.com",
+    S3_ENDPOINT: "http://127.0.0.1:59000",
+    S3_ACCESS_KEY: testPassword("s3-access"),
+    S3_SECRET_KEY: testPassword("s3-secret"),
   };
 
   it("applies defaults and normalises the origin", () => {
@@ -182,7 +187,36 @@ describe("config", () => {
       logLevel: "info",
       webDistDir: null,
       trustProxy: false,
+      storage: {
+        endpoint: "http://127.0.0.1:59000",
+        region: "auto",
+        forcePathStyle: true,
+        bucket: "loomcast-media",
+        publicBucket: "loomcast-public",
+        accessKeyId: base.S3_ACCESS_KEY,
+        secretAccessKey: base.S3_SECRET_KEY,
+        publicBaseUrl: "https://media.example.com",
+      },
+      assetVerifyMaxBytes: 512 * 1024 * 1024,
     });
+  });
+
+  it("reads the object storage settings", () => {
+    const config = parseConfig({
+      ...base,
+      S3_REGION: "eu-central-1",
+      S3_FORCE_PATH_STYLE: "false",
+      S3_BUCKET: "media-bucket",
+      S3_PUBLIC_BUCKET: "public-bucket",
+      ASSET_VERIFY_MAX_BYTES: "1024",
+    });
+    expect(config.storage).toMatchObject({
+      region: "eu-central-1",
+      forcePathStyle: false,
+      bucket: "media-bucket",
+      publicBucket: "public-bucket",
+    });
+    expect(config.assetVerifyMaxBytes).toBe(1024);
   });
 
   it("binds every interface in production and resolves the web directory", () => {
@@ -200,6 +234,46 @@ describe("config", () => {
       trustProxy: true,
     });
     expect(config.webDistDir?.endsWith("/web/dist")).toBe(true);
+  });
+
+  it("leaves object storage unconfigured outside production when no S3 settings are given", () => {
+    const {
+      S3_ENDPOINT: _endpoint,
+      S3_ACCESS_KEY: _access,
+      S3_SECRET_KEY: _secret,
+      ...rest
+    } = base;
+    expect(parseConfig(rest).storage).toBeNull();
+  });
+
+  it("requires object storage in production and complete settings everywhere", () => {
+    const {
+      S3_ENDPOINT: _endpoint,
+      S3_ACCESS_KEY: _access,
+      S3_SECRET_KEY: _secret,
+      ...rest
+    } = base;
+    const issuesOf = (env: Record<string, string>) => {
+      try {
+        parseConfig(env);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        return (error as ConfigError).issues.map((issue) => issue.split(":")[0]);
+      }
+      return [];
+    };
+    expect(issuesOf({ ...rest, NODE_ENV: "production" })).toEqual([
+      "S3_ENDPOINT",
+      "S3_ACCESS_KEY",
+      "S3_SECRET_KEY",
+    ]);
+    expect(issuesOf({ ...rest, S3_ENDPOINT: base.S3_ENDPOINT })).toEqual([
+      "S3_ACCESS_KEY",
+      "S3_SECRET_KEY",
+    ]);
+    expect(parseConfig({ ...base, NODE_ENV: "production" }).storage?.endpoint).toBe(
+      base.S3_ENDPOINT,
+    );
   });
 
   it("lists every problem", () => {

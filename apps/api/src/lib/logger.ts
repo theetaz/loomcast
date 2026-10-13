@@ -22,6 +22,8 @@ const SENSITIVE_KEYS = [
   "setPasswordUrl",
   // Job credentials in `job.assign` hold a job token.
   "credentials",
+  // Object storage keys (`config.storage`).
+  "secretAccessKey",
 ] as const;
 
 function redactPaths(): string[] {

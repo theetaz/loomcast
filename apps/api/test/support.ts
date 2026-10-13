@@ -56,6 +56,18 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     webDistDir: null,
     // Lets tests vary the client address with X-Forwarded-For.
     trustProxy: true,
+    // Unreachable by default; storage tests use `test/storage-support.ts`.
+    storage: {
+      endpoint: "http://127.0.0.1:9",
+      region: "auto",
+      forcePathStyle: true,
+      bucket: "loomcast-media",
+      publicBucket: "loomcast-public",
+      accessKeyId: testPassword("s3-access"),
+      secretAccessKey: testPassword("s3-secret"),
+      publicBaseUrl: "https://media.example.test",
+    },
+    assetVerifyMaxBytes: 512 * 1024 * 1024,
     ...overrides,
   };
 }
