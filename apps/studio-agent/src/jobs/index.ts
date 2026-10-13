@@ -32,13 +32,13 @@ export function optionalHandler<T extends JobType>(
   };
 }
 
-/**
- * Handlers loaded behind a guard, so a broken producer runtime never takes `system.ping` down.
- * The producer runtime adds its single registration line here:
- *
- *   optionalHandler("producer.chat", async () => (await import("./producer-chat")).createProducerChatHandler),
- */
-const optionalHandlers: readonly OptionalHandler[] = [];
+/** Handlers loaded behind a guard, so a broken producer runtime never takes `system.ping` down. */
+const optionalHandlers: readonly OptionalHandler[] = [
+  optionalHandler(
+    "producer.chat",
+    async () => (await import("./producer-chat")).createProducerChatHandler,
+  ),
+];
 
 /** Builds the fixed allow-list of job handlers. Nothing else can run on this agent. */
 export async function createHandlers(

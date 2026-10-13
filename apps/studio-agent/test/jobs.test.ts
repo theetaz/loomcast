@@ -21,14 +21,21 @@ function pingContext(events: string[]): JobContext<"system.ping"> {
 describe("job handlers", () => {
   const deps = { config: testConfig(), paths: tempAgentPaths(), log: silentLogger };
 
-  it("registers only system.ping until the producer runtime is added", async () => {
+  it("registers system.ping and producer.chat by default", async () => {
     const registry = await createHandlers(deps);
+    expect(registry.types().sort()).toEqual(["producer.chat", "system.ping"]);
+    const result = await registry.get("system.ping")?.(pingContext([]));
+    expect(result?.producerAvailable).toBe(true);
+  });
+
+  it("registers only system.ping without optional handlers", async () => {
+    const registry = await createHandlers(deps, []);
     expect(registry.types()).toEqual(["system.ping"]);
     expect(registry.has("producer.chat")).toBe(false);
   });
 
   it("system.ping reports the agent and runtime", async () => {
-    const registry = await createHandlers(deps);
+    const registry = await createHandlers(deps, []);
     const events: string[] = [];
     const result = await registry.get("system.ping")?.(pingContext(events));
 
