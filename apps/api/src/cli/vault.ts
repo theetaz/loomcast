@@ -9,7 +9,7 @@ import type { CliDatabase } from "./admin";
 const USAGE = `Usage:
   vault rotate [--dry-run]
 
-rotate   Seals every stored channel credential again with the current key
+rotate   Seals every stored credential again with the current key
          (LOOMCAST_ENCRYPTION_KEY, version LOOMCAST_ENCRYPTION_KEY_VERSION), in one transaction.
          Values sealed with an earlier key are opened with LOOMCAST_ENCRYPTION_KEYS_PREVIOUS
          (version:key pairs). Refuses when a row uses a key version that is not configured.

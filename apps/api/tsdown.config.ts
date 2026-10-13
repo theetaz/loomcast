@@ -1,11 +1,17 @@
 import { defineConfig } from "tsdown";
 
-// ESM bundles for the server, the admin and vault CLIs and the production entry (migrate, then
-// serve).
+// ESM bundles for the server, the admin, vault and meta-check CLIs and the production entry
+// (migrate, then serve).
 // Workspace packages are inlined because they ship TypeScript source; third-party dependencies
 // stay external and resolve from node_modules.
 export default defineConfig({
-  entry: ["src/server.ts", "src/cli/admin.ts", "src/cli/vault.ts", "src/cli/migrate-and-start.ts"],
+  entry: [
+    "src/server.ts",
+    "src/cli/admin.ts",
+    "src/cli/vault.ts",
+    "src/cli/meta-check.ts",
+    "src/cli/migrate-and-start.ts",
+  ],
   format: "esm",
   platform: "node",
   target: "node22.12",

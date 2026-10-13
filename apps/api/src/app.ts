@@ -35,6 +35,7 @@ import { createJobsService, register as registerJobs } from "./modules/jobs";
 import { createJobHooks, subscribeJobStatusHooks } from "./modules/jobs/handlers";
 import { createKbService, register as registerKb } from "./modules/kb";
 import { register as registerMcp } from "./modules/mcp";
+import { register as registerOAuth } from "./modules/oauth";
 import {
   databaseCheck,
   register as registerOps,
@@ -260,6 +261,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerProduction(app, moduleDeps);
   registerSkills(app, moduleDeps);
   registerChannels(app, moduleDeps);
+  registerOAuth(app, moduleDeps);
   registerCalendar(app, moduleDeps);
   registerCadence(app, moduleDeps);
   registerApprovals(app, moduleDeps);

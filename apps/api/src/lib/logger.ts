@@ -34,7 +34,25 @@ const SENSITIVE_KEYS = [
   // The alert webhook (`config.alerts.webhookUrl`) carries its secret in the URL.
   "webhookUrl",
   "ALERT_WEBHOOK_URL",
+  // Platform app secrets (`config.platforms`) and the settings they come from.
+  "appSecret",
+  "META_APP_SECRET",
+  "THREADS_APP_SECRET",
+  // Platform credentials, in the field names of the OAuth and Graph API requests.
+  "accessToken",
+  "access_token",
+  "refresh_token",
+  "client_secret",
+  "appsecret_proof",
+  "fb_exchange_token",
+  "input_token",
 ] as const;
+
+/**
+ * Keys that are credentials only under these parents: an OAuth `code` in a callback query is one,
+ * but the `code` of an error is not, so `code` is not redacted everywhere.
+ */
+const SENSITIVE_NESTED_PATHS = ["query.code", "params.code", "callback.code"] as const;
 
 function redactPaths(): string[] {
   const paths: string[] = [];
@@ -42,6 +60,9 @@ function redactPaths(): string[] {
     const segment = /^[A-Za-z_$][\w$]*$/.test(key) ? `.${key}` : `["${key}"]`;
     const bare = segment.startsWith(".") ? segment.slice(1) : segment;
     paths.push(bare, `*${segment}`, `*.*${segment}`, `*.*.*${segment}`);
+  }
+  for (const path of SENSITIVE_NESTED_PATHS) {
+    paths.push(path, `*.${path}`, `*.*.${path}`);
   }
   return paths;
 }
