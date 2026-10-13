@@ -43,6 +43,13 @@ import { createPublishContext, type RecordedExchange } from "./context";
 import { PublishFailure, publishError, toPublishError } from "./errors";
 import { checkRateGate, isDryRun, livePublishingBlocker } from "./gates";
 import { loadScheduledPost } from "./posts";
+import {
+  rateLimitedRetryMs,
+  recordChannelUsage,
+  throttleOf,
+  type UsageObserver,
+  type UsageScope,
+} from "./rate-limit";
 import type {
   PublishChannel,
   PublisherAdapter,
@@ -93,12 +100,30 @@ export interface PublisherDeps {
   adapters?: AdapterRegistry;
   /** Overrides `PLATFORM_DAILY_POST_LIMITS`; tests pass small ones. */
   dailyLimits?: Partial<Record<Platform, number>>;
+  /**
+   * Reads the platform's usage headers of each live adapter call, so they can be stored on the
+   * channel (`channels.rate_limit`). The live Meta adapters are built with its `fetch`.
+   */
+  usage?: UsageObserver;
+  /**
+   * Runs in the transaction that marks a live (not dry-run) post published; the insights module
+   * enqueues the post's `insights.pull` tasks here.
+   */
+  onLivePublished?: (tx: Transaction, post: LivePublishedPost) => Promise<void>;
+}
+
+/** A post that just went live, as `onLivePublished` receives it. */
+export interface LivePublishedPost {
+  postId: string;
+  channelId: string;
+  platform: Platform;
+  publishedAt: Date;
 }
 
 /** Everything an adapter call needs, loaded from the database. */
 interface PublishInputs {
   channel: PublishChannel;
-  channelRow: Pick<ChannelRow, "status" | "dryRun"> & { connected: boolean };
+  channelRow: Pick<ChannelRow, "status" | "dryRun" | "rateLimit"> & { connected: boolean };
   media: PublishMedia;
   captionParts: CaptionParts;
 }
@@ -128,6 +153,7 @@ const channelColumns = {
   meta: channels.meta,
   status: channels.status,
   dryRun: channels.dryRun,
+  rateLimit: channels.rateLimit,
   connected: sql<boolean>`${channels.secretCiphertext} is not null`,
 };
 
@@ -204,7 +230,12 @@ async function loadInputs(
       scopes: channel.scopes,
       meta: channel.meta,
     },
-    channelRow: { status: channel.status, dryRun: channel.dryRun, connected: channel.connected },
+    channelRow: {
+      status: channel.status,
+      dryRun: channel.dryRun,
+      rateLimit: channel.rateLimit,
+      connected: channel.connected,
+    },
     media: mediaOf(render, version.posterAssetId),
     captionParts: {
       text: version.caption ?? script?.caption ?? "",
@@ -231,6 +262,50 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       dryRunAdapters.set(platform, adapter);
     }
     return adapter;
+  }
+
+  /** Runs adapter calls; live ones under the usage observer, so their headers can be stored. */
+  function observe<T>(
+    dryRun: boolean,
+    run: () => Promise<T>,
+  ): { scope: UsageScope | null; result: Promise<T> } {
+    if (dryRun || deps.usage === undefined) {
+      return { scope: null, result: run() };
+    }
+    return deps.usage.observe(run);
+  }
+
+  /**
+   * After a live attempt: stores the usage report its calls received on the channel and, when the
+   * platform refused a call as rate limited, holds the channel back (`blockedUntil`) for the
+   * back-off, which the returned error carries as `retryAfterMs`.
+   */
+  async function afterLiveCalls(
+    channelId: string,
+    scope: UsageScope | null,
+    error: PublishError | null,
+    now: Date,
+    log: Logger,
+  ): Promise<PublishError | null> {
+    try {
+      await recordChannelUsage(db, channelId, { usage: scope?.usage ?? null, at: now });
+      if (error?.code !== "rate_limited" || !error.retryable) {
+        return error;
+      }
+      const [row] = await db
+        .select({ rateLimit: channels.rateLimit })
+        .from(channels)
+        .where(eq(channels.id, channelId));
+      const retryAfterMs = rateLimitedRetryMs(error, row?.rateLimit ?? null, now);
+      await recordChannelUsage(db, channelId, {
+        blockedUntil: new Date(now.getTime() + retryAfterMs),
+        at: now,
+      });
+      return { ...error, retryAfterMs };
+    } catch (thrown) {
+      log.warn({ err: thrown, channelId }, "could not record the channel's rate-limit usage");
+      return error;
+    }
   }
 
   async function raiseAlert(alert: SchedulerAlert): Promise<void> {
@@ -351,6 +426,7 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
   async function markPublished(
     tx: Transaction,
     post: ScheduledPostRow,
+    platform: Platform,
     attemptId: string,
     result: { permalink?: string; externalId?: string; containerId?: string },
     recorded: RecordedExchange,
@@ -382,6 +458,14 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       data: { channelId: post.channelId, itemId: post.itemId, dryRun: post.dryRun, permalink },
     });
     await publishItem(tx, post.itemId, log);
+    if (!post.dryRun && deps.onLivePublished !== undefined) {
+      await deps.onLivePublished(tx, {
+        postId: post.id,
+        channelId: post.channelId,
+        platform,
+        publishedAt: now,
+      });
+    }
     await emitPost(tx, post.id);
   }
 
@@ -508,6 +592,24 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
             await emitPost(tx, post.id);
             return { kind: "rate_limited", retryAfterMs: gate.retryAfterMs };
           }
+          // Near the platform's own limit: wait for the window the usage report gives.
+          const throttle = throttleOf(inputs.channelRow.rateLimit, now);
+          if (throttle !== null) {
+            const retryAfterMs = Math.max(1_000, throttle.until.getTime() - now.getTime());
+            await tx
+              .update(scheduledPosts)
+              .set({
+                lastError: publishError(
+                  "rate_limited",
+                  `The channel is near its platform rate limit (${throttle.dimension}); publishing waits until ${throttle.until.toISOString()}.`,
+                  { retryAfterMs },
+                ),
+                updatedAt: now,
+              })
+              .where(eq(scheduledPosts.id, post.id));
+            await emitPost(tx, post.id);
+            return { kind: "rate_limited", retryAfterMs };
+          }
         }
 
         const attemptNo = post.attempts + 1;
@@ -599,7 +701,16 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       if (outcome.ok) {
         const { result } = outcome;
         if (!result.pending) {
-          await markPublished(tx, post, started.attempt.id, result, recorded, now, log);
+          await markPublished(
+            tx,
+            post,
+            started.inputs.channel.platform,
+            started.attempt.id,
+            result,
+            recorded,
+            now,
+            log,
+          );
           return null;
         }
         await tx
@@ -670,7 +781,7 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       const adapter = adapterFor(platform, started.dryRun);
       const built = contextFor(started, { signal, logger: log, now });
       let outcome: { ok: true; result: PublishResult } | { ok: false; error: PublishError };
-      try {
+      const calls = observe(started.dryRun, async () => {
         const issues = await adapter.validate(built.context);
         if (issues.length > 0) {
           throw PublishFailure.of(
@@ -679,7 +790,10 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
             { retryable: false },
           );
         }
-        outcome = { ok: true, result: await adapter.publish(built.context) };
+        return adapter.publish(built.context);
+      });
+      try {
+        outcome = { ok: true, result: await calls.result };
       } catch (error) {
         if (signal.aborted) {
           throw error;
@@ -688,6 +802,18 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
           log.error({ err: error, platform }, "the adapter failed unexpectedly");
         }
         outcome = { ok: false, error: toPublishError(error) };
+      }
+      if (!started.dryRun) {
+        const error = await afterLiveCalls(
+          started.post.channelId,
+          calls.scope,
+          outcome.ok ? null : outcome.error,
+          now(),
+          log,
+        );
+        if (!outcome.ok && error !== null) {
+          outcome = { ok: false, error };
+        }
       }
       const retry = await record(started, outcome, built.recorded(), attempt, now(), log);
       if (retry !== null) {
@@ -726,14 +852,31 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       await failIfCurrent(post.id, open, error.error, { request: null, response: null }, now());
       return;
     }
+    const since = Date.parse(payload.since);
+    if (!open.dryRun) {
+      // Near the platform's limit: poll after the window, with the timeout paused meanwhile.
+      const at = now();
+      const throttle = throttleOf(inputs.channelRow.rateLimit, at);
+      if (throttle !== null) {
+        const waitMs = throttle.until.getTime() - at.getTime();
+        log.info({ until: throttle.until, dimension: throttle.dimension }, "status poll throttled");
+        return {
+          next: throttle.until,
+          payload: { postId: post.id, since: new Date(since + waitMs).toISOString() },
+        };
+      }
+    }
     const started: Started = { post, attempt: open, inputs, dryRun: open.dryRun };
     const adapter = adapterFor(inputs.channel.platform, open.dryRun);
     const built = contextFor(started, { signal, logger: log, now });
-    const since = Date.parse(payload.since);
 
     let error: PublishError;
+    const calls = observe(open.dryRun, () => adapter.status(built.context));
     try {
-      const status = await adapter.status(built.context);
+      const status = await calls.result;
+      if (!open.dryRun) {
+        await afterLiveCalls(post.channelId, calls.scope, null, now(), log);
+      }
       const at = now();
       if (status.state === "published") {
         await transaction(db, async (tx) => {
@@ -744,6 +887,7 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
           await markPublished(
             tx,
             current,
+            inputs.channel.platform,
             open.id,
             { permalink: status.permalink, externalId: status.externalId },
             built.recorded(),
@@ -782,6 +926,9 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
         log.error({ err: thrown }, "the adapter status call failed unexpectedly");
       }
       error = toPublishError(thrown);
+      if (!open.dryRun) {
+        error = (await afterLiveCalls(post.channelId, calls.scope, error, now(), log)) ?? error;
+      }
       if (error.retryable && attempt < maxStatusAttempts) {
         throw new TaskFailure(error.code, error.message, {
           retryable: true,
