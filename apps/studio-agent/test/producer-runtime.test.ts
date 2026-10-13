@@ -12,7 +12,7 @@ import {
   producerEnv,
   SdkProducerRuntime,
 } from "../src/producer/sdk-runtime";
-import { aborted } from "./helpers";
+import { aborted, testJobToken } from "./helpers";
 import {
   assistantText,
   assistantToolUse,
@@ -144,6 +144,48 @@ describe("SdkProducerRuntime", () => {
     expect(options?.env?.PATH).toBe("/usr/bin");
     expect(options?.env).not.toHaveProperty("ANTHROPIC_API_KEY");
     expect(options?.env).not.toHaveProperty("OTHER_API_KEY");
+  });
+
+  it("attaches the platform MCP server with the job token for chat", async () => {
+    const fake = fakeQuery(() => [initMessage(), successResult("ok")]);
+    const runtime = new SdkProducerRuntime({ query: fake.query });
+    const token = testJobToken();
+
+    await runtime.run(
+      runInput({
+        jobType: "producer.chat",
+        mcp: { url: new URL("http://127.0.0.1:8790/mcp"), token },
+        brief: "Project brief",
+      }).input,
+    );
+    const options = fake.calls[0]?.options;
+
+    expect(options?.mcpServers).toEqual({
+      loomcast: {
+        type: "http",
+        url: "http://127.0.0.1:8790/mcp",
+        headers: { Authorization: `Bearer ${token}` },
+        alwaysLoad: true,
+      },
+    });
+    expect(options?.strictMcpConfig).toBe(true);
+    expect(options?.allowedTools).toBeUndefined();
+    expect(options?.systemPrompt).toMatchObject({ append: "Project brief" });
+    expect(options?.disallowedTools).toEqual(
+      expect.arrayContaining([
+        "mcp__loomcast__kb_save_session_summary",
+        "mcp__loomcast__project_create",
+        "mcp__loomcast__admin_create_user",
+      ]),
+    );
+    expect(options?.disallowedTools).not.toContain("mcp__loomcast__kb_save_brainstorm");
+    expect(options?.disallowedTools).not.toContain("WebFetch");
+    const decision = await options?.canUseTool?.(
+      "mcp__loomcast__kb_save_brainstorm",
+      { projectId: "p" },
+      { signal: new AbortController().signal, toolUseID: "t1", requestId: "r1" },
+    );
+    expect(decision?.behavior).toBe("allow");
   });
 
   it("denies Bash through the guard it installs", async () => {

@@ -38,6 +38,10 @@ const optionalHandlers: readonly OptionalHandler[] = [
     "producer.chat",
     async () => (await import("./producer-chat")).createProducerChatHandler,
   ),
+  optionalHandler(
+    "kb.analyze_reference",
+    async () => (await import("./kb-analyze-reference")).createKbAnalyzeReferenceHandler,
+  ),
 ];
 
 /** Builds the fixed allow-list of job handlers. Nothing else can run on this agent. */

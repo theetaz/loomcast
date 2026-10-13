@@ -74,6 +74,20 @@ Jobs that were running when the agent stopped are reported as `interrupted` on t
 |---|---|
 | `system.ping` | Reports the agent version, the Node runtime and whether the producer is available |
 | `producer.chat` | Runs one conversation turn in a producer session confined to the project workspace, resuming the previous session when it exists and streaming text and tool activity back. If the producer runtime fails to load, the job type is not advertised |
+| `kb.analyze_reference` | Analyses a saved reference from its transcript in a new, read-only producer session and returns a schema-checked analysis with a short summary. The transcript is written to `references/<entryId>/transcript.txt` in the project workspace; the reference URL is never fetched |
+
+### Knowledge-base access
+
+Producer sessions never see the device token. When a job type has MCP access, the server sends a job token (`lc_job_…`) with the assignment; the agent resolves its endpoint against the paired server URL and keeps it in memory for that job only. It is never logged and never written to the outbox, the journal or the config.
+
+The session gets the platform's MCP server (`loomcast`) with that token, and the permission guard allows only the tools of the job type:
+
+| Job type | MCP tools | Built-in tools |
+|---|---|---|
+| `producer.chat` | `kb.search`, `kb.get`, `kb.save_brainstorm`, `kb.add_decision`, `kb.add_reference`, `project.get` | Read, Glob, Grep, Write and Edit in the workspace, WebSearch, WebFetch |
+| `kb.analyze_reference` | `kb.search`, `kb.get`, `project.get` | Read, Glob and Grep inside the workspace only |
+
+The producer runtime names MCP tools `mcp__<server>__<tool>` with every character outside `[A-Za-z0-9_-]` replaced by `_`, so `kb.search` appears as `mcp__loomcast__kb_search`. Every other MCP tool and server is denied.
 
 Handlers are registered in `src/jobs/index.ts`. The runner validates every payload and result against the contracts job registry, rejects unknown job types, enforces the per-class credits and the registry timeout, and aborts a job on `job.cancel`.
 
