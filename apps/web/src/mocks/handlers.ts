@@ -12,6 +12,7 @@ import {
   UpdateProjectSchema,
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
+import { createCalendarHandlers } from "./calendar";
 import { createContentHandlers } from "./content";
 import { createContentItemHandlers } from "./content-item";
 import { createConversationHandlers } from "./conversations";
@@ -207,6 +208,7 @@ export function createHandlers(db: MockDb) {
     ...createSeriesHandlers(db),
     ...createReviewQueueHandlers(db),
     ...createUploadHandlers(db),
+    ...createCalendarHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

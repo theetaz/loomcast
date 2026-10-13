@@ -1,6 +1,7 @@
 import {
   type AccessToken,
   type AssetDetail,
+  type Channel,
   type ContentItem,
   type ContentVersion,
   type Conversation,
@@ -18,7 +19,9 @@ import {
   type PasswordTokenPurpose,
   type Project,
   type Review,
+  type ScheduledPost,
   type Series,
+  type SeriesChannels,
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
   type UserSummary,
@@ -72,6 +75,12 @@ export interface MockDb {
   formats: Format[];
   /** Every version of every format. */
   formatVersions: FormatVersion[];
+  /** Publishing channels (global, like the real API). */
+  channels: Channel[];
+  /** The channels each series publishes to. */
+  seriesChannels: SeriesChannels[];
+  /** Scheduled posts of every item on every channel. */
+  posts: ScheduledPost[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -117,6 +126,9 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     reviews: [],
     formats: [],
     formatVersions: [],
+    channels: [],
+    seriesChannels: [],
+    posts: [],
     ...seed,
     listeners: new Set(),
   };

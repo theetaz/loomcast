@@ -39,6 +39,12 @@ The demo projects also have series and content items in every pipeline state
 object store (`src/mocks/uploads.ts`). Producing an item walks it through script, storyboard,
 voice and render to review, one version every second or so, with the live events the API sends.
 
+The calendar's mock (`src/mocks/calendar.ts`) adds planning channels, links them to the demo
+series and puts posts on the next slots of each series' cadence (from the formats in
+`src/mocks/formats.ts`), leaving a few slots open, with published and missed posts in the past
+(`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get` and `channels.list`,
+and publishes `post.updated` like the scheduler will.
+
 ### Dev proxy
 
 | Path | Target | Notes |
@@ -50,12 +56,12 @@ voice and render to review, one version every second or so, with the live events
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/settings/*` |
 | `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `series`, `formats`, `review-queue`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -265,6 +271,31 @@ notice "Only upload media you own or have permission to use.":
 
 One progress bar covers all steps; Cancel or leaving the page aborts. A reference with media
 can be analyzed without a transcript.
+
+## Calendar
+
+`features/calendar` is the Calendar page (`/calendar`): every post on every channel, by week or
+by month.
+
+- The address holds the view (`view=month`; week by default), any day of the period (`date`,
+  `YYYY-MM-DD`; today when left out), the channel and series filters (`channels`, `series`,
+  comma-separated ids) and the clock (`zone=series`). `CalendarSearchSchema` (`search.ts`) drops
+  invalid values. Filters go to `calendar.get` as comma-separated `channelIds` and `seriesIds`.
+- Times follow the browser's time zone. The series time zone (the cadence `tz` of the filtered
+  series' formats, or of every series when unfiltered) can be chosen when they share one.
+  `time.ts` computes periods with date-fns on `TZDate` (`@date-fns/tz`), so weeks across a
+  daylight saving change are 167 or 169 hours, and maps cells to instants with the contracts'
+  `fromLocalDateTime`, the rule the API and the scheduler use.
+- The week has seven columns from 06:00 to midnight in half-hour rows that grow with their
+  chips; posts before 06:00 get a lane above the grid. A month shows six weeks, three entries a
+  day and "+n more", which opens that week. Chips show the platform dot, the title, the time and
+  the post state. Cadence slots no post holds are drawn dashed.
+- `←` and `→` change the period and `t` returns to today, except while typing, in menus and
+  dialogs.
+- `post.updated` patches every loaded range (moved, added or dropped by range and filter),
+  `channel.updated` the channel list and `content.item.updated` the titles and states on chips.
+- Post states use a local mapping (`post-status.tsx`) until `StatusPill` gets a `post` kind.
+- date-fns stays in the calendar's route chunk.
 
 ## Screens and conventions
 
