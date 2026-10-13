@@ -2,18 +2,23 @@ import type { Conversation, Project } from "@loomcast/contracts";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { useCallback, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ErrorState";
 import { api, errorMessage } from "@/lib/api";
 import { ConversationColumn, ConversationPicker } from "./ConversationList";
-import { ConversationThread, MessagesSkeleton } from "./ConversationThread";
+import { MessagesSkeleton } from "./MessagesSkeleton";
 import { conversationTitle } from "./messages";
 import { addConversation, conversationsQueryOptions } from "./queries";
 import { createConversationStore } from "./store";
 import { useConversationLive } from "./use-conversation-live";
 
 const projectRoute = getRouteApi("/_app/projects/$projectId");
+
+// The thread brings the markdown renderer; load it with the panel, not the app.
+const ConversationThread = lazy(() =>
+  import("./ConversationThread").then((module) => ({ default: module.ConversationThread })),
+);
 
 export interface ConversationPanelProps {
   project: Project;
@@ -102,13 +107,15 @@ export function ConversationPanel({ project }: ConversationPanelProps) {
             {query.isPending ? (
               <MessagesSkeleton />
             ) : (
-              <ConversationThread
-                project={project}
-                conversation={selected}
-                store={store}
-                onConversationCreated={onCreated}
-                composerRef={composerRef}
-              />
+              <Suspense fallback={<MessagesSkeleton />}>
+                <ConversationThread
+                  project={project}
+                  conversation={selected}
+                  store={store}
+                  onConversationCreated={onCreated}
+                  composerRef={composerRef}
+                />
+              </Suspense>
             )}
           </div>
         </>

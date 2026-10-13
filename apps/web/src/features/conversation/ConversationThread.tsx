@@ -1,6 +1,5 @@
 import type { Conversation, JobSummary, Message, Project } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
-import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownIcon, MessagesSquareIcon, SparklesIcon } from "lucide-react";
@@ -15,6 +14,7 @@ import { Composer } from "./Composer";
 import { JobStatusLine } from "./JobStatusLine";
 import { describeJob, isTerminal, type StudioAvailability } from "./job-status";
 import { DraftMessage, TimelineEntry } from "./MessageItem";
+import { MessagesSkeleton } from "./MessagesSkeleton";
 import { buildTimeline, type PendingMessage, type SendVia } from "./messages";
 import {
   addConversation,
@@ -339,29 +339,6 @@ function JumpToLatest({ visible, onClick }: { visible: boolean; onClick: () => v
         <ArrowDownIcon aria-hidden="true" />
         Jump to latest
       </Button>
-    </div>
-  );
-}
-
-export function MessagesSkeleton() {
-  return (
-    <div
-      aria-hidden="true"
-      className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 py-5 md:px-6"
-    >
-      <Skeleton className="ml-auto h-9 w-2/5 rounded-lg" />
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-11/12" />
-        <Skeleton className="h-3 w-3/5" />
-      </div>
-      <Skeleton className="ml-auto h-9 w-1/3 rounded-lg" />
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3 w-10/12" />
-        <Skeleton className="h-3 w-2/3" />
-      </div>
     </div>
   );
 }
