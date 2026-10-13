@@ -1,39 +1,54 @@
 import { Button } from "@loomcast/ui/components/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@loomcast/ui/components/tooltip";
-import { PlugIcon } from "lucide-react";
-import { useId } from "react";
-
-const NOT_YET = "Connecting accounts isn't available yet. Add a planning channel to plan posts.";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@loomcast/ui/components/dropdown-menu";
+import { ChevronDownIcon, PlugIcon } from "lucide-react";
+import { startOAuth } from "./connect/navigation";
+import { connectProviders, PROVIDER_META } from "./connect/providers";
+import { useXPublishing } from "./connect/queries";
+import { PlatformTile } from "./platforms";
 
 /**
- * Where connecting an account starts. It stays disabled until the connect flow ships, which
- * replaces this component (and only this component) with its menu of providers.
+ * Where connecting an account starts: a menu of the sign-ins the server offers. Choosing one
+ * leaves the app for the platform's consent dialog, which comes back to the connect page. X is
+ * only offered while the server's X publishing flag is on.
  */
-export function ConnectButton() {
-  const hint = useId();
+export function ConnectButton({ size = "sm" }: { size?: "sm" | "default" }) {
+  const providers = connectProviders(useXPublishing());
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {/* The button ignores the pointer while disabled, so the wrapper opens the tooltip. */}
-        <span className="inline-flex">
-          <Button
-            size="sm"
-            variant="outline"
-            aria-disabled="true"
-            aria-describedby={hint}
-            onClick={(event) => event.preventDefault()}
-          >
-            <PlugIcon aria-hidden="true" />
-            Connect
-          </Button>
-          <span id={hint} className="sr-only">
-            {NOT_YET}
-          </span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" align="end" className="max-w-64">
-        {NOT_YET}
-      </TooltipContent>
-    </Tooltip>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size={size} variant="outline">
+          <PlugIcon aria-hidden="true" />
+          Connect
+          <ChevronDownIcon aria-hidden="true" className="-mr-0.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="font-normal text-muted-foreground text-small">
+          Sign in to choose the accounts to connect
+        </DropdownMenuLabel>
+        {providers.map((provider) => {
+          const meta = PROVIDER_META[provider];
+          return (
+            <DropdownMenuItem
+              key={provider}
+              onSelect={() => startOAuth(provider)}
+              className="h-auto items-start gap-2.5 py-2"
+            >
+              <PlatformTile platform={meta.platform} className="size-6 text-[10.5px]" />
+              <span className="flex min-w-0 flex-col">
+                <span className="text-foreground">{meta.label}</span>
+                <span className="text-[11.5px] text-muted-foreground">{meta.hint}</span>
+              </span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

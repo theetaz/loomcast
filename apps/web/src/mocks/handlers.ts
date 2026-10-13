@@ -32,6 +32,7 @@ import {
 } from "./db";
 import { createFormatHandlers } from "./formats";
 import { createKbHandlers } from "./kb";
+import { createOAuthHandlers } from "./oauth";
 import { createReviewQueueHandlers } from "./review-queue";
 import { createSchedulerHandlers } from "./scheduler";
 import { createSeriesHandlers } from "./series";
@@ -217,6 +218,7 @@ export function createHandlers(db: MockDb) {
     ...createChannelHandlers(db),
     ...createApprovalHandlers(db),
     ...createSchedulerHandlers(db),
+    ...createOAuthHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

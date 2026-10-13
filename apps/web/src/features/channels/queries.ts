@@ -176,3 +176,20 @@ export function withLink(
     ? links.map((entry) => (entry.channelId === link.channelId ? link : entry))
     : [...links, link];
 }
+
+/**
+ * Disconnects a channel: the server wipes its stored access and puts it back in dry-run. The
+ * channel, its series links and its posts stay.
+ */
+export function useDisconnectChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (channel: Channel) =>
+      api.request("channels.disconnect", { params: { id: channel.id } }),
+    onSuccess: (channel) => applyChannel(queryClient, channel),
+    onError: (error) => {
+      if (isApiError(error, 404))
+        void queryClient.invalidateQueries({ queryKey: channelKeys.list });
+    },
+  });
+}

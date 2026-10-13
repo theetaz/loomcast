@@ -1,10 +1,14 @@
 import { CHANNEL_STATUSES, LIVE_PUBLISHING_BLOCKERS, POST_STATUSES } from "@loomcast/contracts";
 import { STATUS_STYLES } from "@loomcast/ui/components/StatusPill";
 import { describe, expect, it } from "vitest";
+import { connectProviders } from "@/features/channels/connect/providers";
+import { orderCandidates, toggleCandidate } from "@/features/channels/connect/selection";
 import { sortChannels } from "@/features/channels/platforms";
 import { withLink } from "@/features/channels/queries";
 import {
+  confirmsGoLive,
   dryRunSwitchState,
+  goLivePreconditions,
   liveBlockerReason,
   tokenExpiryWarning,
 } from "@/features/channels/rules";
@@ -146,5 +150,66 @@ describe("series channel links", () => {
       "b",
       "a",
     ]);
+  });
+});
+
+describe("connecting accounts", () => {
+  const page = { id: "facebook:1", parentId: null };
+  const instagram = { id: "instagram:2", parentId: "facebook:1" };
+  const other = { id: "facebook:3", parentId: null };
+  const accounts = [instagram, other, page];
+
+  it("lists each parent before the accounts that publish through it", () => {
+    expect(orderCandidates(accounts).map((account) => account.id)).toEqual([
+      "facebook:3",
+      "facebook:1",
+      "instagram:2",
+    ]);
+  });
+
+  it("chooses a parent with its child and drops the child with its parent", () => {
+    const chosen = toggleCandidate(accounts, new Set(), instagram.id, true);
+    expect([...chosen].sort()).toEqual(["facebook:1", "instagram:2"]);
+    expect([...toggleCandidate(accounts, chosen, instagram.id, false)]).toEqual(["facebook:1"]);
+    expect([...toggleCandidate(accounts, chosen, page.id, false)]).toEqual([]);
+  });
+
+  it("offers X only behind its flag", () => {
+    expect(connectProviders(false)).toEqual(["meta", "threads"]);
+    expect(connectProviders(true)).toEqual(["meta", "threads", "x"]);
+  });
+});
+
+describe("going live", () => {
+  it("takes only the exact phrase", () => {
+    expect(confirmsGoLive("publish live")).toBe(true);
+    expect(confirmsGoLive("  publish live ")).toBe(true);
+    for (const typed of ["", "publish", "Publish live", "publish  live", "publishlive"]) {
+      expect(confirmsGoLive(typed)).toBe(false);
+    }
+  });
+
+  it("lists the server's checks, with a paused publisher only as a warning", () => {
+    const channel = mockChannel({
+      platform: "threads",
+      displayName: "@rustin60",
+      connected: true,
+      status: "needs_reauth",
+      liveBlocker: "not_active",
+    });
+    const conditions = goLivePreconditions(channel, { mode: "live", enabled: false });
+    expect(conditions.map(({ id, met, advisory }) => [id, met, advisory ?? false])).toEqual([
+      ["platform", true, false],
+      ["connected", true, false],
+      ["active", false, false],
+      ["server_live", true, false],
+      ["publishing_running", false, true],
+    ]);
+    // Without the publisher's status, the server's blocker says whether it publishes live.
+    expect(
+      goLivePreconditions({ ...channel, liveBlocker: "publishing_dry_run" }, undefined).find(
+        (condition) => condition.id === "server_live",
+      )?.met,
+    ).toBe(false);
   });
 });
