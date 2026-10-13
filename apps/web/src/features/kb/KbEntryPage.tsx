@@ -9,8 +9,10 @@ import { ErrorState } from "@/components/ErrorState";
 import { Markdown } from "@/features/conversation/Markdown";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
+import { DecisionView } from "./DecisionView";
 import { DeleteEntryButton, EntryMeta, EntrySkeleton, EntryToolbar, TagChips } from "./EntryChrome";
 import { kbEntryQueryOptions } from "./queries";
+import { TextEntryEditor } from "./TextEntryEditor";
 
 export function KbEntryCrumb({ id }: { id: string }) {
   const query = useQuery({ ...kbEntryQueryOptions(id), enabled: id !== "" });
@@ -61,7 +63,22 @@ export function KbEntryPage({ project, projectParam, entryId }: KbEntryPageProps
   }
   if (!entry) return <EntrySkeleton />;
 
-  return <EntryReadView entry={entry} projectParam={projectParam} />;
+  switch (entry.kind) {
+    case "brainstorm":
+    case "note":
+      return (
+        <TextEntryEditor
+          project={project}
+          projectParam={projectParam}
+          kind={entry.kind}
+          entry={entry}
+        />
+      );
+    case "decision":
+      return <DecisionView project={project} projectParam={projectParam} entry={entry} />;
+    default:
+      return <EntryReadView entry={entry} projectParam={projectParam} />;
+  }
 }
 
 /** A read-only entry: title, tags and the markdown body. */

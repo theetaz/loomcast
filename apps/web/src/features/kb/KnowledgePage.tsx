@@ -1,5 +1,24 @@
 import type { Project } from "@loomcast/contracts";
+import { DecisionLog } from "./DecisionLog";
 import { KbList, type KbListState } from "./KbList";
+import type { KbFilter } from "./kinds";
+import { NewEntryButton, NewEntryMenu } from "./NewEntryMenu";
+
+function emptyAction(projectParam: string, kind: KbFilter) {
+  switch (kind) {
+    case "all":
+    case "brainstorm":
+      return (
+        <NewEntryButton projectParam={projectParam} kind="brainstorm" label="New brainstorm" />
+      );
+    case "note":
+      return <NewEntryButton projectParam={projectParam} kind="note" label="New note" />;
+    case "decision":
+      return <NewEntryButton projectParam={projectParam} kind="decision" label="Record decision" />;
+    default:
+      return null;
+  }
+}
 
 export interface KnowledgePageProps {
   project: Project;
@@ -19,12 +38,17 @@ export function KnowledgePage({ project, projectParam, state, onStateChange }: K
             Ideas, references, decisions and notes. The studio agent reads them when it writes.
           </p>
         </div>
+        <NewEntryMenu projectParam={projectParam} />
       </div>
       <KbList
         project={project}
         projectParam={projectParam}
         state={state}
         onStateChange={onStateChange}
+        emptyAction={(kind) => emptyAction(projectParam, kind)}
+        renderKind={{
+          decision: () => <DecisionLog project={project} projectParam={projectParam} />,
+        }}
       />
     </div>
   );
