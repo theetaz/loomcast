@@ -10,10 +10,11 @@ import {
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChartColumnBigIcon } from "lucide-react";
+import { ChartColumnBigIcon, ChevronRightIcon } from "lucide-react";
 import { useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
+import { useSeriesOptions } from "@/features/library/queries";
 import { projectsQueryOptions } from "@/features/projects/queries";
 import { ChartFrame, type ChartNotice, Legend } from "./ChartFrame";
 import { formatCount, formatFullCount, formatRate, plural } from "./format";
@@ -91,7 +92,7 @@ export interface AnalyticsOverviewProps {
 
 /**
  * Posts that went live in a range: headline figures, views over time per platform, the top
- * posts. Filters sit in one row above everything they scope.
+ * posts and the series to drill into. Filters sit in one row above everything they scope.
  */
 export function AnalyticsOverview({
   range,
@@ -207,9 +208,47 @@ export function AnalyticsOverview({
             </div>
             <TopPostsTable posts={overview.topPosts} />
           </section>
+          <SeriesLinks projectId={projectId} />
         </>
       )}
     </div>
+  );
+}
+
+/** Every active series, linking to its analytics. */
+function SeriesLinks({ projectId }: { projectId: string | null }) {
+  const { options } = useSeriesOptions(projectId);
+  const shown = options.filter(({ series }) => series.status !== "archived");
+  if (shown.length === 0) return null;
+  return (
+    <section aria-labelledby="series-links-title" className="rounded-lg bg-card shadow-card">
+      <div className="flex items-baseline gap-2 px-4 pt-3.5 pb-2">
+        <h2 id="series-links-title" className="text-heading text-foreground">
+          Series
+        </h2>
+        <p className="text-small text-muted-foreground">Views and watch time per post</p>
+      </div>
+      <ul>
+        {shown.map(({ series, project }) => (
+          <li key={series.id} className="border-divider border-t">
+            <Link
+              to="/analytics/series/$seriesId"
+              params={{ seriesId: series.id }}
+              className="flex h-10 items-center gap-2 px-4 text-control outline-none transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:shadow-[inset_2px_0_0_var(--ring)]"
+            >
+              <span className="min-w-0 truncate text-foreground">{series.name}</span>
+              {project && projectId === null ? (
+                <span className="min-w-0 truncate text-muted-foreground">{project.name}</span>
+              ) : null}
+              <ChevronRightIcon
+                aria-hidden="true"
+                className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+              />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

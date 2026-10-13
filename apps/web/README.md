@@ -56,12 +56,12 @@ routes and `channels.list`, and publishes `post.updated` like the scheduler will
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/analytics/*`, `_app/settings/*` |
 | `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `analytics`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -254,6 +254,43 @@ show the poster (a presigned URL refreshed before it expires), project, series, 
 and a deadline badge (red once the date passed, amber within a day, blue within three). `j` and
 `k` (or the arrows, Home and End once a row has focus) move between rows and Enter opens one;
 nothing animates as they move. `content.item.*` events add, re-sort and drop rows.
+
+## Analytics
+
+`features/analytics` is `/analytics` (`?range=7d|30d|90d|12m&project=<id>`), each series' page
+(`/analytics/series/:seriesId?range=all|90d|12m`) and the item page's Performance card
+(`features/content-item/cards/items/analytics.tsx`). They read `analytics.overview`,
+`analytics.series` and `analytics.item`: live posts only, each counted by its latest capture.
+
+- Overview: headline tiles (posts published, total views, median views per post, engagement
+  rate), views over time per platform and the ten most-viewed posts, then links to every series.
+  Ranges are whole UTC days ending today, so the query key holds through a day. The trend is
+  the running total of the posts' views by the day (45 days or less), week (200 or less) or month
+  each post went live, zero-filled, so sparse publishing still reads as a line.
+- Series page: tiles (with average watch time) and two aligned per-post bar charts on their own
+  axes, views and average watch time, by publish date. Never two scales on one chart.
+- Performance card: one live post at a time (picked by platform), its latest metrics with a
+  sparkline over its captures, when it was captured, when the next capture is due and a link to
+  the post. Nothing renders for items that never went live; the card and the chart code load as
+  their own chunk.
+- Charts are hand-drawn SVG over `d3-scale` and `d3-shape`. Platform colours are fixed slots
+  (`platforms.ts`, `viz.css`: the validated data-viz palette, light and dark steps of the same
+  hues), so a platform keeps its colour whatever else is on screen. Text never wears a series
+  colour; legends and short line keys carry identity.
+- Every chart has a Chart / Table toggle; the table prints the same formatted values as the
+  tooltips and the points' accessible names (`tooltips.ts`). Points are transparent buttons over
+  the SVG sharing one tab stop: arrow keys, Home and End move, focus or hover shows the tooltip,
+  Escape hides it. Nothing animates as the active point moves; a refetch keeps the previous
+  render, dimmed, instead of a skeleton.
+- "Not enough data yet" replaces a chart without enough to draw (no captures, fewer than two
+  periods or posts); empty ranges get an empty state. `post.metrics.updated` and reconnects
+  refetch every analytics query.
+- Mock mode: `src/mocks/analytics.ts` gives the demo series a back catalogue of published videos
+  with captures on the insights schedule; the newest one went live minutes ago and has none yet.
+  It runs after the calendar's seed: live posts go to the channels linked to each series and are
+  also published (not dry-run) posts in the calendar, and the calendar's own dry-run posts stay
+  unmeasured.
+  Tests add captures with `addMetricsCapture`, which publishes `post.metrics.updated`.
 
 ## Reference media
 
