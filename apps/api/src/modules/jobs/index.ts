@@ -5,7 +5,7 @@ import { createJobLifecycle } from "./lifecycle";
 import { createJobsRouter } from "./routes";
 
 export { createDispatcher, type Dispatcher, type DispatchTarget } from "./dispatcher";
-export { createProducerChatHooks, toMessage } from "./handlers/producer-chat";
+export { createProducerChatHooks } from "./handlers/producer-chat";
 export type { JobHooks, JobTypeHooks } from "./hooks";
 export {
   CANCELLED_ERROR,

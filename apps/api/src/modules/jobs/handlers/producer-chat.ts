@@ -1,23 +1,10 @@
-import { type Message, ProducerChatResultSchema } from "@loomcast/contracts";
-import { conversations, type MessageRow, messages } from "@loomcast/db";
+import { ProducerChatResultSchema } from "@loomcast/contracts";
+import { conversations, messages } from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import type { EventBus } from "../../../lib/bus";
 import { afterCommit } from "../../../lib/db";
+import { toMessage } from "../../conversations/service";
 import type { JobTypeHooks } from "../hooks";
-
-/** A stored message as the web app sees it. */
-export function toMessage(row: MessageRow): Message {
-  return {
-    id: row.id,
-    conversationId: row.conversationId,
-    role: row.role,
-    authorUserId: row.authorUserId,
-    jobId: row.jobId,
-    clientMessageId: row.clientMessageId,
-    content: row.content,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
 
 /**
  * `producer.chat` side effects:
