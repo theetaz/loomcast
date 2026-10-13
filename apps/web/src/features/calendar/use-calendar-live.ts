@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { applyChannel } from "@/features/channels/queries";
 import { useLiveEvent } from "@/lib/live";
-import { applyChannel, applyPost, calendarKeys, updateCalendars } from "./queries";
+import { applyPost, calendarKeys, updateCalendars } from "./queries";
 
 /**
  * Keeps the calendar current with posts and channels changed anywhere: the scheduler, the

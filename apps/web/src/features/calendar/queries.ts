@@ -1,4 +1,4 @@
-import type { CalendarResponse, Channel, Format, List, ScheduledPost } from "@loomcast/contracts";
+import type { CalendarResponse, Format, List, ScheduledPost } from "@loomcast/contracts";
 import {
   type QueryClient,
   queryOptions,
@@ -17,17 +17,12 @@ import {
   upsertPost,
 } from "./model";
 
-/** Calendar, channel and format query keys. Moves, new posts and live events patch the same caches. */
+/** Calendar and format query keys (channels: `features/channels/queries`). Moves, new posts and live events patch the same caches. */
 export const calendarKeys = {
   all: ["calendar"] as const,
   ranges: ["calendar", "range"] as const,
   range: (key: CalendarQueryKey) => ["calendar", "range", key] as const,
   approved: (seriesId: string) => ["calendar", "approved", seriesId] as const,
-};
-
-/** Shared with the channel settings screens. */
-export const channelKeys = {
-  list: ["channels", "list"] as const,
 };
 
 export const formatKeys = {
@@ -57,14 +52,6 @@ export function calendarQueryOptions(key: CalendarQueryKey) {
         },
         signal,
       }),
-  });
-}
-
-export function channelsQueryOptions() {
-  return queryOptions({
-    queryKey: channelKeys.list,
-    queryFn: ({ signal }) => api.request("channels.list", { signal }),
-    staleTime: 60_000,
   });
 }
 
@@ -137,17 +124,6 @@ export function cachedPosts(queryClient: QueryClient): ScheduledPost[] {
   return queryClient
     .getQueriesData<CalendarResponse>({ queryKey: calendarKeys.ranges })
     .flatMap(([, data]) => data?.posts ?? []);
-}
-
-/** Replaces or adds a channel in the cached list. */
-export function applyChannel(queryClient: QueryClient, channel: Channel) {
-  queryClient.setQueryData<List<Channel>>(channelKeys.list, (list) => {
-    if (!list) return list;
-    const items = list.items.some((entry) => entry.id === channel.id)
-      ? list.items.map((entry) => (entry.id === channel.id ? channel : entry))
-      : [...list.items, channel];
-    return { items };
-  });
 }
 
 // Mutations -------------------------------------------------------------------------

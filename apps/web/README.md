@@ -43,7 +43,11 @@ The calendar's mock (`src/mocks/calendar.ts`) adds planning channels, links them
 series and puts posts on the next slots of each series' cadence (from the formats in
 `src/mocks/formats.ts`), leaving a few slots open, with published and missed posts in the past
 (`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get`, the scheduled-post
-routes and `channels.list`, and publishes `post.updated` like the scheduler will.
+routes and `channels.list`, and publishes `post.updated` like the scheduler will. Channels get
+their `liveBlocker` from the server's rule (`mockLiveBlocker`: platform, connection, status,
+then `db.publisher.mode`). `src/mocks/channels.ts` adds the channel and series-channel writes and
+`publisher.status`, `src/mocks/approvals.ts` the approvals inbox and `src/mocks/scheduler.ts`
+the scheduler's task list and retry (`db.tasks`, with a few dead and failed tasks in mock mode).
 
 ### Dev proxy
 
@@ -56,12 +60,12 @@ routes and `channels.list`, and publishes `post.updated` like the scheduler will
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/analytics/*`, `_app/settings/*` |
+| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/approvals/*`, `_app/analytics/*`, `_app/settings/*` |
 | `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `analytics`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `approvals`, `channels`, `scheduler-admin`, `analytics`, `palette`, `members`, `settings-nav` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -226,8 +230,7 @@ artifact), an earlier version to show (`?version=`) and a version to compare scr
   of the project's formats, or creates a format with the default rules and opens it.
 - The series page lists its unpublished videos by target date beside cards from a registry:
   every file in `features/series/cards/items/` exports one `card: {id, order, Card}` and gets
-  `{series, project, format, projectParam}`. Cadence is 10 and Format 20; a channels card fits
-  at 30. Pause and Archive ask first (pausing archives ideas planned for upcoming slots);
+  `{series, project, format, projectParam}`. Cadence is 10, Format 20 and Channels 30. Pause and Archive ask first (pausing archives ideas planned for upcoming slots);
   Resume doesn't. Switching the series to another format is in the Format card.
 - The editor is a react-hook-form over the contracts' `FormatRulesSchema` (and
   `FormatNameSchema`), so it accepts and refuses exactly what the API does. Empty optional
@@ -344,8 +347,31 @@ by month.
   (`content.list` with `states=approved,scheduled`); picking one sends `scheduledPosts.create`.
 - `post.updated` patches every loaded range (moved, added or dropped by range and filter),
   `channel.updated` the channel list and `content.item.updated` the titles and states on chips.
-- Post states use a local mapping (`post-status.tsx`) until `StatusPill` gets a `post` kind.
+- Post states use `StatusPill kind="post"`; channels and platform colours come from
+  `features/channels` (`channelsQueryOptions`, `applyChannel`, `PlatformDot`).
 - dnd-kit and date-fns stay in the calendar's route chunk.
+
+## Channels, approvals and the scheduler
+
+- Settings → Channels (`features/channels`, `/settings/channels`): every channel with its
+  platform, status, access warnings and two switches. The dry-run switch follows the server's
+  `liveBlocker` only (`rules.ts`): while one is set it stays on, `aria-disabled`, with the reason
+  as its description and tooltip. Switching it on is always allowed; switching it off asks
+  first, and a `409 dry_run_locked` puts it back with the server's reason and refetches. The
+  approval switch is open on every channel. "Add planning channel" creates a disconnected
+  dry-run channel; Connect stays disabled until the connect flow replaces `ConnectButton.tsx`.
+  `PublisherBanner` shows `publisher.status` (dry-run mode, or paused).
+- The series page's Channels card (order 30) switches each channel on or off for the series
+  with `series.setChannels`, one change at a time on top of the last; archived series and
+  disabled channels lock their switches.
+- Approvals (`features/approvals`, `/approvals`, `?project=` to narrow): videos in review with
+  a countdown to their first open post (red under two hours, amber within a day, blue within
+  three), nearest first and videos without a slot last, with Approve and Request changes
+  through `reviews.create`; and missed posts with Reschedule (`scheduledPosts.reschedule`).
+  Item and post events keep it current.
+- Settings → Scheduler (`features/scheduler-admin`, `/settings/scheduler`, `?status=failed`):
+  dead or failed tasks with their last error and Retry (`scheduler.retryTask`); a `409` says
+  why and refetches. `task.dead` adds tasks as they die.
 
 ## Screens and conventions
 
@@ -362,7 +388,8 @@ by month.
   `item: {id, label, icon, order, section?, to?, exact?, badge?}`, so a feature adds itself to
   the sidebar by adding a file. `section` is `main` (default) or `footer`; an item without `to`
   shows disabled with a "Soon" badge. The Channels group (`src/app/nav/channels-section.tsx`)
-  lists the planned platforms (Facebook, Instagram, Threads, X) as coming soon.
+  lists the channels by platform, each opening the calendar filtered to it, with an amber dot
+  when one needs reconnecting and a lock on X while it can only dry-run.
 - The project page (`features/project`) is a header and tabs over the open tab's route. Tabs
   come from a registry: every file in `features/project/tabs/items/` exports one
   `tab: {id, label, icon, to, order}`, so a feature adds a tab by adding a file. The tab whose

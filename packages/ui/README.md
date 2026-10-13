@@ -38,7 +38,7 @@ import { initTheme, useTheme } from "@loomcast/ui/lib/theme";
 | Export | Contents |
 |---|---|
 | `./styles.css` | Tailwind, fonts, tokens and theme |
-| `./components/*` | shadcn components (`button`, `dialog`, `sidebar`, …) and `StatusPill` |
+| `./components/*` | shadcn components (`button`, `dialog`, `sidebar`, …) and `StatusPill` (with `StatusDot`; kinds `pipeline`, `job`, `device`, `post` and `channel`) |
 | `./hooks/*` | `use-mobile`, used by the sidebar |
 | `./lib/*` | `cn`, `theme`, `motion` |
 | `./brand` | `LoomcastMark`, `LoomcastGlyph` |

@@ -1,0 +1,150 @@
+import { CHANNEL_STATUSES, LIVE_PUBLISHING_BLOCKERS, POST_STATUSES } from "@loomcast/contracts";
+import { STATUS_STYLES } from "@loomcast/ui/components/StatusPill";
+import { describe, expect, it } from "vitest";
+import { sortChannels } from "@/features/channels/platforms";
+import { withLink } from "@/features/channels/queries";
+import {
+  dryRunSwitchState,
+  liveBlockerReason,
+  tokenExpiryWarning,
+} from "@/features/channels/rules";
+import { seriesChannelLock } from "@/features/channels/SeriesChannelsCard";
+import { mockChannel, mockLiveBlocker } from "@/mocks/calendar";
+
+const NOW = Date.parse("2026-10-14T08:00:00.000Z");
+const DAY_MS = 24 * 60 * 60_000;
+const inDays = (days: number) => new Date(NOW + days * DAY_MS).toISOString();
+
+describe("status pill kinds", () => {
+  it("covers every post and channel status of the contracts", () => {
+    expect(Object.keys(STATUS_STYLES.post).sort()).toEqual([...POST_STATUSES].sort());
+    expect(Object.keys(STATUS_STYLES.channel).sort()).toEqual([...CHANNEL_STATUSES].sort());
+  });
+});
+
+describe("dry-run switch", () => {
+  it("stays on and says why while the server names a blocker", () => {
+    const state = dryRunSwitchState({
+      dryRun: true,
+      liveBlocker: "publishing_dry_run",
+      platform: "facebook",
+    });
+    expect(state).toEqual({
+      checked: true,
+      disabled: true,
+      reason: "The server is in dry-run mode, so every channel only records what it would send.",
+    });
+  });
+
+  it("can be switched off when nothing blocks it", () => {
+    expect(dryRunSwitchState({ dryRun: true, liveBlocker: null, platform: "instagram" })).toEqual({
+      checked: true,
+      disabled: false,
+      reason: null,
+    });
+  });
+
+  it("can always go back to dry-run, even once the server blocks going live", () => {
+    expect(
+      dryRunSwitchState({ dryRun: false, liveBlocker: "not_active", platform: "threads" }),
+    ).toEqual({ checked: false, disabled: false, reason: null });
+  });
+
+  it("explains every blocker, naming the platform when it is the platform", () => {
+    for (const blocker of LIVE_PUBLISHING_BLOCKERS) {
+      expect(liveBlockerReason(blocker, "x").length).toBeGreaterThan(10);
+    }
+    expect(liveBlockerReason("platform_unavailable", "x")).toBe(
+      "Publishing live to X isn't available yet.",
+    );
+    expect(liveBlockerReason("not_connected", "instagram")).toMatch(/^Connect this channel/);
+  });
+
+  it("follows the server's rule in the mock: platform, connection, status, then mode", () => {
+    const base = { platform: "instagram" as const, status: "active" as const, connected: true };
+    expect(mockLiveBlocker({ ...base, platform: "x" }, "live")).toBe("platform_unavailable");
+    expect(mockLiveBlocker({ ...base, connected: false }, "live")).toBe("not_connected");
+    expect(mockLiveBlocker({ ...base, status: "needs_reauth" }, "live")).toBe("not_active");
+    expect(mockLiveBlocker(base, "dry-run")).toBe("publishing_dry_run");
+    expect(mockLiveBlocker(base, "live")).toBeNull();
+  });
+});
+
+describe("token expiry warning", () => {
+  const connected = (platform: "facebook" | "threads", tokenExpiresAt: string | null) => ({
+    platform,
+    tokenExpiresAt,
+    connected: true,
+  });
+
+  it("says nothing for planning channels and access that does not expire", () => {
+    expect(
+      tokenExpiryWarning({ platform: "threads", tokenExpiresAt: inDays(1), connected: false }, NOW),
+    ).toBeNull();
+    expect(tokenExpiryWarning(connected("facebook", null), NOW)).toBeNull();
+  });
+
+  it("warns once a refreshed credential is past half its refresh window", () => {
+    // Threads credentials are refreshed from 15 days before expiry.
+    expect(tokenExpiryWarning(connected("threads", inDays(10)), NOW)).toBeNull();
+    expect(tokenExpiryWarning(connected("threads", inDays(4)), NOW)).toEqual({
+      tone: "amber",
+      message: "Access expires in 4 days. Reconnect the account if it isn't renewed.",
+    });
+  });
+
+  it("warns a week ahead for credentials that are never refreshed, and in red once expired", () => {
+    expect(tokenExpiryWarning(connected("facebook", inDays(10)), NOW)).toBeNull();
+    expect(tokenExpiryWarning(connected("facebook", inDays(0.25)), NOW)?.message).toBe(
+      "Access expires in 6 hours. Reconnect the account if it isn't renewed.",
+    );
+    expect(tokenExpiryWarning(connected("facebook", inDays(-1)), NOW)).toEqual({
+      tone: "red",
+      message: "Access expired. Reconnect the account to publish.",
+    });
+  });
+});
+
+describe("series channel links", () => {
+  it("replaces a link in place or adds it at the end", () => {
+    const links = [
+      { channelId: "a", enabled: true },
+      { channelId: "b", enabled: true },
+    ];
+    expect(withLink(links, { channelId: "a", enabled: false })).toEqual([
+      { channelId: "a", enabled: false },
+      { channelId: "b", enabled: true },
+    ]);
+    expect(
+      withLink(links, { channelId: "c", enabled: true }).map((link) => link.channelId),
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("locks every switch of an archived series and switching a disabled channel on", () => {
+    expect(seriesChannelLock({ status: "archived" }, { status: "active" }, true)).toMatch(
+      /archived/,
+    );
+    expect(seriesChannelLock({ status: "active" }, { status: "disabled" }, false)).toBe(
+      "The channel is disabled.",
+    );
+    // Linked and enabled: it can still be switched off.
+    expect(seriesChannelLock({ status: "active" }, { status: "disabled" }, true)).toBeNull();
+    expect(seriesChannelLock({ status: "paused" }, { status: "active" }, false)).toBeNull();
+  });
+
+  it("orders channels by platform, then name", () => {
+    const at = "2026-10-01T08:00:00.000Z";
+    const channels = [
+      mockChannel({ platform: "x", displayName: "a", createdAt: at }),
+      mockChannel({ platform: "threads", displayName: "b", createdAt: at }),
+      mockChannel({ platform: "facebook", displayName: "z", createdAt: at }),
+      mockChannel({ platform: "facebook", displayName: "m", createdAt: at }),
+    ];
+    expect(sortChannels(channels).map((channel) => channel.displayName)).toEqual([
+      "m",
+      "z",
+      "b",
+      "a",
+    ]);
+  });
+});

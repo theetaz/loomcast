@@ -1,5 +1,6 @@
 import { useDraggable } from "@dnd-kit/core";
 import type { Channel, ScheduledPost } from "@loomcast/contracts";
+import { StatusDot, StatusPill, statusStyle } from "@loomcast/ui/components/StatusPill";
 import { cn } from "@loomcast/ui/lib/cn";
 import {
   type ComponentProps,
@@ -8,16 +9,10 @@ import {
   type Ref,
   useLayoutEffect,
 } from "react";
+import { PlatformDot, platformLabel } from "@/features/channels/platforms";
 import { useBoard } from "./board-context";
 import { isPendingFocus, restorePostFocus } from "./focus-return";
 import { isReschedulable } from "./model";
-import {
-  PlatformDot,
-  PostStatusDot,
-  PostStatusPill,
-  platformLabel,
-  postStatusStyle,
-} from "./post-status";
 import { longDayLabel } from "./time";
 
 /** What a screen reader hears for a chip: title, channel, day and time, and state. */
@@ -25,7 +20,7 @@ export function postSummary(post: ScheduledPost, when: string, channel: Channel 
   const where = channel
     ? `${channel.displayName} (${platformLabel(post.platform)})`
     : platformLabel(post.platform);
-  return `${post.item.title}. ${where}, ${when}. ${postStatusStyle(post.status).label}.`;
+  return `${post.item.title}. ${where}, ${when}. ${statusStyle("post", post.status).label}.`;
 }
 
 export interface PostChipProps {
@@ -153,7 +148,7 @@ export function ChipBody({
         <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
           {post.item.title}
         </span>
-        <PostStatusDot status={post.status} />
+        <StatusDot kind="post" status={post.status} />
       </>
     );
   }
@@ -167,9 +162,11 @@ export function ChipBody({
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{time}</span>
-        <PostStatusPill
+        <StatusPill
+          kind="post"
           status={post.status}
-          className="min-w-0 shrink overflow-hidden text-ellipsis"
+          // Denser than the default pill, to fit a half-hour row.
+          className="h-[18px] min-w-0 shrink gap-1 overflow-hidden text-ellipsis px-1.5 text-[11px]"
         />
       </span>
     </>

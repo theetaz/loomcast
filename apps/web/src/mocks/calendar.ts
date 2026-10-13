@@ -3,13 +3,16 @@ import {
   CalendarQuerySchema,
   type CalendarSlot,
   type Channel,
+  type ChannelStatus,
   type ContentItem,
   CreatePostRequestSchema,
   effectivePublishMode,
   type Format,
   generateSlots,
+  type LivePublishingBlocker,
   MIN_SCHEDULE_LEAD_MS,
   type Platform,
+  type PublishingMode,
   RESCHEDULABLE_POST_STATUSES,
   ReschedulePostRequestSchema,
   routes,
@@ -48,11 +51,36 @@ function nextTimestamp(previous: string): string {
 
 // Builders ----------------------------------------------------------------------
 
+/**
+ * Why a channel can't leave dry-run, by the server's rule: X has no live adapter yet, then the
+ * channel must be connected and active, then the server must publish live.
+ */
+export function mockLiveBlocker(
+  channel: { platform: Platform; status: ChannelStatus; connected: boolean },
+  mode: PublishingMode,
+): LivePublishingBlocker | null {
+  if (channel.platform === "x") return "platform_unavailable";
+  if (!channel.connected) return "not_connected";
+  if (channel.status !== "active") return "not_active";
+  if (mode !== "live") return "publishing_dry_run";
+  return null;
+}
+
+/** The server's publishing switches in the mock. */
+export function mockPublisher(db: MockDb) {
+  return db.publisher ?? { mode: "dry-run" as const, enabled: true, lastTickAt: null };
+}
+
+/** A channel as the API sends it: its `liveBlocker` follows the server's current mode. */
+export function channelView(db: MockDb, channel: Channel): Channel {
+  return { ...channel, liveBlocker: mockLiveBlocker(channel, mockPublisher(db).mode) };
+}
+
 export function mockChannel(
   overrides: Partial<Channel> & Pick<Channel, "platform" | "displayName">,
 ): Channel {
   const at = overrides.createdAt ?? new Date().toISOString();
-  return {
+  const channel: Channel = {
     id: mockId(),
     externalId: null,
     username: null,
@@ -63,12 +91,17 @@ export function mockChannel(
     connected: false,
     scopes: [],
     tokenExpiresAt: null,
-    liveBlocker: "not_connected",
+    liveBlocker: null,
+    lastVerifiedAt: null,
+    lastError: null,
     createdAt: at,
     updatedAt: at,
     disabledAt: null,
     ...overrides,
   };
+  return "liveBlocker" in overrides
+    ? channel
+    : { ...channel, liveBlocker: mockLiveBlocker(channel, "dry-run") };
 }
 
 /** A post of `item` on `channel` at `scheduledAt`; queued (with the current version) by default. */
@@ -180,7 +213,9 @@ export function updatePost(
 export function createCalendarHandlers(db: MockDb) {
   return [
     http.get(path("channels.list"), () =>
-      db.signedIn ? HttpResponse.json({ items: db.channels }) : unauthorized(),
+      db.signedIn
+        ? HttpResponse.json({ items: db.channels.map((channel) => channelView(db, channel)) })
+        : unauthorized(),
     ),
 
     http.get(path("calendar.get"), ({ request }) => {
@@ -329,7 +364,36 @@ export function seedCalendarDemo(db: MockDb, now: number) {
   const instagram = channel("instagram", "@rustin60", "rustin60");
   const threads = channel("threads", "@rustin60", "rustin60");
   const agentsInstagram = channel("instagram", "@agents.smallteams", "agents.smallteams");
-  db.channels.push(facebook, instagram, threads, agentsInstagram);
+  // A connected Page (live once the server publishes live), a Threads profile whose access was
+  // refused and is about to expire, and an X planning channel locked to dry-run.
+  Object.assign(facebook, {
+    connected: true,
+    status: "active",
+    externalId: "100000000000001",
+    lastVerifiedAt: new Date(now - 3 * 60 * 60_000).toISOString(),
+  } satisfies Partial<Channel>);
+  Object.assign(threads, {
+    connected: true,
+    status: "needs_reauth",
+    externalId: "200000000000002",
+    tokenExpiresAt: new Date(now + 4 * DAY_MS).toISOString(),
+    lastVerifiedAt: new Date(now - 2 * DAY_MS).toISOString(),
+    lastError: {
+      code: "auth",
+      retryable: false,
+      message: "The access was revoked on Threads.",
+    },
+  } satisfies Partial<Channel>);
+  const x = channel("x", "@rustin60 on X", "rustin60");
+  for (const entry of [facebook, threads]) {
+    entry.liveBlocker = mockLiveBlocker(entry, mockPublisher(db).mode);
+  }
+  db.channels.push(facebook, instagram, threads, agentsInstagram, x);
+  db.publisher ??= {
+    mode: "dry-run",
+    enabled: true,
+    lastTickAt: new Date(now - 40_000).toISOString(),
+  };
 
   const byTitle = (title: string) => db.contentItems.find((item) => item.title.startsWith(title));
 

@@ -1,8 +1,8 @@
 import type { CalendarSlot } from "@loomcast/contracts";
 import { cn } from "@loomcast/ui/lib/cn";
 import { PlusIcon } from "lucide-react";
+import { PlatformDot, platformLabel } from "@/features/channels/platforms";
 import { useBoard } from "./board-context";
-import { PlatformDot, platformLabel } from "./post-status";
 import { longDayLabel } from "./time";
 
 /**

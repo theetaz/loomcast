@@ -8,6 +8,7 @@ import { createMockDb, demoSeed, MOCK_USER, publish } from "./db";
 import { seedFormatDemo } from "./formats";
 import { createHandlers, createStreamHandler } from "./handlers";
 import { demoKb } from "./kb";
+import { seedSchedulerDemo } from "./scheduler";
 import { demoMembers } from "./users";
 
 const SESSION_KEY = "loomcast-mock-session";
@@ -45,6 +46,7 @@ export async function startMockApi() {
   seedFormatDemo(db);
   seedCalendarDemo(db, now);
   seedAnalyticsDemo(db, now);
+  seedSchedulerDemo(db, now);
 
   window.loomcastMock = {
     setStudioOnline(online) {

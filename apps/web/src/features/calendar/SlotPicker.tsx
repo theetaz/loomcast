@@ -22,8 +22,8 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
+import { platformLabel } from "@/features/channels/platforms";
 import { errorMessage, isApiError } from "@/lib/api";
-import { platformLabel } from "./post-status";
 import { approvedItemsQueryOptions, cachedPosts, useCreatePost } from "./queries";
 import { longDayLabel, placeInstant } from "./time";
 

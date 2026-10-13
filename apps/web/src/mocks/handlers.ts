@@ -13,7 +13,9 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
 import { createAnalyticsHandlers } from "./analytics";
+import { createApprovalHandlers } from "./approvals";
 import { createCalendarHandlers } from "./calendar";
+import { createChannelHandlers } from "./channels";
 import { createContentHandlers } from "./content";
 import { createContentItemHandlers } from "./content-item";
 import { createConversationHandlers } from "./conversations";
@@ -31,6 +33,7 @@ import {
 import { createFormatHandlers } from "./formats";
 import { createKbHandlers } from "./kb";
 import { createReviewQueueHandlers } from "./review-queue";
+import { createSchedulerHandlers } from "./scheduler";
 import { createSeriesHandlers } from "./series";
 import { createUploadHandlers } from "./uploads";
 import { createUserHandlers } from "./users";
@@ -211,6 +214,9 @@ export function createHandlers(db: MockDb) {
     ...createUploadHandlers(db),
     ...createCalendarHandlers(db),
     ...createAnalyticsHandlers(db),
+    ...createChannelHandlers(db),
+    ...createApprovalHandlers(db),
+    ...createSchedulerHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];
