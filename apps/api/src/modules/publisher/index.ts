@@ -7,7 +7,11 @@ import { notFound } from "../../lib/errors";
 import { idParam } from "../../lib/http";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
+import { flagNeedsReauth } from "../channels/reauth";
 import { contentServiceFor } from "../content";
+import { publisherAdapters } from "./adapters";
+import { createFacebookAdapter, type MetaAdapterOptions } from "./adapters/facebook";
+import { createThreadsAdapter } from "./adapters/threads";
 import { toPublishAttempt } from "./posts";
 import { registerPublisherTasks } from "./tasks";
 
@@ -59,10 +63,19 @@ export type * from "./types";
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const router = new Hono<AppEnv>();
+  const logger = deps.logger.child({ module: "publisher" });
+  // The live Meta adapters sign calls with the server's platform settings; a channel whose
+  // credentials the platform refuses turns `needs_reauth` through the channels module.
+  const meta: MetaAdapterOptions = {
+    platforms: deps.config.platforms,
+    onCredentialsRefused: async ({ channelId, error, reason }) => {
+      await flagNeedsReauth(deps, logger, { channelId, error, reason });
+    },
+  };
   registerPublisherTasks({
     db: deps.db,
     bus: deps.bus,
-    logger: deps.logger.child({ module: "publisher" }),
+    logger,
     config: deps.config,
     storage: deps.storage,
     vault: deps.vault,
@@ -70,6 +83,11 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     scheduler: deps.scheduler,
     content: contentServiceFor(deps),
     alert: deps.alert,
+    adapters: {
+      ...publisherAdapters,
+      facebook: createFacebookAdapter(meta),
+      threads: createThreadsAdapter(meta),
+    },
   });
 
   router.get(routes["publisher.status"].path, (c) => {

@@ -1,8 +1,26 @@
 import type { PublisherAdapter } from "../../types";
-import { notConfiguredAdapter } from "../not-configured";
+import { UNCONFIGURED_META_PLATFORMS } from "../facebook/meta-call";
+import { createThreadsAdapter } from "./adapter";
+
+export { createThreadsAdapter } from "./adapter";
+export {
+  assertThreadsQuota,
+  THREADS_QUOTA_RETRY_MS,
+  type ThreadsQuota,
+  ThreadsQuotaSchema,
+  threadsQuotaOf,
+} from "./quota";
+export {
+  type ThreadsContainer,
+  ThreadsContainerSchema,
+  threadsContainerState,
+} from "./status";
 
 /**
- * The live Threads adapter. A stub until the live adapter lands: it refuses with
- * `not_configured`. The live adapter must send what `requests/threads.ts` builds.
+ * The Threads adapter of the registry, on the default Threads API host and without the reauth
+ * path. The publisher module builds the configured one with `createThreadsAdapter` from the
+ * server's platform settings and the channels module's reauth path.
  */
-export const threadsAdapter: PublisherAdapter = notConfiguredAdapter("threads");
+export const threadsAdapter: PublisherAdapter = createThreadsAdapter({
+  platforms: UNCONFIGURED_META_PLATFORMS,
+});
