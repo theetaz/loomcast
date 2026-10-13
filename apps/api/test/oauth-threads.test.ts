@@ -112,7 +112,7 @@ describe("threads sign-in", () => {
     expect(longLived?.query.get("grant_type")).toBe("th_exchange_token");
     expect(longLived?.query.get("client_secret")).toBe(threads().appSecret);
     expect(longLived?.query.get("access_token")).toBe(shortToken);
-    expect(me?.query.get("fields")).toBe("id,username");
+    expect(me?.query.get("fields")).toBe("id,username,threads_profile_picture_url");
     expect(me?.query.get("access_token")).toBe(longToken);
     expect(me?.query.has("appsecret_proof")).toBe(false);
 

@@ -2,7 +2,12 @@ import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../common";
 import { type OAuthProvider, OAuthProviderSchema, type Platform, PlatformSchema } from "../enums";
 import { PlatformAccountIdSchema } from "../publishing/request";
-import { CHANNEL_NAME_MAX_LENGTH, CHANNEL_USERNAME_MAX_LENGTH, ChannelSchema } from "./channels";
+import {
+  CHANNEL_NAME_MAX_LENGTH,
+  CHANNEL_USERNAME_MAX_LENGTH,
+  ChannelSchema,
+  PicturePathSchema,
+} from "./channels";
 
 // Connecting channels: the browser navigates to `oauth.start`, signs in on the platform, and comes
 // back through `oauth.callback`. The server keeps the tokens encrypted in a pending connection and
@@ -50,6 +55,11 @@ export function candidateAccountId(platform: Platform, externalId: string): stri
   return `${platform}:${externalId}`;
 }
 
+/** The path of a pending connection's account picture (`oauth.connectionPicture`). */
+export function connectionPicturePath(connectionId: string, accountId: string): string {
+  return `/api/oauth/connections/${connectionId}/accounts/${encodeURIComponent(accountId)}/picture`;
+}
+
 /**
  * An account a sign-in can publish as.
  * - `name` is the Page or profile name, cut to `CHANNEL_NAME_MAX_LENGTH` by the server; it becomes
@@ -58,6 +68,8 @@ export function candidateAccountId(platform: Platform, externalId: string): stri
  *   Page. Accepting the account connects that Page too, because the Page holds the token.
  * - `alreadyConnected` is true when a channel of the same platform and `externalId` exists;
  *   accepting it again refreshes that channel's credentials instead of adding a channel.
+ * - `pictureUrl` is the account's profile picture through the API (`oauth.connectionPicture`),
+ *   when the platform gave one.
  */
 export const CandidateAccountSchema = z.object({
   id: CandidateAccountIdSchema,
@@ -67,6 +79,7 @@ export const CandidateAccountSchema = z.object({
   username: z.string().min(1).max(CHANNEL_USERNAME_MAX_LENGTH).optional(),
   parentId: CandidateAccountIdSchema.nullable(),
   alreadyConnected: z.boolean(),
+  pictureUrl: PicturePathSchema.nullable().optional(),
 });
 export type CandidateAccount = z.infer<typeof CandidateAccountSchema>;
 

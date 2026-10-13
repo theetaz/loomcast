@@ -225,7 +225,7 @@ describe("x sign-in with the flag on", () => {
       `Basic ${Buffer.from(`${app.clientId}:${app.clientSecret}`).toString("base64")}`,
     );
     expect(me?.headers.authorization).toBe(`Bearer ${accessToken}`);
-    expect(me?.query.get("user.fields")).toBe("username,name");
+    expect(me?.query.get("user.fields")).toBe("username,name,profile_image_url");
 
     const accepted = await send(t.app, "POST", `/api/oauth/connections/${connection}/accept`, {
       cookie,

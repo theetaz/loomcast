@@ -6,6 +6,13 @@ import { createEventBus } from "../src/lib/bus";
 import { base62, generatePrefixedToken, randomToken, sha256Hex } from "../src/lib/crypto";
 import { createLifecycle } from "../src/lib/lifecycle";
 import { createLogger } from "../src/lib/logger";
+import {
+  fetchPicture,
+  PICTURE_MAX_BYTES,
+  PICTURE_URL_MAX_LENGTH,
+  pictureUrlOf,
+  pictureVersion,
+} from "../src/lib/pictures";
 import { createRateLimiter } from "../src/lib/rate-limit";
 import { createTestClock, testPassword } from "./support";
 
@@ -289,5 +296,67 @@ describe("config", () => {
         expect.arrayContaining(["DATABASE_URL", "APP_ORIGIN", "API_PORT", "PUBLIC_BASE_URL"]),
       );
     }
+  });
+});
+
+describe("pictures", () => {
+  it("keeps only https addresses on the platforms' image hosts", () => {
+    for (const url of [
+      "https://scontent.xx.fbcdn.net/v/t39/a.jpg?oe=1",
+      "https://platform-lookaside.fbsbx.com/platform/profilepic/?psid=1",
+      "https://scontent-lhr8-1.cdninstagram.com/v/t51/b.jpg",
+      "https://pbs.twimg.com/profile_images/1/c_400x400.jpg",
+    ]) {
+      expect(pictureUrlOf(url)).toBe(url);
+    }
+    for (const value of [
+      "http://scontent.xx.fbcdn.net/a.jpg",
+      "https://fbcdn.net.example.com/a.jpg",
+      "https://evilfbcdn.net/a.jpg",
+      "https://user@scontent.xx.fbcdn.net/a.jpg",
+      "https://scontent.xx.fbcdn.net:8443/a.jpg",
+      "https://localhost/a.jpg",
+      "not a url",
+      `https://pbs.twimg.com/${"a".repeat(PICTURE_URL_MAX_LENGTH)}`,
+      undefined,
+      42,
+    ]) {
+      expect(pictureUrlOf(value)).toBeUndefined();
+    }
+  });
+
+  it("versions a picture by its address", () => {
+    const a = pictureVersion("https://pbs.twimg.com/a.jpg");
+    expect(a).toMatch(/^[0-9a-z]+$/);
+    expect(pictureVersion("https://pbs.twimg.com/a.jpg")).toBe(a);
+    expect(pictureVersion("https://pbs.twimg.com/b.jpg")).not.toBe(a);
+  });
+
+  it("passes through known image types up to the size limit, and nothing else", async () => {
+    const url = "https://pbs.twimg.com/profile_images/1/c_400x400.jpg";
+    const reply =
+      (body: Uint8Array, contentType: string, status = 200) =>
+      async () =>
+        new Response(Buffer.from(body), { status, headers: { "content-type": contentType } });
+    const small = new Uint8Array([1, 2, 3]);
+    expect(await fetchPicture(url, { fetch: reply(small, "image/webp") })).toEqual({
+      body: small,
+      contentType: "image/webp",
+    });
+    expect(await fetchPicture(url, { fetch: reply(small, "image/svg+xml") })).toBeNull();
+    expect(await fetchPicture(url, { fetch: reply(small, "image/jpeg", 403) })).toBeNull();
+    const large = new Uint8Array(PICTURE_MAX_BYTES + 1);
+    expect(await fetchPicture(url, { fetch: reply(large, "image/jpeg") })).toBeNull();
+    const failing = async (): Promise<Response> => {
+      throw new TypeError("network down");
+    };
+    expect(await fetchPicture(url, { fetch: failing })).toBeNull();
+    let called = false;
+    const spy = async () => {
+      called = true;
+      return new Response(null);
+    };
+    expect(await fetchPicture("https://example.com/a.jpg", { fetch: spy })).toBeNull();
+    expect(called).toBe(false);
   });
 });

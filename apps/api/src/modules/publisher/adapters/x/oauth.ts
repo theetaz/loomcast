@@ -140,19 +140,20 @@ const XMeSchema = z.object({
     id: z.string().regex(/^\d{1,20}$/),
     name: z.string().optional(),
     username: z.string().optional(),
+    profile_image_url: z.string().optional(),
   }),
 });
 
 export type XUser = z.infer<typeof XMeSchema>["data"];
 
-/** The signed-in user: id, name and handle. */
+/** The signed-in user: id, name, handle and profile picture. */
 export async function getXUser(
   client: XClient,
   input: { accessToken: string; signal?: AbortSignal | undefined },
 ): Promise<XUser> {
   const response = await client.request({
     path: "/2/users/me",
-    query: { "user.fields": "username,name" },
+    query: { "user.fields": "username,name,profile_image_url" },
     accessToken: input.accessToken,
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });

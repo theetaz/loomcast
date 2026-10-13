@@ -15,6 +15,7 @@ import { audit } from "../../lib/audit";
 import { afterCommit, type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, forbidden, HttpError, notFound, validationFailed } from "../../lib/errors";
 import { clientIp, idParam, readJson } from "../../lib/http";
+import { fetchPicture, pictureResponse } from "../../lib/pictures";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { isLivePlatformAvailable } from "../publisher/adapters";
@@ -41,7 +42,8 @@ const seriesNotFound = () => notFound("No series has that id.");
  * publish live, and the server's `PUBLISHING_MODE` is `live`. Every change is audited and
  * published as `channel.updated`. Credentials never leave the server: responses are built from
  * columns that exclude them. Channels are connected through the sign-ins of the oauth module;
- * `channels.disconnect` wipes a channel's credentials.
+ * `channels.disconnect` wipes a channel's credentials. `channels.picture` passes the account's
+ * profile picture through from the platform.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { db, bus, scheduler } = deps;
@@ -233,6 +235,24 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       .orderBy(asc(seriesChannels.createdAt), asc(seriesChannels.channelId));
     return { seriesId, channels: links };
   }
+
+  router.get(routes["channels.picture"].path, async (c) => {
+    currentUser(c);
+    const id = idParam(c);
+    const [row] = await db
+      .select({ picture: channelColumns.picture })
+      .from(channels)
+      .where(eq(channels.id, id));
+    if (row === undefined) {
+      throw channelNotFound();
+    }
+    const fetched =
+      row.picture === null ? null : await fetchPicture(row.picture, { signal: c.req.raw.signal });
+    if (fetched === null) {
+      throw notFound("That channel has no picture.");
+    }
+    return pictureResponse(fetched);
+  });
 
   router.get(routes["series.channels"].path, async (c) => {
     currentUser(c);

@@ -205,7 +205,8 @@ describe("routes", () => {
 
     expect(schemaParams.sort()).toEqual(pathParams.sort());
     expect(route.path.startsWith("/api/")).toBe(true);
-    expect(route.status === 204 || route.status === 302).toBe(route.response === null);
+    const bodiless = route.status === 204 || route.status === 302;
+    expect(bodiless || ("image" in route && route.image === true)).toBe(route.response === null);
   });
 
   it("keeps public routes to login, set-password links and device pairing", () => {

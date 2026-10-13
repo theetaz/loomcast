@@ -270,6 +270,7 @@ describe("calendar and publishing routes", () => {
       "channels.create",
       "channels.disconnect",
       "channels.list",
+      "channels.picture",
       "channels.update",
       "publisher.status",
       "scheduledPosts.attempts",

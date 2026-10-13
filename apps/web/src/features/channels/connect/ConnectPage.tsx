@@ -5,6 +5,7 @@ import type {
   OAuthConnectSearch,
   OAuthProvider,
 } from "@loomcast/contracts";
+import { Avatar, AvatarFallback, AvatarImage } from "@loomcast/ui/components/avatar";
 import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
@@ -386,7 +387,11 @@ function AccountRow({
           aria-describedby={`${id}-details`}
           onChange={(event) => onCheckedChange(event.target.checked)}
         />
-        <InitialsAvatar name={account.name} platform={account.platform} />
+        <InitialsAvatar
+          name={account.name}
+          platform={account.platform}
+          pictureUrl={account.pictureUrl}
+        />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-medium text-body text-foreground">{account.name}</span>
           <span id={`${id}-details`} className="truncate text-small text-muted-foreground">
@@ -410,22 +415,33 @@ function AccountRow({
 }
 
 /**
- * The account's initials in a circle, with its platform's colour as a dot. Never a remote picture:
- * the content security policy allows no image hosts.
+ * The account's profile picture in a circle, with its platform's colour as a dot; its initials
+ * while the picture loads, when it fails, or when there is none. The picture comes through the
+ * API: the content security policy allows no image hosts.
  */
 function InitialsAvatar({
   name,
   platform,
+  pictureUrl,
 }: {
   name: string;
   platform: CandidateAccount["platform"];
+  pictureUrl?: string | null | undefined;
 }) {
+  const letters = initials(name.replace(/^@/, ""));
   return (
     <span
       aria-hidden="true"
       className="relative flex size-8 shrink-0 select-none items-center justify-center rounded-full bg-accent font-medium text-[11.5px] text-text-2"
     >
-      {initials(name.replace(/^@/, ""))}
+      {pictureUrl ? (
+        <Avatar className="size-full">
+          <AvatarImage src={pictureUrl} alt="" />
+          <AvatarFallback className="text-[11.5px]">{letters}</AvatarFallback>
+        </Avatar>
+      ) : (
+        letters
+      )}
       <span
         className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-card"
         style={{ background: PLATFORM_META[platform]?.color }}

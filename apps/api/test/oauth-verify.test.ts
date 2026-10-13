@@ -34,13 +34,15 @@ function meta() {
   return h.meta;
 }
 
-async function connected(platform: Platform): Promise<{ id: string; token: string }> {
+async function connected(
+  platform: Platform,
+): Promise<{ id: string; token: string; externalId: string }> {
   const keyring = h.t.deps.config.encryption;
   if (keyring === null) {
     throw new Error("no vault key");
   }
   const inserted = await insertChannel(h.db, keyring, { platform, connected: true });
-  return { id: inserted.id, token: inserted.token ?? "" };
+  return { id: inserted.id, token: inserted.token ?? "", externalId: inserted.externalId ?? "" };
 }
 
 async function channel(id: string) {
@@ -159,13 +161,67 @@ describe("channel.verify", () => {
     expect((await channel(page.id)).status).toBe("active");
   });
 
+  it("stores the account's current picture, and a missing one never fails the check", async () => {
+    const page = await connected("facebook");
+    const picture = "https://scontent.xx.fbcdn.net/v/t39/page.jpg?oe=1";
+    const seen: SeenRequest[] = [];
+    answer(h.graph, "GET", `/${GRAPH_VERSION}/debug_token`, debugReply({ is_valid: true }));
+    answer(
+      h.graph,
+      "GET",
+      `/${GRAPH_VERSION}/${page.externalId}`,
+      { body: { id: page.externalId, picture: { data: { url: picture } } } },
+      seen,
+    );
+    await verify(page.id);
+    expect(seen[0]?.query.get("fields")).toBe("picture.type(large){url}");
+    expect(seen[0]?.headers.authorization).toBe(`Bearer ${page.token}`);
+    expect((await channel(page.id)).meta).toEqual({ picture });
+    const updated = h.live.flatMap((event) =>
+      event.type === "channel.updated" && event.payload.channel.id === page.id
+        ? [event.payload.channel]
+        : [],
+    );
+    expect(updated.at(-1)?.pictureUrl).toMatch(
+      new RegExp(`^/api/channels/${page.id}/picture\\?v=`),
+    );
+
+    // An address off the platforms' image hosts is never stored.
+    answer(h.graph, "GET", `/${GRAPH_VERSION}/debug_token`, debugReply({ is_valid: true }));
+    answer(h.graph, "GET", `/${GRAPH_VERSION}/${page.externalId}`, {
+      body: { picture: { data: { url: "https://example.com/elsewhere.jpg" } } },
+    });
+    await verify(page.id);
+    expect((await channel(page.id)).meta).toEqual({ picture });
+
+    const ig = await connected("instagram");
+    answer(h.graph, "GET", `/${GRAPH_VERSION}/debug_token`, debugReply({ is_valid: true }));
+    answer(h.graph, "GET", `/${GRAPH_VERSION}/${ig.externalId}`, {
+      status: 400,
+      body: graphError(100, "Unsupported get request."),
+    });
+    await verify(ig.id);
+    const row = await channel(ig.id);
+    expect(row.status).toBe("active");
+    expect(row.lastVerifiedAt?.getTime()).toBe(h.t.clock.now().getTime());
+    expect(row.meta).toEqual({});
+  });
+
   it("checks a Threads token by reading its profile", async () => {
     const profile = await connected("threads");
     const seen: SeenRequest[] = [];
-    answer(h.threadsApi, "GET", "/v1.0/me", { body: { id: "1", username: "x" } }, seen);
+    const picture = "https://scontent.cdninstagram.com/v/t51/profile.jpg";
+    answer(
+      h.threadsApi,
+      "GET",
+      "/v1.0/me",
+      { body: { id: "1", username: "x", threads_profile_picture_url: picture } },
+      seen,
+    );
     await verify(profile.id);
     expect(seen[0]?.query.get("access_token")).toBe(profile.token);
     expect((await channel(profile.id)).lastVerifiedAt).not.toBeNull();
+    expect((await channel(profile.id)).meta).toEqual({ picture });
 
     answer(h.threadsApi, "GET", "/v1.0/me", {
       status: 400,

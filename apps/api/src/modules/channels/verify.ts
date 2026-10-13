@@ -8,9 +8,11 @@ import {
   createMetaGraphClient,
   createThreadsGraphClient,
   debugMetaToken,
+  getMetaPicture,
   getThreadsProfile,
   MetaGraphError,
 } from "../../lib/meta-graph";
+import { pictureUrlOf } from "../../lib/pictures";
 import { VaultError } from "../../lib/vault";
 import { publishError } from "../publisher/errors";
 import { readChannelSecret } from "./credentials";
@@ -30,7 +32,9 @@ import {
 // still work. Meta credentials go through `debug_token` with the app access token; Threads
 // credentials read their own profile. A refused credential flags the channel `needs_reauth`
 // (with an event and an alert); a working one records `lastVerifiedAt` and clears the last error.
-// The daily sweep also deletes expired sign-in states and pending connections.
+// A working check also stores the account's current profile picture address, because the
+// platforms' picture addresses expire. The daily sweep also deletes expired sign-in states and
+// pending connections.
 
 /** Registers the verify sweep. */
 export function registerVerifyTask(deps: ModuleDeps): void {
@@ -38,15 +42,23 @@ export function registerVerifyTask(deps: ModuleDeps): void {
   const metaClient = createMetaGraphClient(config.platforms);
   const threadsClient = createThreadsGraphClient(config.platforms);
 
-  /** Records a successful check; a channel waiting for reauth turns active again. */
+  /**
+   * Records a successful check; a channel waiting for reauth turns active again. `picture` is the
+   * account's current picture address, when the check could read one.
+   */
   async function markVerified(
     channel: SweepChannel,
     now: Date,
     scopes: string[] | undefined,
+    picture: string | undefined,
   ): Promise<void> {
     await transaction(db, async (tx) => {
       const [current] = await tx
-        .select({ status: channels.status, lastError: channels.lastError })
+        .select({
+          status: channels.status,
+          lastError: channels.lastError,
+          picture: channelColumns.picture,
+        })
         .from(channels)
         .where(and(eq(channels.id, channel.id), isNotNull(channels.secretCiphertext)))
         .for("update");
@@ -54,6 +66,7 @@ export function registerVerifyTask(deps: ModuleDeps): void {
         return;
       }
       const reactivate = current.status === "needs_reauth";
+      const newPicture = picture !== undefined && picture !== current.picture;
       await tx
         .update(channels)
         .set({
@@ -61,10 +74,13 @@ export function registerVerifyTask(deps: ModuleDeps): void {
           lastError: null,
           ...(reactivate ? { status: "active" as const } : {}),
           ...(scopes !== undefined && scopes.length > 0 ? { scopes } : {}),
+          ...(newPicture
+            ? { meta: sql`${channels.meta} || ${JSON.stringify({ picture })}::jsonb` }
+            : {}),
           updatedAt: sql`now()`,
         })
         .where(eq(channels.id, channel.id));
-      if (reactivate || current.lastError !== null) {
+      if (reactivate || current.lastError !== null || newPicture) {
         const [row] = await tx
           .select(channelColumns)
           .from(channels)
@@ -77,6 +93,38 @@ export function registerVerifyTask(deps: ModuleDeps): void {
         }
       }
     });
+  }
+
+  /**
+   * The current picture address of a Page or Instagram account, or undefined when it cannot be
+   * read: a missing picture never fails the check.
+   */
+  async function metaPicture(
+    channel: SweepChannel,
+    secret: { accessToken: string },
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    if (
+      channel.externalId === null ||
+      (channel.platform !== "facebook" && channel.platform !== "instagram")
+    ) {
+      return undefined;
+    }
+    try {
+      return pictureUrlOf(
+        await getMetaPicture(metaClient, {
+          platform: channel.platform,
+          accountId: channel.externalId,
+          accessToken: secret.accessToken,
+          signal,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof MetaGraphError) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async function verifyOne(
@@ -137,7 +185,7 @@ export function registerVerifyTask(deps: ModuleDeps): void {
           });
           return "needs_reauth";
         }
-        await markVerified(channel, now, debug.scopes);
+        await markVerified(channel, now, debug.scopes, await metaPicture(channel, secret, signal));
         return "ok";
       }
 
@@ -149,8 +197,16 @@ export function registerVerifyTask(deps: ModuleDeps): void {
         });
         return "needs_reauth";
       }
-      await getThreadsProfile(threadsClient, { accessToken: secret.accessToken, signal });
-      await markVerified(channel, now, undefined);
+      const profile = await getThreadsProfile(threadsClient, {
+        accessToken: secret.accessToken,
+        signal,
+      });
+      await markVerified(
+        channel,
+        now,
+        undefined,
+        pictureUrlOf(profile.threads_profile_picture_url),
+      );
       return "ok";
     } catch (error) {
       if (error instanceof MetaGraphError) {
