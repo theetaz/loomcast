@@ -5,6 +5,7 @@ import {
   KB_CREATED_VIA,
   KB_ENTRY_KINDS,
   MESSAGE_ROLES,
+  PASSWORD_TOKEN_PURPOSES,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
   TOKEN_KINDS,
@@ -28,3 +29,4 @@ export const actorKind = pgEnum("actor_kind", ACTOR_KINDS);
 export const kbEntryKind = pgEnum("kb_entry_kind", KB_ENTRY_KINDS);
 export const kbCreatedVia = pgEnum("kb_created_via", KB_CREATED_VIA);
 export const referencePlatform = pgEnum("reference_platform", REFERENCE_PLATFORMS);
+export const passwordTokenPurpose = pgEnum("password_token_purpose", PASSWORD_TOKEN_PURPOSES);
