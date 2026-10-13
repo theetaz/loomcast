@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
     "@loomcast/contracts": "workspace:*",
     "ws": "catalog:",
     "zod": "catalog:"
