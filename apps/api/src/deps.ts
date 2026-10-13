@@ -6,6 +6,8 @@ import type { EventBus } from "./lib/bus";
 import type { Clock } from "./lib/clock";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
+import type { Storage } from "./lib/storage";
+import type { AssetsService } from "./modules/assets/service";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
 import type { JobHooks } from "./modules/jobs/hooks";
@@ -27,6 +29,11 @@ export interface AppDeps {
    * WebSocket `upgrade` handler to it. Absent under `app.request()` in tests.
    */
   httpServer?: ServerType;
+  /**
+   * Object storage. When absent, `createApp` builds the S3 client from `config.storage`; tests
+   * may pass their own.
+   */
+  storage?: Storage;
 }
 
 /** Which studio agents have a live bridge connection. The bridge module replaces the default. */
@@ -48,6 +55,10 @@ export interface ModuleDeps extends AppDeps {
   hooks: JobHooks;
   auth: AuthGuards;
   presence: Presence;
+  /** Object storage: presigned URLs, verification reads and `promoteToPublic` for the publisher. */
+  storage: Storage;
+  /** Uploads, verification and downloads of stored files, shared by REST and the MCP tools. */
+  assets: AssetsService;
 }
 
 /**
