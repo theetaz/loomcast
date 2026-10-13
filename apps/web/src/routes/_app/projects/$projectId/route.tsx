@@ -1,6 +1,7 @@
 import { IdSchema } from "@loomcast/contracts";
 import { createFileRoute } from "@tanstack/react-router";
-import { ProjectCrumb, ProjectLayout } from "@/features/project/ProjectLayout";
+import { ProjectCrumb } from "@/features/project/ProjectCrumb";
+import { ProjectLayout } from "@/features/project/ProjectLayout";
 
 /**
  * `?conversation=<id>` opens that conversation in the Chat tab; anything else is dropped. It is

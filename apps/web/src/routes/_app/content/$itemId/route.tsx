@@ -9,16 +9,11 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { Page } from "@/components/PageHeader";
 import { RelativeTime } from "@/components/RelativeTime";
+import { ContentCrumb } from "@/features/library/ContentCrumb";
 import { contentItemQueryOptions } from "@/features/library/queries";
 import { useContentLive } from "@/features/library/use-content-live";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
-
-function ContentCrumb({ itemId }: { itemId: string }) {
-  const { data } = useQuery(contentItemQueryOptions(itemId));
-  if (data) return <>{data.item.title}</>;
-  return <Skeleton aria-hidden="true" className="inline-block h-3 w-28 align-middle" />;
-}
 
 // Placeholder: the item and review screen replaces this page.
 export const Route = createFileRoute("/_app/content/$itemId")({

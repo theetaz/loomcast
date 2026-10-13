@@ -174,7 +174,10 @@ tab (`/projects/:id/content`), the same view scoped to one project.
   with a 44px header and 40px rows. Every data view has loading (skeleton), empty, error with
   retry, and long-content states; names truncate and slugs hide on phones.
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
-  for labels that need data (see `_app/projects/$projectId/route.tsx`).
+  for labels that need data (see `_app/projects/$projectId/route.tsx`). Builds split every
+  route's component into its own chunk, but `staticData` loads with the app: import crumbs
+  from small modules of their own (`ProjectCrumb.tsx`, `KbEntryCrumb.tsx`, `ContentCrumb.tsx`),
+  never from the page module, or the whole page lands in the entry chunk.
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
   Its items come from a registry: every file in `src/app/nav/items/` exports one
   `item: {id, label, icon, order, section?, to?, exact?, badge?}`, so a feature adds itself to
