@@ -36,6 +36,13 @@
       "when": 1791852931169,
       "tag": "0004_add_pipeline_job_types",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791853347522,
+      "tag": "0005_add_formats_and_series",
+      "breakpoints": true
     }
   ]
 }

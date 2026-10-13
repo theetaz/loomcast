@@ -8,6 +8,7 @@ import {
   PASSWORD_TOKEN_PURPOSES,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
+  SERIES_STATUSES,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -355,6 +356,7 @@ describe("pg enums", () => {
     kb_created_via: KB_CREATED_VIA,
     reference_platform: REFERENCE_PLATFORMS,
     password_token_purpose: PASSWORD_TOKEN_PURPOSES,
+    series_status: SERIES_STATUSES,
   };
 
   it("hold exactly the contracts values, in order", async () => {

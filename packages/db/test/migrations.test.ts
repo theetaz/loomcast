@@ -16,6 +16,8 @@ const TABLES = [
   "audit_log",
   "conversations",
   "devices",
+  "format_versions",
+  "formats",
   "job_events",
   "jobs",
   "kb_entries",
@@ -24,6 +26,7 @@ const TABLES = [
   "pairing_codes",
   "password_tokens",
   "projects",
+  "series",
   "sessions",
   "users",
 ];

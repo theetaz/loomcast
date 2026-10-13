@@ -8,6 +8,7 @@ import {
   PASSWORD_TOKEN_PURPOSES,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
+  SERIES_STATUSES,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -30,3 +31,4 @@ export const kbEntryKind = pgEnum("kb_entry_kind", KB_ENTRY_KINDS);
 export const kbCreatedVia = pgEnum("kb_created_via", KB_CREATED_VIA);
 export const referencePlatform = pgEnum("reference_platform", REFERENCE_PLATFORMS);
 export const passwordTokenPurpose = pgEnum("password_token_purpose", PASSWORD_TOKEN_PURPOSES);
+export const seriesStatus = pgEnum("series_status", SERIES_STATUSES);
