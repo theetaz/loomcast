@@ -35,7 +35,7 @@ afterAll(async () => {
 
 /** A fresh content-addressed key for `sha256` in a project of its own. */
 function keyFor(sha256: string, mime = "video/mp4"): string {
-  const key = assetStorageKey(randomUUID(), "render", sha256, mime);
+  const key = assetStorageKey({ projectId: randomUUID() }, "render", sha256, mime);
   createdKeys.push(key);
   return key;
 }
@@ -44,12 +44,18 @@ function keyFor(sha256: string, mime = "video/mp4"): string {
 const SIGNED_HEADERS_PARAM = ["X", "Amz", "SignedHeaders"].join("-");
 
 describe("storage keys", () => {
-  it("lays out private keys by project, kind and checksum", () => {
+  it("lays out private keys by owner, kind and checksum", () => {
     const projectId = randomUUID();
+    const itemId = randomUUID();
     const sha = "A".repeat(64);
-    expect(assetStorageKey(projectId, "voice", sha, "audio/mpeg")).toBe(
-      `projects/${projectId}/voice/${"a".repeat(64)}.mp3`,
+    expect(assetStorageKey({ projectId, itemId }, "voice", sha, "audio/mpeg")).toBe(
+      `projects/${projectId}/items/${itemId}/voice/${"a".repeat(64)}.mp3`,
     );
+    for (const owner of [{ projectId }, { projectId, itemId: null }]) {
+      expect(assetStorageKey(owner, "reference_media", sha, "video/quicktime")).toBe(
+        `projects/${projectId}/media/reference_media/${"a".repeat(64)}.mov`,
+      );
+    }
     expect(extensionForMime("video/quicktime")).toBe("mov");
     expect(extensionForMime("audio/x-m4a")).toBe("m4a");
     expect(extensionForMime("application/zip")).toBe("bin");
@@ -253,7 +259,7 @@ describe("storage against a store without checksum support", () => {
     const plainStorage = createS3Storage(plain.config);
     try {
       const file = randomFile(1024);
-      const key = assetStorageKey(randomUUID(), "voice", file.sha256, "audio/mpeg");
+      const key = assetStorageKey({ projectId: randomUUID() }, "voice", file.sha256, "audio/mpeg");
       const upload = await plainStorage.presignPut({
         key,
         mime: "audio/mpeg",

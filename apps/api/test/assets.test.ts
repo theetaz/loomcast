@@ -136,7 +136,7 @@ async function startUpload(
   expect(response.status).toBe(201);
   const parsed = CreateUploadResponseSchema.parse(await response.json());
   createdKeys.push(
-    assetStorageKey(body.projectId, parsed.asset.kind, file.sha256, parsed.asset.mime),
+    assetStorageKey(parsed.asset, parsed.asset.kind, file.sha256, parsed.asset.mime),
   );
   return parsed;
 }
@@ -246,7 +246,9 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(new URL(upload?.url ?? "").origin).toBe(new URL(target.config.endpoint).origin);
 
     const row = await storedRow(asset.id);
-    expect(row?.storageKey).toBe(`projects/${project.id}/render/${file.sha256}.mp4`);
+    expect(row?.storageKey).toBe(
+      `projects/${project.id}/items/${itemId}/render/${file.sha256}.mp4`,
+    );
     expect(row?.bucket).toBe(target.config.bucket);
     expect(row?.createdByUser).toBe(userId);
 
@@ -334,7 +336,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     const project = await newProject();
     const file = randomFile(2048);
     const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey(project.id, "render", file.sha256, "video/mp4");
+    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
     const other = randomFile(2048);
     await plantObject(target, key, other.bytes, "video/mp4");
 
@@ -362,7 +364,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     const project = await newProject();
     const file = randomFile(4096);
     const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey(project.id, "render", file.sha256, "video/mp4");
+    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
     await plantObject(target, key, file.bytes.subarray(0, 4000), "video/mp4");
 
     const response = await finalize(asset.id);
@@ -450,6 +452,104 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(rows).toHaveLength(1);
   });
 
+  it("gives each item its own asset for a voice take or render another item holds", async () => {
+    const project = await newProject();
+    const first = await newItem(project.id);
+    const second = await newItem(project.id);
+
+    for (const upload of [
+      { kind: "voice", mime: "audio/mpeg", filename: "take.mp3", ext: "mp3" },
+      { kind: "render", mime: "video/mp4", filename: "final.mp4", ext: "mp4" },
+    ] as const) {
+      const { kind, mime, filename, ext } = upload;
+      const file = randomFile(1_200);
+      const fields = { projectId: project.id, kind, mime, filename };
+
+      const own = await startUpload(file, { ...fields, itemId: first });
+      if (own.upload === null) {
+        throw new Error("expected an upload");
+      }
+      expect((await putUpload(own.upload, file.bytes)).status).toBe(200);
+      expect((await finalize(own.asset.id)).status).toBe(200);
+
+      // The same bytes for another item: an asset and an object of its own, not the first item's.
+      const copy = await startUpload(file, { ...fields, itemId: second });
+      expect(copy.asset.id).not.toBe(own.asset.id);
+      expect(copy.asset).toMatchObject({ itemId: second, kind, status: "pending" });
+      if (copy.upload === null) {
+        throw new Error("expected an upload for the second item");
+      }
+      expect((await storedRow(own.asset.id))?.storageKey).toBe(
+        `projects/${project.id}/items/${first}/${kind}/${file.sha256}.${ext}`,
+      );
+      expect((await storedRow(copy.asset.id))?.storageKey).toBe(
+        `projects/${project.id}/items/${second}/${kind}/${file.sha256}.${ext}`,
+      );
+      expect((await putUpload(copy.upload, file.bytes)).status).toBe(200);
+      expect(AssetSchema.parse(await (await finalize(copy.asset.id)).json()).status).toBe("ready");
+
+      // Each item still deduplicates its own uploads.
+      for (const [itemId, asset] of [
+        [first, own.asset],
+        [second, copy.asset],
+      ] as const) {
+        const again = await startUpload(file, { ...fields, itemId });
+        expect(again.asset.id).toBe(asset.id);
+        expect(again.upload).toBeNull();
+      }
+
+      // Neither item's asset is the project-level copy of the same bytes.
+      const projectLevel = await startUpload(file, fields);
+      expect([own.asset.id, copy.asset.id]).not.toContain(projectLevel.asset.id);
+      expect(projectLevel.asset.itemId).toBeNull();
+    }
+
+    const listed = AssetListSchema.parse(
+      await (await send(t.app, "GET", `/api/content/${second}/assets`, { cookie })).json(),
+    );
+    expect(listed.items.map((asset) => asset.kind).sort()).toEqual(["render", "voice"]);
+  });
+
+  it("dedupes reference media across the project", async () => {
+    const project = await newProject();
+    const itemId = await newItem(project.id);
+    const file = randomFile(900);
+    const fields = {
+      projectId: project.id,
+      kind: "reference_media",
+      mime: "video/quicktime",
+      filename: "reference.mov",
+    };
+
+    const first = await startUpload(file, fields);
+    expect(first.asset.itemId).toBeNull();
+    expect((await storedRow(first.asset.id))?.storageKey).toBe(
+      `projects/${project.id}/media/reference_media/${file.sha256}.mov`,
+    );
+    if (first.upload === null) {
+      throw new Error("expected an upload");
+    }
+    const pendingAgain = await startUpload(file, { ...fields, filename: "again.mov" });
+    expect(pendingAgain.asset.id).toBe(first.asset.id);
+    expect((await putUpload(first.upload, file.bytes)).status).toBe(200);
+    expect((await finalize(first.asset.id)).status).toBe(200);
+
+    const ready = await startUpload(file, fields);
+    expect(ready.asset.id).toBe(first.asset.id);
+    expect(ready.upload).toBeNull();
+
+    // Attached to an item, the same file is that item's own asset.
+    const forItem = await startUpload(file, { ...fields, itemId });
+    expect(forItem.asset.id).not.toBe(first.asset.id);
+    expect(forItem.asset.itemId).toBe(itemId);
+
+    const rows = await testDb.db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.projectId, project.id), eq(assets.kind, "reference_media")));
+    expect(rows).toHaveLength(2);
+  });
+
   it("dedupes concurrent requests for the same file", async () => {
     const project = await newProject();
     const file = randomFile(512);
@@ -458,7 +558,9 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
         requestUpload(t, { projectId: project.id, bytes: 512, sha256: file.sha256 }),
       ),
     );
-    createdKeys.push(assetStorageKey(project.id, "render", file.sha256, "video/mp4"));
+    createdKeys.push(
+      assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4"),
+    );
     const ids = new Set<string>();
     for (const response of results) {
       expect(response.status).toBe(201);
@@ -543,7 +645,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     const project = await newProject();
     const file = randomFile(256);
     const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey(project.id, "render", file.sha256, "video/mp4");
+    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
     await plantObject(target, key, file.bytes, "video/mp4");
 
     await moduleDeps.assets.cleanupPendingUploads();

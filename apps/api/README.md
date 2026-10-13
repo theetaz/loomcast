@@ -102,9 +102,15 @@ router is mounted. `createApp` already registers every module, so a module never
 
 Bytes never pass through the API. `POST /api/assets/uploads` (or `deps.assets.createUpload`)
 inserts a `pending` asset and returns a 15-minute presigned PUT whose content type, length and
-`x-amz-checksum-sha256` are signed; the client sends exactly the returned headers. The private key
-is `projects/<projectId>/<kind>/<sha256>.<ext>`, so the same file uploaded again as the same kind
-returns the existing asset (`upload: null` once it is ready). `POST /api/assets/:id/finalize`
+`x-amz-checksum-sha256` are signed; the client sends exactly the returned headers. Uploads are
+deduplicated per owner: the same file uploaded again as the same kind for the same item (or, without
+`itemId`, as the project's project-level media, such as reference media) returns the existing asset
+(`upload: null` once it is ready). Another item never gets that asset back; it uploads its own copy,
+so a version can always use it. The private key follows the owner:
+`projects/<projectId>/items/<itemId>/<kind>/<sha256>.<ext>` or
+`projects/<projectId>/media/<kind>/<sha256>.<ext>`, so every object belongs to one asset and
+deleting it never affects another. Assets stored earlier keep their
+`projects/<projectId>/<kind>/<sha256>.<ext>` keys. `POST /api/assets/:id/finalize`
 checks the stored size and the checksum the store verified (or hashes the object, up to
 `ASSET_VERIFY_MAX_BYTES`, when the store kept none), then marks the asset `ready`, or `failed` and
 deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. The recurring
