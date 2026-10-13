@@ -69,6 +69,14 @@ router is mounted. `createApp` already registers every module, so a module never
 - **Bearer tokens.** Routes outside `/api` (`/mcp`, `/bridge/v1`) use
   `deps.auth.requireBearer(kind, scopes)`, which never reads cookies. `currentToken(c)` returns
   the verified token. Cookie routes never accept bearer tokens.
+- **Users and set-password links.** Only the owner lists, invites, resets and disables users
+  (`/api/users`). An invitation creates the account without a password and returns a one-time
+  link, `${APP_ORIGIN}/set-password#token=…`, valid for 7 days (reset links: 24 hours). The token
+  travels in the fragment, so it never reaches a server log; only its sha256 is stored, and a new
+  link voids the user's unused ones. `POST /api/auth/password-tokens/inspect` and
+  `POST /api/auth/set-password` are public, apply the Origin check and allow 10 requests a minute
+  per address. Setting a password ends every session of the account; the user then signs in.
+  Disabling a user ends their sessions, MCP and job tokens and unused links.
 - **Rate limits.** `createRateLimiter({capacity, intervalMs}, deps.clock)` with `consume(limiter,
   key)` or the `rateLimit(limiter, keyFn)` middleware answers 429 with `Retry-After`.
 
@@ -91,6 +99,7 @@ for `job.enqueued`. Internal events (`job.enqueued`, `device.revoked`) never rea
 pnpm admin:create --email owner@example.com --name Owner --role owner
 pnpm admin:token --email owner@example.com --name Laptop --scopes mcp:read,mcp:write
 pnpm admin:reset-password --email owner@example.com
+pnpm admin:create --email editor@example.com --name Editor --role admin --invite
 ```
 
 - The first account must be the owner, there is one owner, and admins can be created once the
@@ -98,6 +107,8 @@ pnpm admin:reset-password --email owner@example.com
 - Passwords (12 characters or more) are typed twice at a hidden prompt. With `--password-stdin`, or
   when stdin is not a terminal, the first line of stdin is used:
   `printf '%s\n' "$PASSWORD" | pnpm admin:create ... --password-stdin`.
+- With `--invite`, `create` asks for no password and prints a one-time set-password link on
+  stdout instead (valid for 7 days). It needs `APP_ORIGIN`.
 - `token` prints the secret once on stdout. Only the owner may hold `mcp:admin`.
 - `reset-password` ends every session of the account.
 
