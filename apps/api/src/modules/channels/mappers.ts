@@ -22,6 +22,9 @@ export const channelColumns = {
   createdAt: channels.createdAt,
   updatedAt: channels.updatedAt,
   disabledAt: channels.disabledAt,
+  lastVerifiedAt: channels.lastVerifiedAt,
+  lastError: channels.lastError,
+  rateLimit: channels.rateLimit,
   connected: sql<boolean>`${channels.secretCiphertext} is not null`,
 };
 
@@ -49,5 +52,7 @@ export function toChannel(row: ChannelView, mode: PublishingMode): Channel {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     disabledAt: row.disabledAt?.toISOString() ?? null,
+    lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
+    lastError: row.lastError ?? null,
   };
 }
