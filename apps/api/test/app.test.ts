@@ -39,14 +39,17 @@ afterAll(async () => {
 
 describe("health checks", () => {
   it("answers healthz and readyz without a session", async () => {
-    const { app } = createTestApp(testDb.db);
+    const { app } = createTestApp(testDb.db, { config: { storage: null } });
     const health = await app.request("/healthz");
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ status: "ok" });
 
     const ready = await app.request("/readyz");
     expect(ready.status).toBe(200);
-    expect(await ready.json()).toEqual({ status: "ok", checks: { database: "ok" } });
+    expect(await ready.json()).toEqual({
+      status: "ok",
+      checks: { database: "ok", storage: "skipped", scheduler: "skipped" },
+    });
   });
 
   it("reports not ready once shutdown starts", async () => {

@@ -2,8 +2,10 @@ import type { ServerType } from "@hono/node-server";
 import type { Database } from "@loomcast/db";
 import type { Hono } from "hono";
 import type { Config } from "./env";
+import type { Alert } from "./lib/alerts";
 import type { EventBus } from "./lib/bus";
 import type { Clock } from "./lib/clock";
+import type { HealthRegistry } from "./lib/health";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { Storage } from "./lib/storage";
@@ -14,7 +16,7 @@ import type { SessionsService } from "./modules/auth/sessions";
 import type { JobHooks } from "./modules/jobs/hooks";
 import type { JobsService } from "./modules/jobs/service";
 import type { KbService } from "./modules/kb/service";
-import type { Scheduler, SchedulerAlert } from "./modules/scheduler/scheduler";
+import type { Scheduler } from "./modules/scheduler/scheduler";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
@@ -37,10 +39,10 @@ export interface AppDeps {
    */
   storage?: Storage;
   /**
-   * Receives scheduler alerts (dead and failed tasks). Without it they are logged at error level.
-   * The ops module wires the webhook alerts here.
+   * Replaces the webhook alerts (`src/lib/alerts.ts`): when set, every alert goes here instead,
+   * without de-duplication. Tests use it to observe alerts.
    */
-  alert?: (alert: SchedulerAlert) => void | Promise<void>;
+  alert?: (alert: Alert) => void | Promise<void>;
 }
 
 /** Which studio agents have a live bridge connection. The bridge module replaces the default. */
@@ -50,6 +52,17 @@ export interface Presence {
 
 /** What every module's `register` receives: the app deps plus the shared services and guards. */
 export interface ModuleDeps extends AppDeps {
+  /**
+   * Raises an alert: logged at error level and posted to `ALERT_WEBHOOK_URL`, at most once an hour
+   * per `alert.key`. Never throws. Use it for dead tasks, failed publishes, channels that need
+   * reauthorisation and stale backups.
+   */
+  alert: (alert: Alert) => Promise<void>;
+  /**
+   * Readiness checks behind `/readyz` (database, object storage, scheduler). A module that owns
+   * another dependency registers its check here in `register`.
+   */
+  health: HealthRegistry;
   sessions: SessionsService;
   tokens: TokensService;
   jobs: JobsService;

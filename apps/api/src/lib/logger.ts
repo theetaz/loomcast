@@ -31,6 +31,9 @@ const SENSITIVE_KEYS = [
   // Sealed channel credentials (`channels.secret_*`).
   "secretCiphertext",
   "secretNonce",
+  // The alert webhook (`config.alerts.webhookUrl`) carries its secret in the URL.
+  "webhookUrl",
+  "ALERT_WEBHOOK_URL",
 ] as const;
 
 function redactPaths(): string[] {

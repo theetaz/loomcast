@@ -46,6 +46,10 @@ production the repository's `.env` is loaded first; variables already set win.
 | `PUBLISHING_MODE` | `dry-run` | `dry-run` records what would be posted; `live` posts |
 | `PUBLISHING_ENABLED` | `true` | `false` pauses publishing |
 | `CADENCE_HORIZON_DAYS` | `14` | How many days ahead cadence slots are planned |
+| `ALERT_WEBHOOK_URL` | unset | Webhook for alerts (a secret); unset logs alerts only |
+| `ALERT_WEBHOOK_FORMAT` | `json` | `json`, `ntfy` or `slack` (Slack-compatible incoming webhook) |
+| `LOOMCAST_GIT_SHA` | unset | Commit of the build, shown on the ops status; the image sets it |
+| `BACKUP_DIR` | unset | Read-only backup directory with `last-success.json` (`/backups` in production) |
 
 Outside production, `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` may all be left out (not
 just some of them): the API then starts without object storage, and uploads and downloads answer
@@ -63,6 +67,9 @@ exactly 32 bytes is refused at startup.
 | `src/lib/` | Event bus, rate limiter, audit log, crypto, passwords, transactions, errors, logger |
 | `src/lib/storage/` | Object storage: presigned PUT and GET, verification reads, `promoteToPublic` |
 | `src/lib/vault.ts` | Token vault: AES-256-GCM sealing of channel credentials, key rotation |
+| `src/lib/health.ts` | Readiness check registry behind `/readyz` |
+| `src/lib/alerts.ts` | Webhook alerts with de-duplication per key |
+| `src/modules/ops/` | Readiness checks, the backup monitor and `GET /api/ops/status` |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
 | `src/modules/scheduler/` | Scheduled task loop, task handlers registry and the admin endpoints |
 | `src/cli/admin.ts` | The admin CLI |
@@ -88,6 +95,8 @@ router is mounted. `createApp` already registers every module, so a module never
 - `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
 - `scheduler`: server-side scheduled tasks (below). Register handlers in `register`.
 - `vault`: encryption of channel credentials (below).
+- `alert(alert)`: raises an alert (below). Never throws.
+- `health`: the readiness registry; `health.register(name, check)` adds a check to `/readyz`.
 
 ### Object storage and assets
 
@@ -128,8 +137,8 @@ and lease.
   to admins, so keep secrets out of it. Any other error is stored as `handler_error` with a
   generic message and logged. A retryable failure waits `min(base · 2^(attempt − 1), 1 h) ± 20%`;
   after the last attempt the task is `dead` (audit row `scheduler.task.dead`, `task.dead` event
-  and an alert). A non-retryable one is `failed` at once (audit row and alert). Alerts go to
-  `AppDeps.alert` when set, otherwise to an error log line.
+  and an alert). A non-retryable one is `failed` at once (audit row and alert). Alerts go
+  through `deps.alert` (below).
 - **Recurring tasks.** `cadence.plan` and `assets.cleanup` run hourly under the dedupe key
   `recurring:<kind>`, once a handler for them is registered. The loop re-checks every hour that
   each is queued.
@@ -140,6 +149,27 @@ and lease.
 - **Admin.** `GET /api/scheduler/tasks?status=&kind=&cursor=&limit=` and
   `POST /api/scheduler/tasks/:id/retry` (a `failed` or `dead` task; 409 otherwise, or when another
   task holds its dedupe key) for the owner and admins.
+
+### Health, ops status and alerts
+
+- **`/healthz`** is liveness only: the process answers. The container healthcheck uses it.
+- **`/readyz`** runs every check in `deps.health` at once, each with a 2 s timeout, and answers
+  200 or 503 with `{status, checks: {name: ok|error|skipped}}`. Built in: `database`
+  (`select 1`), `storage` (HEAD on the private bucket, reused for 60 s when good and 10 s when
+  failing; `skipped` without S3 settings outside production) and `scheduler` (red when
+  `stalled`, `skipped` when disabled or not running in this process). During shutdown every
+  check is `skipped` and the answer is 503. Details stay out of the public answer.
+- **`GET /api/ops/status`** (owner only) adds the details: version and `LOOMCAST_GIT_SHA`,
+  uptime, each check's detail and duration, the scheduler's last tick and queue depths, the last
+  backup from `BACKUP_DIR/last-success.json` and whether a webhook is configured.
+- **Alerts.** `deps.alert({key, title, message, data})` logs at error level and posts to
+  `ALERT_WEBHOOK_URL`, at most once an hour per `key` (in memory, per process). Keys are
+  `<kind>:<subject>`: `task.dead:<taskId>`, `task.failed:<taskId>`, `post.failed:<postId>`,
+  `channel.reauth:<channelId>`, `backup.stale`, `backup.unreadable`. `data` holds ids and codes
+  only. `AppDeps.alert` replaces the webhook (tests).
+- **Backups.** With `BACKUP_DIR`, a served process reads the backup status at start and every
+  hour, and alerts when the last success is older than 26 hours (or none exists 26 hours after
+  the start). See `docs/runbooks/monitoring.md`.
 
 ### Token vault
 

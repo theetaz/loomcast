@@ -1,0 +1,148 @@
+name: uptime
+
+# Checks ${APP_URL}/readyz from outside every 10 minutes. When it stays red through the retries,
+# the run opens an issue labelled `incident` (or updates the open one); when it is green again,
+# the run closes that issue with a comment.
+#
+# Off until go-live: nothing is probed unless the repository variable UPTIME_ENABLED is `true`,
+# so the schedule only prints a notice before the site exists. Enabling it is part of the go-live
+# checklist in docs/runbooks/monitoring.md.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+# A slow run never overlaps the next one; the newer run waits.
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  readyz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      issues: write
+    env:
+      UPTIME_ENABLED: ${{ vars.UPTIME_ENABLED }}
+      APP_URL: ${{ vars.APP_URL }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: incident
+      TITLE: "Uptime: /readyz is failing"
+    steps:
+      - name: Check that the uptime check is enabled
+        id: enabled
+        run: |
+          if [ "$UPTIME_ENABLED" != "true" ]; then
+            echo "::notice::The uptime check is off. Set the repository variable UPTIME_ENABLED to true at go-live (docs/runbooks/monitoring.md)."
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$APP_URL" ]; then
+            echo "::error::UPTIME_ENABLED is true but the repository variable APP_URL is empty"
+            exit 1
+          fi
+          echo "enabled=true" >>"$GITHUB_OUTPUT"
+
+      - name: Probe /readyz
+        id: probe
+        if: steps.enabled.outputs.enabled == 'true'
+        run: |
+          url="${APP_URL%/}/readyz"
+          body="$RUNNER_TEMP/readyz.json"
+          rm -f "$body"
+          # Up to four attempts over about a minute and a half, so one slow answer or a
+          # redeploy's restart does not open an incident.
+          if code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 15 \
+            --retry 3 --retry-delay 20 --retry-all-errors --fail "$url" 2>"$RUNNER_TEMP/curl.err"); then
+            echo "ok=true" >>"$GITHUB_OUTPUT"
+            echo "$url answered $code"
+          else
+            echo "ok=false" >>"$GITHUB_OUTPUT"
+            echo "::warning::$url is not ready (HTTP ${code:-000})"
+          fi
+          {
+            echo "code=${code:-000}"
+            # The public answer holds only check names and statuses.
+            echo "checks=$(jq -c '.checks // {}' "$body" 2>/dev/null || echo '{}')"
+            echo "error=$(tail -n 1 "$RUNNER_TEMP/curl.err" | tr -d '\r' | cut -c1-200)"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Open or update the incident issue
+        if: steps.probe.outputs.ok == 'false'
+        env:
+          CODE: ${{ steps.probe.outputs.code }}
+          CHECKS: ${{ steps.probe.outputs.checks }}
+          CURL_ERROR: ${{ steps.probe.outputs.error }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh label create "$LABEL" --color B60205 \
+            --description "Production is down or degraded" 2>/dev/null || true
+          number=$(gh issue list --label "$LABEL" --state open --search "\"$TITLE\" in:title" \
+            --json number --jq '.[0].number // empty')
+          first=$now
+          if [ -n "$number" ]; then
+            first=$(gh issue view "$number" --json body --jq '.body' |
+              sed -n 's/^<!-- first-failure: \(.*\) -->$/\1/p' | head -n 1)
+            first=${first:-$now}
+          fi
+          body="$RUNNER_TEMP/issue.md"
+          {
+            echo "<!-- first-failure: $first -->"
+            echo "\`${APP_URL%/}/readyz\` is not ready."
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| First failed check | $first |"
+            echo "| Latest failed check | $now |"
+            echo "| HTTP status | $CODE |"
+            echo "| Checks | \`$CHECKS\` |"
+            echo "| curl | ${CURL_ERROR:-none} |"
+            echo "| Run | $RUN_URL |"
+            echo
+            echo "Start with \`/opt/loomcast/bin/deploy.sh status\` and the api logs; see"
+            echo "docs/runbooks/monitoring.md. This issue closes itself when the check is green again."
+          } >"$body"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$body" >/dev/null
+            echo "Updated incident #$number"
+          else
+            gh issue create --title "$TITLE" --label "$LABEL" --body-file "$body"
+          fi
+
+      - name: Close the incident issue
+        if: steps.probe.outputs.ok == 'true'
+        run: |
+          number=$(gh issue list --label "$LABEL" --state open --search "\"$TITLE\" in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue close "$number" \
+              --comment "Recovered: \`${APP_URL%/}/readyz\` is ready again at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo "Closed incident #$number"
+          fi
+
+      - name: Summary
+        if: always() && steps.enabled.outputs.enabled == 'true'
+        env:
+          OK: ${{ steps.probe.outputs.ok }}
+          CODE: ${{ steps.probe.outputs.code }}
+          CHECKS: ${{ steps.probe.outputs.checks }}
+        run: |
+          state="NOT ready"
+          if [ "$OK" = true ]; then
+            state=ready
+          fi
+          {
+            echo "### /readyz: $state (HTTP ${CODE:-none})"
+            echo
+            echo "Checks: \`${CHECKS:-none}\`"
+          } >>"$GITHUB_STEP_SUMMARY"

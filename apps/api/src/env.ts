@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type PublishingMode, PublishingModeSchema } from "@loomcast/contracts";
 import { z } from "zod";
+import { ALERT_FORMATS, type AlertsConfig } from "./lib/alerts";
 import type { StorageConfig } from "./lib/storage/types";
 import { decodeVaultKey, parsePreviousVaultKeys, type VaultKeyring } from "./lib/vault";
 
@@ -177,6 +178,41 @@ const EnvSchema = z
       .min(1)
       .max(90)
       .default(DEFAULT_CADENCE_HORIZON_DAYS),
+    /**
+     * Webhook that receives alerts (dead tasks, publish failures, reauthorisation, stale backups).
+     * Holds a secret in its path or query. Unset: alerts are only logged.
+     */
+    ALERT_WEBHOOK_URL: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.url({ protocol: /^https?$/ }).optional(),
+    ),
+    /** `json` (any receiver), `ntfy` or `slack` (Slack-compatible incoming webhook). */
+    ALERT_WEBHOOK_FORMAT: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.enum(ALERT_FORMATS).default("json"),
+    ),
+    /** Commit the image was built from; the production image sets it. Shown on the ops status. */
+    LOOMCAST_GIT_SHA: z.preprocess(
+      (value) =>
+        typeof value === "string" && (value.trim() === "" || value.trim() === "unknown")
+          ? undefined
+          : value,
+      z
+        .string()
+        .regex(/^[\w.-]{1,64}$/, "Expected a commit id (letters, digits, '.', '_', '-')")
+        .optional(),
+    ),
+    /**
+     * The backup service's directory, mounted read-only (`/backups` in production). The api reads
+     * `last-success.json` there for the ops status and alerts when it is older than 26 hours.
+     */
+    BACKUP_DIR: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z
+        .string()
+        .refine((value) => isAbsolute(value), { message: "Expected an absolute path" })
+        .optional(),
+    ),
   })
   .superRefine(refineEncryption)
   .superRefine((env, ctx) => {
@@ -225,6 +261,12 @@ export interface Config {
   publishing: PublishingConfig;
   /** How many days ahead the cadence planner creates slots. */
   cadenceHorizonDays: number;
+  /** Alert webhook. `webhookUrl` holds a secret: never log it. */
+  alerts: AlertsConfig;
+  /** `LOOMCAST_GIT_SHA`, or null when the build did not record it. */
+  gitSha: string | null;
+  /** Directory holding the backup service's `last-success.json`, or null when not mounted. */
+  backupDir: string | null;
 }
 
 export interface SchedulerConfig {
@@ -295,6 +337,12 @@ export function parseConfig(env: Record<string, string | undefined> = process.en
     scheduler: { enabled: values.SCHEDULER_ENABLED, tickMs: values.SCHEDULER_TICK_MS },
     publishing: { mode: values.PUBLISHING_MODE, enabled: values.PUBLISHING_ENABLED },
     cadenceHorizonDays: values.CADENCE_HORIZON_DAYS,
+    alerts: {
+      webhookUrl: values.ALERT_WEBHOOK_URL ?? null,
+      format: values.ALERT_WEBHOOK_FORMAT,
+    },
+    gitSha: values.LOOMCAST_GIT_SHA ?? null,
+    backupDir: values.BACKUP_DIR ?? null,
   };
 }
 
