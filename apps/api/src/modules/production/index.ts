@@ -18,6 +18,8 @@ export {
   type AutopilotMove,
   autopilotMove,
   createProductionService,
+  type ProduceOptions,
+  type ProduceResult,
   type ProductionService,
   type ProductionServiceDeps,
   STEP_JOB_TYPES,
@@ -31,7 +33,10 @@ export {
   timeScript,
 } from "./timing";
 
-/** The app's production service (one per deps object). */
+/**
+ * The app's production service (one per deps object). The cadence scheduler calls
+ * `productionServiceFor(deps).produce(itemId, {through: "review"})`.
+ */
 export function productionServiceFor(
   deps: Pick<ModuleDeps, "db" | "bus" | "jobs" | "assets">,
 ): ProductionService {
@@ -49,7 +54,9 @@ export function productionServiceFor(
 
 /**
  * Production endpoints: content actions that start production jobs. Job results become versions
- * in the job hooks (`createProductionJobHooks`, registered in `modules/jobs/handlers`).
+ * in the job hooks (`createProductionJobHooks`, registered in `modules/jobs/handlers`). A
+ * `request_changes` review that asks for a revision queues `content.revise` and brings the item
+ * back to review on autopilot.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const production = productionServiceFor(deps);
@@ -62,6 +69,11 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     const job = await production.start(idParam(c), request, userActor(c, trustProxy), user.role);
     return c.json(toJobSummary(job), 201);
   });
+
+  const unsubscribe = deps.bus.subscribe("review.created", async (event) => {
+    await production.requestRevision(event.payload.review);
+  });
+  deps.lifecycle.onClose(unsubscribe);
 
   app.route("/", router);
   return router;

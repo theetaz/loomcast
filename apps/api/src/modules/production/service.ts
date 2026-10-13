@@ -2,6 +2,7 @@ import {
   allowedActions,
   type ContentAction,
   type ContentActionRequest,
+  type ContentItem,
   type ContentItemError,
   type ContentRenderResult,
   type ContentReviseResult,
@@ -21,6 +22,7 @@ import {
   PRODUCE_TARGETS,
   PRODUCTION_STATES,
   type ProduceTarget,
+  type Review,
   stageForArtifacts,
   type UserRole,
 } from "@loomcast/contracts";
@@ -38,7 +40,7 @@ import { and, count, eq, or, sql } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
 import { type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, HttpError, notFound } from "../../lib/errors";
-import type { PipelineActor } from "../content/actor";
+import { type PipelineActor, SYSTEM_ACTOR } from "../content/actor";
 import { versionArtifacts } from "../content/mappers";
 import { activeProductionJob, findVersion, findVersionOfJob, lockItem } from "../content/queries";
 import { type ContentService, createContentService } from "../content/service";
@@ -118,6 +120,22 @@ export function autopilotMove(
   return target === "review" ? { kind: "submit" } : { kind: "done" };
 }
 
+export interface ProduceOptions {
+  /** Where autopilot stops; `review` by default. */
+  through?: ProduceTarget;
+  /** Who asks. Defaults to the server itself (the cadence scheduler). */
+  actor?: PipelineActor;
+}
+
+export interface ProduceResult {
+  item: ContentItem;
+  /**
+   * The job autopilot is waiting for: the step it started, or the production job that was
+   * already running. Null when the item has nothing left to produce up to the target.
+   */
+  job: JobRow | null;
+}
+
 export interface ProductionService {
   /**
    * `POST /api/content/:id/actions`: starts one step, or `produce` (autopilot up to `through`).
@@ -134,6 +152,13 @@ export interface ProductionService {
     role: UserRole | null,
   ): Promise<JobRow>;
   /**
+   * Autopilot for the scheduler (`cadence.produce`): sets the item's autopilot target and starts
+   * the first missing step. An item with a production job already running keeps it and continues
+   * from its result. An item that already reached the target (or review) gets no job. 404 for an
+   * unknown item, 409 `invalid_transition` for an archived one.
+   */
+  produce(itemId: string, options?: ProduceOptions): Promise<ProduceResult>;
+  /**
    * Stores a production job's result as the item's next version (the `onSucceeded` hook). Runs in
    * the job's own transaction, at most once per job: a replayed completion finds the job's version
    * and changes nothing. A result that can no longer be used (the item moved on, or its assets do
@@ -145,6 +170,11 @@ export interface ProductionService {
    * Idempotent; skipped when a newer production job of the item is already active.
    */
   recordFailure(jobId: string): Promise<void>;
+  /**
+   * Queues `content.revise` for a `request_changes` review that asked for a revision, and sets
+   * autopilot to bring the item back to review. Null when the item has moved on since.
+   */
+  requestRevision(review: Review): Promise<JobRow | null>;
 }
 
 export interface ProductionServiceDeps {
@@ -467,6 +497,25 @@ export function createProductionService(deps: ProductionServiceDeps): Production
     return null;
   }
 
+  /** After a step's result: the next autopilot step, a submit, or autopilot off. */
+  async function continueAutopilot(tx: Transaction, itemId: string, job: JobRow): Promise<void> {
+    const item = await lockItem(tx, itemId);
+    if (item === null || item.autopilotTarget === null) return;
+    const active = await activeProductionJob(tx, item);
+    if (active !== null) return;
+    try {
+      await produceOn(tx, item, item.autopilotTarget, SYSTEM_ACTOR, job.createdBy);
+    } catch (error) {
+      // Refused before anything was written (no voice in the format, a missing artifact): the
+      // result stays stored and the item shows why autopilot stopped.
+      if (error instanceof HttpError) {
+        await recordError(tx, itemId, job, { code: error.code, message: error.message });
+        return;
+      }
+      throw error;
+    }
+  }
+
   return {
     async start(itemId, request, actor, role) {
       if (!IdSchema.safeParse(itemId).success) throw itemNotFound();
@@ -511,6 +560,33 @@ export function createProductionService(deps: ProductionServiceDeps): Production
           await content.track(tx, item.id, { autopilotTarget: null });
         }
         return job;
+      });
+    },
+
+    async produce(itemId, options = {}) {
+      if (!IdSchema.safeParse(itemId).success) throw itemNotFound();
+      const target = options.through ?? DEFAULT_PRODUCE_TARGET;
+      const actor = options.actor ?? SYSTEM_ACTOR;
+      return transaction(db, async (tx) => {
+        const item = await lockItem(tx, itemId);
+        if (item === null) throw itemNotFound();
+        if (item.state === "archived") throw stateRefuses(item.state, "produce");
+        let job: JobRow | null = null;
+        if (!PRODUCED_STATES.includes(item.state)) {
+          const active = await activeProductionJob(tx, item);
+          if (active !== null) {
+            if (item.autopilotTarget !== target) {
+              await content.track(tx, item.id, { autopilotTarget: target });
+            }
+            job = active;
+          } else {
+            const createdBy = actor.userId ?? (await ownerOf(tx, item));
+            job = await produceOn(tx, item, target, actor, createdBy);
+          }
+        }
+        const current = await content.getItem(item.id, tx);
+        if (current === null) throw itemNotFound();
+        return { item: current, job };
       });
     },
 
@@ -575,6 +651,7 @@ export function createProductionService(deps: ProductionServiceDeps): Production
           { via: "submit", reason: `job:${job.type}` },
         );
       }
+      await continueAutopilot(tx, item.id, job);
     },
 
     async recordFailure(jobId) {
@@ -591,6 +668,30 @@ export function createProductionService(deps: ProductionServiceDeps): Production
           code: job.error?.code ?? job.status,
           message: job.error?.message ?? `The ${job.type} job was ${job.status}.`,
         });
+      });
+    },
+
+    async requestRevision(review) {
+      if (review.decision !== "request_changes" || !review.enqueueRevision) return null;
+      return transaction(db, async (tx) => {
+        const item = await lockItem(tx, review.itemId);
+        if (
+          item === null ||
+          item.currentVersionId !== review.versionId ||
+          item.state !== "script"
+        ) {
+          return null;
+        }
+        if ((await activeProductionJob(tx, item)) !== null) return null;
+        const version = await currentVersion(tx, item);
+        const createdBy = review.userId ?? (await ownerOf(tx, item));
+        const job = await enqueueStep(tx, item, version, "revise", createdBy, {
+          reviewId: review.id,
+          ...(review.comment === null ? {} : { instructions: review.comment }),
+        });
+        // Autopilot brings the revised item back to review.
+        await content.track(tx, item.id, { autopilotTarget: "review" });
+        return job;
       });
     },
   };

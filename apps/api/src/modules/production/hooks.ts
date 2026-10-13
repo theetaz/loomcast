@@ -7,7 +7,7 @@ import { createProductionService, type ProductionService, STEP_JOB_TYPES } from 
  * Side effects of the production job types (`content.write_script`, `content.storyboard`,
  * `content.voice`, `content.render`, `content.revise`):
  * - succeeded: the result becomes the item's next version, in the job's own transaction and at
- *   most once per job (see `ProductionService.applyResult`);
+ *   most once per job, and autopilot queues the next step (see `ProductionService.applyResult`);
  * - failed or cancelled: the item records the error (`lastError`, published as
  *   `content.item.updated`) and autopilot stops.
  */
