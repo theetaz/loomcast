@@ -18,6 +18,7 @@ import {
   type PairingCode,
   type PasswordTokenPurpose,
   type Project,
+  type PublisherStatus,
   type Review,
   type ScheduledPost,
   type Series,
@@ -84,6 +85,8 @@ export interface MockDb {
   posts: ScheduledPost[];
   /** Live posts (published, never dry-run) and their insights captures, for the analytics. */
   livePosts: MockLivePost[];
+  /** The server's publishing switches; dry-run and enabled when left out. */
+  publisher?: PublisherStatus;
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the

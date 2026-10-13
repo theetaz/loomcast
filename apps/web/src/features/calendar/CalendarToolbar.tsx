@@ -26,8 +26,8 @@ import {
   XIcon,
 } from "lucide-react";
 import { Fragment } from "react";
+import { PlatformDot, platformLabel } from "@/features/channels/platforms";
 import type { SeriesOption } from "@/features/library/queries";
-import { PlatformDot, platformLabel } from "./post-status";
 import type { CalendarView, CalendarZoneMode } from "./search";
 
 export interface CalendarToolbarProps {

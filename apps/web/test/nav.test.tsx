@@ -4,6 +4,7 @@ import { FileIcon } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { NavMenu } from "@/app/nav/NavMenu";
 import { type NavItem, navItems, navSection } from "@/app/nav/registry";
+import { mockChannel } from "@/mocks/calendar";
 import { createMockDb } from "@/mocks/db";
 import { renderApp } from "./support/render";
 
@@ -73,16 +74,49 @@ describe("app sidebar", () => {
     );
   });
 
-  it("lists the planned channels: Facebook, Instagram, Threads and X", async () => {
+  it("offers to add a channel while there are none", async () => {
     renderApp("/", signedInDb());
     const nav = await workspace();
     const channels = within(nav).getByRole("list", { name: "Channels" });
+    expect(await within(channels).findByRole("link", { name: "Add a channel" })).toHaveAttribute(
+      "href",
+      "/settings/channels",
+    );
+    expect(within(nav).getByRole("link", { name: "Manage channels" })).toHaveAttribute(
+      "href",
+      "/settings/channels",
+    );
+    expect(within(nav).queryByText(/YouTube/)).not.toBeInTheDocument();
+  });
+
+  it("lists the channels by platform, each opening the calendar filtered to it", async () => {
+    const db = signedInDb();
+    const threads = mockChannel({ platform: "threads", displayName: "Rust threads" });
+    const x = mockChannel({ platform: "x", displayName: "Rust on X" });
+    const facebook = mockChannel({
+      platform: "facebook",
+      displayName: "Rust Page",
+      connected: true,
+      status: "needs_reauth",
+    });
+    db.channels.push(threads, x, facebook);
+    renderApp("/", db);
+    const nav = await workspace();
+    const channels = within(nav).getByRole("list", { name: "Channels" });
+    await within(channels).findByRole("link", { name: /Rust Page/ });
     expect(
       within(channels)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual(["Facebook", "Instagram", "Threads", "X"]);
-    expect(within(nav).queryByText(/YouTube/)).not.toBeInTheDocument();
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("aria-label")),
+    ).toEqual([
+      "Rust Page (Facebook), needs reconnecting",
+      "Rust threads (Threads)",
+      "Rust on X (X), dry-run only",
+    ]);
+    expect(within(channels).getByRole("link", { name: /Rust threads/ })).toHaveAttribute(
+      "href",
+      `/calendar?channels=${threads.id}`,
+    );
   });
 
   it("marks the open page and opens the library from the sidebar", async () => {

@@ -14,6 +14,7 @@ import {
 import { HttpResponse, http, sse } from "msw";
 import { createAnalyticsHandlers } from "./analytics";
 import { createCalendarHandlers } from "./calendar";
+import { createChannelHandlers } from "./channels";
 import { createContentHandlers } from "./content";
 import { createContentItemHandlers } from "./content-item";
 import { createConversationHandlers } from "./conversations";
@@ -211,6 +212,7 @@ export function createHandlers(db: MockDb) {
     ...createUploadHandlers(db),
     ...createCalendarHandlers(db),
     ...createAnalyticsHandlers(db),
+    ...createChannelHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

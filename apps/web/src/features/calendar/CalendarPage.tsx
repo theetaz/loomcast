@@ -6,18 +6,14 @@ import { InfoIcon } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { ErrorState } from "@/components/ErrorState";
 import { Page, PageHeader } from "@/components/PageHeader";
+import { channelsQueryOptions } from "@/features/channels/queries";
 import { type SeriesOption, useSeriesOptions } from "@/features/library/queries";
 import { useNow } from "@/lib/use-now";
 import { useTitle } from "@/lib/use-title";
 import { CalendarBoard } from "./CalendarBoard";
 import { CalendarFilters, CalendarToolbar } from "./CalendarToolbar";
 import { isVisiblePost } from "./model";
-import {
-  calendarQueryKey,
-  calendarQueryOptions,
-  channelsQueryOptions,
-  useFormatZones,
-} from "./queries";
+import { calendarQueryKey, calendarQueryOptions, useFormatZones } from "./queries";
 import { SlotPicker } from "./SlotPicker";
 import { type CalendarSearch, type CalendarView, parseIds } from "./search";
 import { browserTimeZone, calendarPeriod, periodLabel, shiftAnchor, todayIn } from "./time";
