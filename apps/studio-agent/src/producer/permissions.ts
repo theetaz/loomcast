@@ -1,9 +1,13 @@
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CanUseTool, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { type CommandScope, checkCommand } from "../production/command-guard";
 import { allowedMcpTools, isMcpToolName, MCP_SERVER_NAME, type ProducerJobType } from "./mcp";
 
-/** The built-in tools a producer session can use at most. Bash and everything else are denied. */
+/**
+ * The built-in tools a producer session can use at most. Everything else is denied, and Bash only
+ * reaches a storyboard session, where the command guard limits it to two read-only commands.
+ */
 export const PRODUCER_TOOLS = [
   "Read",
   "Glob",
@@ -12,6 +16,7 @@ export const PRODUCER_TOOLS = [
   "Edit",
   "WebSearch",
   "WebFetch",
+  "Bash",
 ] as const;
 export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
 
@@ -20,13 +25,14 @@ export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
  * transcript, so its session can only read and search inside the project workspace: it can neither
  * write files nor reach the web, which leaves an injected instruction no way to send data out.
  * Production steps read knowledge-base entries, which are untrusted too, and return their work as
- * the reply, so they get the same read-only tools.
+ * the reply, so they get the same read-only tools. A storyboard session may also run the two
+ * allow-listed commands (lint and probe) on files of its item.
  */
 export const BUILTIN_TOOLS = {
-  "producer.chat": PRODUCER_TOOLS,
+  "producer.chat": ["Read", "Glob", "Grep", "Write", "Edit", "WebSearch", "WebFetch"],
   "kb.analyze_reference": ["Read", "Glob", "Grep"],
   "content.write_script": ["Read", "Glob", "Grep"],
-  "content.storyboard": ["Read", "Glob", "Grep"],
+  "content.storyboard": ["Read", "Glob", "Grep", "Bash"],
   "content.revise": ["Read", "Glob", "Grep"],
 } as const satisfies Record<ProducerJobType, readonly ProducerTool[]>;
 
@@ -46,6 +52,9 @@ const CONFINED_READ_JOBS: ReadonlySet<ProducerJobType> = new Set<ProducerJobType
   "content.revise",
 ]);
 
+/** The longest a guarded command may run, in milliseconds. */
+export const COMMAND_TIMEOUT_MS = 120_000;
+
 /** Tools whose target path must resolve inside the project workspace. */
 const WRITE_TOOLS: ReadonlySet<string> = new Set<ProducerTool>(["Write", "Edit"]);
 /** Tools that read the filesystem; they may not look inside protected directories. */
@@ -61,6 +70,11 @@ export interface ToolGuardOptions {
   readonly protectedDirs?: readonly string[];
   /** The job the session runs for; it picks the tools. Defaults to `producer.chat`. */
   readonly jobType?: ProducerJobType;
+  /**
+   * Where the allow-listed commands may look, and the pinned CLI they run. Without it, Bash is
+   * denied even in a storyboard session.
+   */
+  readonly commandScope?: CommandScope;
 }
 
 /** Where an MCP tool comes from, as the runtime reports it to the permission callback. */
@@ -96,6 +110,8 @@ export function deniedBuiltinTools(jobType: ProducerJobType): ProducerTool[] {
  *   paths with `..` segments or dangling symlinks are refused outright.
  * - Read, Glob and Grep may not touch the protected directories. In a reference analysis and in
  *   production steps they may not leave the project workspace at all.
+ * - Bash runs only in a storyboard session and only the allow-listed commands
+ *   (`command-guard.ts`); the allowed command is replaced by its rewritten, absolute form.
  */
 export function createToolGuard(options: ToolGuardOptions): CanUseTool {
   return async (toolName, input, context) =>
@@ -116,6 +132,9 @@ export async function checkToolUse(
   if (!isProducerTool(toolName) || !builtinToolsFor(jobType).includes(toolName)) {
     return deny(`The ${toolName} tool is not available in a ${label}.`);
   }
+  if (toolName === "Bash") {
+    return checkBash(options, input);
+  }
   if (WRITE_TOOLS.has(toolName)) {
     return checkWrite(options, toolName, input);
   }
@@ -125,6 +144,39 @@ export async function checkToolUse(
       : checkRead(options, toolName, input);
   }
   return allow(input);
+}
+
+/**
+ * Bash: only the allow-listed commands, rewritten to absolute, quoted arguments with the telemetry
+ * variables set. The rewritten input keeps only the command, a description and a bounded timeout,
+ * so a session can neither run it in the background nor ask to leave a sandbox.
+ */
+async function checkBash(
+  options: ToolGuardOptions,
+  input: Record<string, unknown>,
+): Promise<PermissionResult> {
+  if (options.commandScope === undefined) {
+    return deny("Commands are not available in this session.");
+  }
+  const command = input.command;
+  if (typeof command !== "string") {
+    return deny("Bash needs a command.");
+  }
+  const decision = await checkCommand(command, options.commandScope, options.workspaceDir);
+  if (!decision.ok) {
+    return deny(decision.reason);
+  }
+  const timeout =
+    typeof input.timeout === "number" && input.timeout > 0
+      ? Math.min(input.timeout, COMMAND_TIMEOUT_MS)
+      : COMMAND_TIMEOUT_MS;
+  return allow({
+    command: decision.command,
+    timeout,
+    ...(typeof input.description === "string"
+      ? { description: input.description.slice(0, 200) }
+      : {}),
+  });
 }
 
 function checkMcp(

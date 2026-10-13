@@ -41,6 +41,8 @@ export interface StepBriefInput {
   readonly projectId: string;
   readonly item: ContentItem;
   readonly rules: FormatRules;
+  /** The item folder, for a storyboard session's commands. */
+  readonly itemDir?: string;
 }
 
 /**
@@ -50,7 +52,12 @@ export interface StepBriefInput {
  */
 export function stepBrief(input: StepBriefInput): string {
   const { step, item, rules } = input;
-  const commands = "- There is no shell. Do not try to run commands.";
+  const commands =
+    step === "content.storyboard" && input.itemDir !== undefined
+      ? `- Bash runs exactly two commands, on paths inside the item folder \`${input.itemDir}\`:
+  \`npx hyperframes lint <folder>\` and \`ffprobe -v error [options] <file>\`. Nothing else runs:
+  no pipes, redirections, substitutions or quotes. You never render; the studio agent does.`
+      : "- There is no shell. Do not try to run commands.";
   return `# Loomcast production step: ${STEP_LABELS[step]}
 
 You are a producer for a Loomcast project, a platform that scripts, renders and publishes short

@@ -1,6 +1,7 @@
 import type { JobContext } from "../handlers";
 import { JobFailure } from "../handlers";
 import type { ProducerEvent, ProducerRunResult, ProducerRuntime } from "../producer/runtime";
+import type { CommandScope } from "./command-guard";
 import { type ProducerStepType, stepRepairPrompt } from "./prompts";
 import type { JsonReply } from "./reply";
 import { truncate } from "./reply";
@@ -17,6 +18,7 @@ export interface ProducerStepInput<T> {
   readonly brief: string;
   readonly skills: readonly SkillPackEntry[];
   readonly prompt: string;
+  readonly commandScope?: CommandScope;
   /** Validates a reply; problems go back to the session in a repair turn. */
   readonly read: (text: string) => JsonReply<T> | Promise<JsonReply<T>>;
   /** The job error code when the last repair still does not validate. */
@@ -51,6 +53,7 @@ export async function runProducerStep<T>(
       mcp: ctx.credentials.mcp,
       brief: input.brief,
       skills: input.skills,
+      commandScope: input.commandScope,
       onEvent: (event) => events.emit(event),
       onDelta: () => {},
     });

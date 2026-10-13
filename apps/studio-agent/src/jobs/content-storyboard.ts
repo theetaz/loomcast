@@ -36,6 +36,8 @@ export function createContentStoryboardHandler(deps: HandlerDeps): Handler<"cont
  *   word timings are added when the version already has a voice take.
  * - The reply must match `StoryboardSchema` and pass `validateStoryboard` against the card
  *   registry (and the voice length); up to two repair turns get the errors.
+ * - The session may run `hyperframes lint` and `ffprobe` on files of its item, through the
+ *   command guard. It never renders.
  */
 export function storyboardHandler(deps: ProducerStepDeps): Handler<"content.storyboard"> {
   return async (ctx): Promise<ContentStoryboardResult> => {
@@ -92,6 +94,7 @@ export function storyboardHandler(deps: ProducerStepDeps): Handler<"content.stor
             projectId: payload.projectId,
             item,
             rules,
+            itemDir: workspace.itemDir,
           }),
           skills,
           prompt: storyboardPrompt({
@@ -101,6 +104,7 @@ export function storyboardHandler(deps: ProducerStepDeps): Handler<"content.stor
             voice,
             versionDir: workspace.version.dir,
           }),
+          commandScope: { itemDir: workspace.itemDir, hyperframesBin: studio.hyperframesBin },
           read: (text) => {
             const reply = readJsonReply(text, StoryboardSchema);
             if (!reply.ok) {
