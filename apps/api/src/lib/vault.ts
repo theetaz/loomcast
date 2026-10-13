@@ -6,6 +6,8 @@ import {
   type ChannelRow,
   channels,
   type Database,
+  oauthConnections,
+  oauthStates,
 } from "@loomcast/db";
 import { asc, eq, isNotNull } from "drizzle-orm";
 import { HttpError } from "./errors";
@@ -76,6 +78,16 @@ export interface TokenVault {
 /** Additional data that binds a channel's credentials to its row. */
 export function channelAad(channelId: string): string {
   return `channel:${channelId}`;
+}
+
+/** Additional data that binds a pending connection's credentials to its row. */
+export function oauthConnectionAad(connectionId: string): string {
+  return `oauth-connection:${connectionId}`;
+}
+
+/** Additional data that binds a sign-in state's PKCE verifier to its row. */
+export function oauthStateAad(stateId: string): string {
+  return `oauth-state:${stateId}`;
 }
 
 /** The sealed credentials of a channel row, or null when it has none. */
@@ -266,6 +278,14 @@ export class UnknownKeyVersionError extends VaultError {
   }
 }
 
+/** A row with a sealed value, as rotation reads it. */
+interface SealedRow {
+  table: "channels" | "oauth_connections" | "oauth_states";
+  id: string;
+  aad: string;
+  sealed: SealedSecret;
+}
+
 /**
  * Seals every stored credential again with the current key, in one transaction: rows are locked,
  * each value is decrypted (with whichever key sealed it) and encrypted with a fresh nonce. Refuses
@@ -273,7 +293,8 @@ export class UnknownKeyVersionError extends VaultError {
  * when a value fails to decrypt. With `dryRun`, every value is still decrypted, but nothing is
  * written.
  *
- * Every table that stores sealed values must be covered here: today that is `channels`.
+ * Every table that stores sealed values must be covered here: `channels`, the pending connections
+ * of `oauth_connections` and the PKCE verifiers of `oauth_states` (used rows hold none).
  */
 export async function rotateVault(
   db: Database,
@@ -286,7 +307,7 @@ export async function rotateVault(
   const current = vault.keyVersion;
   const dryRun = options.dryRun === true;
   return db.transaction(async (tx) => {
-    const rows = await tx
+    const channelRows = await tx
       .select({
         id: channels.id,
         secretCiphertext: channels.secretCiphertext,
@@ -297,33 +318,84 @@ export async function rotateVault(
       .where(isNotNull(channels.secretCiphertext))
       .orderBy(asc(channels.id))
       .for("update");
+    const connectionRows = await tx
+      .select({
+        id: oauthConnections.id,
+        secretCiphertext: oauthConnections.secretCiphertext,
+        secretNonce: oauthConnections.secretNonce,
+        keyVersion: oauthConnections.keyVersion,
+      })
+      .from(oauthConnections)
+      .where(isNotNull(oauthConnections.secretCiphertext))
+      .orderBy(asc(oauthConnections.id))
+      .for("update");
+    const stateRows = await tx
+      .select({
+        id: oauthStates.id,
+        secretCiphertext: oauthStates.pkceCiphertext,
+        secretNonce: oauthStates.pkceNonce,
+        keyVersion: oauthStates.keyVersion,
+      })
+      .from(oauthStates)
+      .where(isNotNull(oauthStates.pkceCiphertext))
+      .orderBy(asc(oauthStates.id))
+      .for("update");
+
+    const sealedRows: SealedRow[] = [];
+    const collect = (
+      table: SealedRow["table"],
+      rows: {
+        id: string;
+        secretCiphertext: Buffer | null;
+        secretNonce: Buffer | null;
+        keyVersion: number | null;
+      }[],
+      aadOf: (id: string) => string,
+    ) => {
+      for (const row of rows) {
+        const sealed = sealedSecretOf(row);
+        if (sealed !== null) {
+          sealedRows.push({ table, id: row.id, aad: aadOf(row.id), sealed });
+        }
+      }
+    };
+    collect("channels", channelRows, channelAad);
+    collect("oauth_connections", connectionRows, oauthConnectionAad);
+    collect("oauth_states", stateRows, oauthStateAad);
 
     const byKeyVersion: Record<string, number> = {};
     const unknown: { table: string; id: string; keyVersion: number }[] = [];
-    const sealedRows: { id: string; sealed: SealedSecret }[] = [];
-    for (const row of rows) {
-      const sealed = sealedSecretOf(row);
-      if (sealed === null) {
-        continue;
-      }
+    for (const { table, id, sealed } of sealedRows) {
       byKeyVersion[String(sealed.keyVersion)] = (byKeyVersion[String(sealed.keyVersion)] ?? 0) + 1;
       if (!vault.hasKey(sealed.keyVersion)) {
-        unknown.push({ table: "channels", id: row.id, keyVersion: sealed.keyVersion });
+        unknown.push({ table, id, keyVersion: sealed.keyVersion });
       }
-      sealedRows.push({ id: row.id, sealed });
     }
     if (unknown.length > 0) {
       throw new UnknownKeyVersionError(unknown);
     }
 
     let reencrypted = 0;
-    for (const { id, sealed } of sealedRows) {
-      const aad = channelAad(id);
+    for (const { table, id, aad, sealed } of sealedRows) {
       const value = vault.decrypt(sealed, aad);
       if (dryRun) {
         continue;
       }
-      await tx.update(channels).set(vault.encrypt(value, aad)).where(eq(channels.id, id));
+      const next = vault.encrypt(value, aad);
+      if (table === "channels") {
+        await tx.update(channels).set(next).where(eq(channels.id, id));
+      } else if (table === "oauth_connections") {
+        await tx.update(oauthConnections).set(next).where(eq(oauthConnections.id, id));
+      } else {
+        await tx
+          .update(oauthStates)
+          .set({
+            pkceCiphertext: next.secretCiphertext,
+            pkceNonce: next.secretNonce,
+            keyVersion: next.keyVersion,
+          })
+          .where(eq(oauthStates.id, id));
+      }
       reencrypted += 1;
     }
     return {

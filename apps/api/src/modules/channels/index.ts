@@ -35,7 +35,8 @@ const seriesNotFound = () => notFound("No series has that id.");
  * the blocker in `details.reason` unless the channel is active and connected, its platform can
  * publish live, and the server's `PUBLISHING_MODE` is `live`. Every change is audited and
  * published as `channel.updated`. Credentials never leave the server: responses are built from
- * columns that exclude them. Connecting channels to the platforms comes with M5.
+ * columns that exclude them. Channels are connected through the sign-ins of the oauth module;
+ * `channels.disconnect` wipes a channel's credentials.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { db, bus, scheduler } = deps;
@@ -155,6 +156,50 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
         targetType: "channel",
         targetId: id,
         data: { changes },
+        ip: clientIp(c, trustProxy),
+      });
+      emitChannel(tx, updated);
+      return updated;
+    });
+    return c.json(channel, 200);
+  });
+
+  router.delete(routes["channels.disconnect"].path, async (c) => {
+    const user = currentUser(c);
+    const id = idParam(c);
+    const channel = await transaction(db, async (tx) => {
+      const current = await loadChannel(tx, id, true);
+      if (current === null) {
+        throw channelNotFound();
+      }
+      // The credentials go; the channel, its account id, series links and posts stay, so a later
+      // sign-in with the same account reconnects this channel.
+      await tx
+        .update(channels)
+        .set({
+          secretCiphertext: null,
+          secretNonce: null,
+          keyVersion: null,
+          status: current.status === "disabled" ? "disabled" : "disconnected",
+          dryRun: true,
+          scopes: [],
+          tokenExpiresAt: null,
+          lastVerifiedAt: null,
+          lastError: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(channels.id, id));
+      const updated = await loadChannel(tx, id);
+      if (updated === null) {
+        throw new Error("the channel vanished");
+      }
+      await audit(tx, {
+        actorKind: "user",
+        actorId: user.id,
+        action: "channel.disconnected",
+        targetType: "channel",
+        targetId: id,
+        data: { platform: current.platform, wasConnected: current.connected },
         ip: clientIp(c, trustProxy),
       });
       emitChannel(tx, updated);
