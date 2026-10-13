@@ -22,9 +22,13 @@ function pingContext(events: string[]): JobContext<"system.ping"> {
 describe("job handlers", () => {
   const deps = { config: testConfig(), paths: tempAgentPaths(), log: silentLogger };
 
-  it("registers system.ping and producer.chat by default", async () => {
+  it("registers system.ping and the producer jobs by default", async () => {
     const registry = await createHandlers(deps);
-    expect(registry.types().sort()).toEqual(["producer.chat", "system.ping"]);
+    expect(registry.types().sort()).toEqual([
+      "kb.analyze_reference",
+      "producer.chat",
+      "system.ping",
+    ]);
     const result = await registry.get("system.ping")?.(pingContext([]));
     expect(result?.producerAvailable).toBe(true);
   });
