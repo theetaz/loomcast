@@ -13,7 +13,7 @@ import {
   PIPELINE_TRANSITIONS,
 } from "@loomcast/contracts";
 import { auditLog, contentItems, contentVersions, jobs } from "@loomcast/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { transaction } from "../src/lib/db";
 import { HttpError } from "../src/lib/errors";
@@ -29,6 +29,7 @@ import {
   eventsOf,
   insertAsset,
   insertItem,
+  insertItems,
   insertProject,
   internalOf,
   type PipelineHarness,
@@ -36,6 +37,9 @@ import {
   storyboard,
 } from "./pipeline-support";
 import { errorCode } from "./support";
+
+/** Matrix cases in flight at once: the test database pool's size. */
+const MATRIX_CONCURRENCY = 5;
 
 let h: PipelineHarness;
 let projectId: string;
@@ -85,28 +89,54 @@ async function stateOf(itemId: string) {
 
 describe("transition()", () => {
   it("allows exactly the moves of PIPELINE_TRANSITIONS, for every actor kind", async () => {
-    const mismatches: string[] = [];
-    for (const from of PIPELINE_STATES) {
-      for (const to of PIPELINE_STATES) {
-        for (const kind of ACTOR_KINDS) {
-          // A rendered version, so moves that need a render are judged on the actor alone.
-          const inserted = await insertItem(h, { projectId, state: from, level: "render" });
-          const result = await outcome(
-            transaction(h.db, (tx) => content.transition(tx, inserted.itemId, to, actorOf(kind))),
-          );
-          const expected =
-            from === to || canTransition(from, to, kind, { renderAssetId: "r", script: 1 })
-              ? "ok"
-              : "409 invalid_transition";
-          const after = await stateOf(inserted.itemId);
-          const landed = after?.state === (expected === "ok" ? to : from);
-          if (result !== expected || !landed) {
-            mismatches.push(`${from}->${to} by ${kind}: ${result}, state ${after?.state}`);
-          }
-        }
-      }
+    const cases = PIPELINE_STATES.flatMap((from) =>
+      PIPELINE_STATES.flatMap((to) => ACTOR_KINDS.map((kind) => ({ from, to, kind }))),
+    );
+    expect(cases).toHaveLength(PIPELINE_STATES.length ** 2 * ACTOR_KINDS.length);
+    // One item per case, in a single insert. Each has a rendered version, so moves that need a
+    // render are judged on the actor alone.
+    const items = await insertItems(
+      h,
+      cases.map(({ from }) => ({ projectId, state: from, level: "render" as const })),
+    );
+    // The cases touch distinct items, so they run side by side, as many at once as the pool holds.
+    const results: string[] = [];
+    for (let start = 0; start < cases.length; start += MATRIX_CONCURRENCY) {
+      const batch = cases.slice(start, start + MATRIX_CONCURRENCY).map(({ to, kind }, offset) => {
+        const itemId = items[start + offset]?.itemId ?? "";
+        return outcome(
+          transaction(h.db, (tx) => content.transition(tx, itemId, to, actorOf(kind))),
+        );
+      });
+      results.push(...(await Promise.all(batch)));
     }
+    const rows = await h.db
+      .select({ id: contentItems.id, state: contentItems.state })
+      .from(contentItems)
+      .where(
+        inArray(
+          contentItems.id,
+          items.map((item) => item.itemId),
+        ),
+      );
+    const states = new Map(rows.map((row) => [row.id, row.state]));
+
+    const mismatches: string[] = [];
+    cases.forEach(({ from, to, kind }, index) => {
+      const expected =
+        from === to || canTransition(from, to, kind, { renderAssetId: "r", script: 1 })
+          ? "ok"
+          : "409 invalid_transition";
+      const after = states.get(items[index]?.itemId ?? "");
+      const landed = after === (expected === "ok" ? to : from);
+      if (results[index] !== expected || !landed) {
+        mismatches.push(`${from}->${to} by ${kind}: ${results[index]}, state ${after}`);
+      }
+    });
     expect(mismatches).toEqual([]);
+    // Both outcomes occur, so the matrix exercises refusals as well as moves.
+    expect(results).toContain("ok");
+    expect(results).toContain("409 invalid_transition");
   });
 
   it("refuses moves that need a render when the version has none", async () => {

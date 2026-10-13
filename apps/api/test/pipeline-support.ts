@@ -129,38 +129,41 @@ export function storyboard(overrides: Partial<Storyboard> = {}): Storyboard {
   };
 }
 
+interface AssetValues {
+  projectId: string;
+  itemId: string | null;
+  kind: AssetKind;
+  status?: AssetStatus;
+  durationMs?: number;
+}
+
+/** The row of a stored file, with its id chosen up front so callers can insert in bulk. */
+function assetRow(values: AssetValues) {
+  const sha256 = createHash("sha256").update(randomUUID()).digest("hex");
+  return {
+    id: randomUUID(),
+    projectId: values.projectId,
+    itemId: values.itemId,
+    kind: values.kind,
+    status: values.status ?? "ready",
+    bucket: "loomcast-media",
+    storageKey: `projects/${values.projectId}/${values.kind}/${sha256}`,
+    filename: `${values.kind}.bin`,
+    mime: values.kind === "poster" ? "image/jpeg" : "video/mp4",
+    bytes: 1_024,
+    sha256,
+    durationMs: values.durationMs ?? null,
+    finalizedAt: values.status === "pending" ? null : new Date(),
+  } as const;
+}
+
 /** Inserts a stored file of an item, ready unless `status` says otherwise. */
 export async function insertAsset(
   db: Pick<Database, "insert">,
-  values: {
-    projectId: string;
-    itemId: string | null;
-    kind: AssetKind;
-    status?: AssetStatus;
-    durationMs?: number;
-  },
+  values: AssetValues,
 ): Promise<string> {
-  const sha256 = createHash("sha256").update(randomUUID()).digest("hex");
-  const [row] = await db
-    .insert(assets)
-    .values({
-      projectId: values.projectId,
-      itemId: values.itemId,
-      kind: values.kind,
-      status: values.status ?? "ready",
-      bucket: "loomcast-media",
-      storageKey: `projects/${values.projectId}/${values.kind}/${sha256}`,
-      filename: `${values.kind}.bin`,
-      mime: values.kind === "poster" ? "image/jpeg" : "video/mp4",
-      bytes: 1_024,
-      sha256,
-      durationMs: values.durationMs ?? null,
-      finalizedAt: values.status === "pending" ? null : new Date(),
-    })
-    .returning({ id: assets.id });
-  if (row === undefined) {
-    throw new Error("asset was not inserted");
-  }
+  const row = assetRow(values);
+  await db.insert(assets).values(row);
   return row.id;
 }
 
@@ -178,28 +181,50 @@ export interface InsertedItem {
   posterAssetId: string | null;
 }
 
+export interface ItemSpec {
+  projectId: string;
+  state?: PipelineState;
+  level?: ArtifactLevel;
+  seriesId?: string | null;
+  targetAt?: Date | null;
+  title?: string;
+}
+
 /**
  * Inserts an item straight into the database, in any state, with a current version carrying the
  * artifacts up to `level` (the first version is the bare idea). Tests use it to start from states
  * the API would take several steps to reach.
  */
-export async function insertItem(
+export async function insertItem(h: PipelineHarness, values: ItemSpec): Promise<InsertedItem> {
+  const [inserted] = await insertItems(h, [values]);
+  if (inserted === undefined) {
+    throw new Error("item was not inserted");
+  }
+  return inserted;
+}
+
+/** `insertItem` for many items at once: one transaction and one statement per table. */
+export async function insertItems(
   h: PipelineHarness,
-  values: {
-    projectId: string;
-    state?: PipelineState;
-    level?: ArtifactLevel;
-    seriesId?: string | null;
-    targetAt?: Date | null;
-    title?: string;
-  },
-): Promise<InsertedItem> {
-  const itemId = randomUUID();
-  const firstId = randomUUID();
-  const level = LEVELS.indexOf(values.level ?? "none");
-  const currentId = level === 0 ? firstId : randomUUID();
-  return h.db.transaction(async (tx) => {
-    await tx.insert(contentItems).values({
+  specs: readonly ItemSpec[],
+): Promise<InsertedItem[]> {
+  const items: (typeof contentItems.$inferInsert)[] = [];
+  const versions: (typeof contentVersions.$inferInsert)[] = [];
+  const files: ReturnType<typeof assetRow>[] = [];
+  const result = specs.map((values): InsertedItem => {
+    const itemId = randomUUID();
+    const firstId = randomUUID();
+    const level = LEVELS.indexOf(values.level ?? "none");
+    const currentId = level === 0 ? firstId : randomUUID();
+    const asset = (kind: AssetKind) => {
+      const row = assetRow({ projectId: values.projectId, itemId, kind, durationMs: 31_000 });
+      files.push(row);
+      return row.id;
+    };
+    const voiceAssetId = level >= 3 ? asset("voice") : null;
+    const renderAssetId = level >= 4 ? asset("render") : null;
+    const posterAssetId = level >= 4 ? asset("poster") : null;
+    items.push({
       id: itemId,
       projectId: values.projectId,
       seriesId: values.seriesId ?? null,
@@ -210,16 +235,9 @@ export async function insertItem(
       createdVia: "ui",
       createdBy: h.userId,
     });
-    await tx
-      .insert(contentVersions)
-      .values({ id: firstId, itemId, versionNo: 1, stage: "idea", createdVia: "system" });
-    const asset = (kind: AssetKind) =>
-      insertAsset(tx, { projectId: values.projectId, itemId, kind, durationMs: 31_000 });
-    const voiceAssetId = level >= 3 ? await asset("voice") : null;
-    const renderAssetId = level >= 4 ? await asset("render") : null;
-    const posterAssetId = level >= 4 ? await asset("poster") : null;
+    versions.push({ id: firstId, itemId, versionNo: 1, stage: "idea", createdVia: "system" });
     if (level > 0) {
-      await tx.insert(contentVersions).values({
+      versions.push({
         id: currentId,
         itemId,
         versionNo: 2,
@@ -235,6 +253,18 @@ export async function insertItem(
     }
     return { itemId, versionId: currentId, voiceAssetId, renderAssetId, posterAssetId };
   });
+  if (specs.length === 0) {
+    return result;
+  }
+  // Items first (the current-version key is deferred), then the assets the versions point at.
+  await h.db.transaction(async (tx) => {
+    await tx.insert(contentItems).values(items);
+    if (files.length > 0) {
+      await tx.insert(assets).values(files);
+    }
+    await tx.insert(contentVersions).values(versions);
+  });
+  return result;
 }
 
 export function eventsOf<T extends LiveEvent["type"]>(
