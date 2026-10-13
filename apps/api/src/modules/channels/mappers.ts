@@ -1,7 +1,7 @@
-import type { Channel, PublishingMode } from "@loomcast/contracts";
+import type { Channel } from "@loomcast/contracts";
 import { type ChannelRow, channels } from "@loomcast/db";
 import { sql } from "drizzle-orm";
-import { livePublishingBlocker } from "../publisher/gates";
+import { type LiveGateSettings, livePublishingBlocker } from "../publisher/gates";
 
 /**
  * The columns a channel response is built from. The sealed credentials are never selected: only
@@ -33,8 +33,11 @@ export type ChannelView = Omit<
   "secretCiphertext" | "secretNonce" | "keyVersion" | "meta" | "createdBy"
 > & { connected: boolean };
 
-/** A channel as the API shows it, with the reason it cannot go live under `mode`, if any. */
-export function toChannel(row: ChannelView, mode: PublishingMode): Channel {
+/**
+ * A channel as the API shows it, with the reason it cannot go live under the server's `settings`
+ * (publishing mode and platform switches such as `FEATURE_X_PUBLISHING`), if any.
+ */
+export function toChannel(row: ChannelView, settings: LiveGateSettings): Channel {
   return {
     id: row.id,
     platform: row.platform,
@@ -48,7 +51,7 @@ export function toChannel(row: ChannelView, mode: PublishingMode): Channel {
     connected: row.connected,
     scopes: row.scopes,
     tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
-    liveBlocker: livePublishingBlocker(row, mode),
+    liveBlocker: livePublishingBlocker(row, settings),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     disabledAt: row.disabledAt?.toISOString() ?? null,

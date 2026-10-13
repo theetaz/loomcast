@@ -37,6 +37,7 @@ import type { AssetsService } from "../assets/service";
 import { type ContentService, SYSTEM_ACTOR } from "../content";
 import { type Scheduler, type SchedulerAlert, TaskFailure, type TaskResult } from "../scheduler";
 import { type AdapterRegistry, createDryRunAdapter, publisherAdapters } from "./adapters";
+import type { XPlatforms } from "./adapters/x";
 import type { CaptionParts } from "./caption";
 import { createPublishContext, type RecordedExchange } from "./context";
 import { PublishFailure, publishError, toPublishError } from "./errors";
@@ -80,7 +81,7 @@ export interface PublisherDeps {
   db: Database;
   bus: EventBus;
   logger: Logger;
-  config: { publishing: { mode: PublishingMode; enabled: boolean } };
+  config: { publishing: { mode: PublishingMode; enabled: boolean }; platforms: XPlatforms };
   storage: Storage;
   vault: TokenVault;
   assets: Pick<AssetsService, "getRow">;
@@ -477,7 +478,7 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
               status: inputs.channelRow.status,
               connected: inputs.channelRow.connected,
             },
-            mode,
+            deps.config,
           );
           if (blocker !== null) {
             throw gateFailure(

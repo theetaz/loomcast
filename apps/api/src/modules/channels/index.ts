@@ -43,7 +43,6 @@ const seriesNotFound = () => notFound("No series has that id.");
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { db, bus, scheduler } = deps;
-  const mode = () => deps.config.publishing.mode;
   const trustProxy = deps.config.trustProxy;
   const router = new Hono<AppEnv>();
 
@@ -63,7 +62,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   ): Promise<Channel | null> {
     const query = executor.select(channelColumns).from(channels).where(eq(channels.id, id));
     const [row] = lock ? await query.for("update", { of: channels }) : await query;
-    return row === undefined ? null : toChannel(row, mode());
+    return row === undefined ? null : toChannel(row, deps.config);
   }
 
   function emitChannel(tx: Transaction, channel: Channel): void {
@@ -77,7 +76,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       .from(channels)
       .orderBy(asc(channels.platform), asc(channels.displayName), asc(channels.createdAt));
     c.header("Cache-Control", "no-store");
-    return c.json({ items: rows.map((row) => toChannel(row, mode())) }, 200);
+    return c.json({ items: rows.map((row) => toChannel(row, deps.config)) }, 200);
   });
 
   router.post(routes["channels.create"].path, async (c) => {
