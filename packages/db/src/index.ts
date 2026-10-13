@@ -15,5 +15,10 @@ export {
   kbSearch,
   referenceSearchExtra,
 } from "./queries/kb-search";
+export {
+  nextFormatVersionNo,
+  nextVersionNo,
+  type VersionExecutor,
+} from "./queries/versions";
 export * from "./schema";
 export { SEED_DEDUPE_PREFIX, type SeedResult, seedKb } from "./seed-dev";

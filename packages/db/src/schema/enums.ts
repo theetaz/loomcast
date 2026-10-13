@@ -1,17 +1,22 @@
 import {
   ACTOR_KINDS,
+  CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
   KB_CREATED_VIA,
   KB_ENTRY_KINDS,
   MESSAGE_ROLES,
   PASSWORD_TOKEN_PURPOSES,
+  PIPELINE_STATES,
+  PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
+  REVIEW_DECISIONS,
   SERIES_STATUSES,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
+  VERSION_CREATED_VIA,
 } from "@loomcast/contracts";
 import { pgEnum } from "drizzle-orm/pg-core";
 
@@ -32,3 +37,8 @@ export const kbCreatedVia = pgEnum("kb_created_via", KB_CREATED_VIA);
 export const referencePlatform = pgEnum("reference_platform", REFERENCE_PLATFORMS);
 export const passwordTokenPurpose = pgEnum("password_token_purpose", PASSWORD_TOKEN_PURPOSES);
 export const seriesStatus = pgEnum("series_status", SERIES_STATUSES);
+export const pipelineState = pgEnum("pipeline_state", PIPELINE_STATES);
+export const produceTarget = pgEnum("produce_target", PRODUCE_TARGETS);
+export const contentCreatedVia = pgEnum("content_created_via", CONTENT_CREATED_VIA);
+export const versionCreatedVia = pgEnum("version_created_via", VERSION_CREATED_VIA);
+export const reviewDecision = pgEnum("review_decision", REVIEW_DECISIONS);

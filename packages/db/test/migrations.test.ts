@@ -14,6 +14,8 @@ import { apiTokenValues, insertProject, insertUser } from "./fixtures";
 const TABLES = [
   "api_tokens",
   "audit_log",
+  "content_items",
+  "content_versions",
   "conversations",
   "devices",
   "format_versions",
@@ -26,6 +28,7 @@ const TABLES = [
   "pairing_codes",
   "password_tokens",
   "projects",
+  "reviews",
   "series",
   "sessions",
   "users",

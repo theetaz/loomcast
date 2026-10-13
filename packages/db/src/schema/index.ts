@@ -1,5 +1,6 @@
 export * from "./audit";
 export * from "./auth";
+export * from "./content";
 export * from "./conversations";
 export * from "./devices";
 export * from "./enums";
