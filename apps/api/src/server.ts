@@ -8,6 +8,7 @@ import type { Hono } from "hono";
 import { type CreateAppOptions, createApp } from "./app";
 import type { AppDeps } from "./deps";
 import { type Config, loadConfig } from "./env";
+import { createEventBus } from "./lib/bus";
 import { systemClock } from "./lib/clock";
 import { createLifecycle } from "./lib/lifecycle";
 import { createLogger, type Logger } from "./lib/logger";
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
   const lifecycle = createLifecycle(logger);
   const deps: AppDeps = {
     db: database.db,
+    bus: createEventBus(logger),
     clock: systemClock,
     logger,
     config,

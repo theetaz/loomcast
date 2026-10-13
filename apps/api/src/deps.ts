@@ -2,17 +2,20 @@ import type { ServerType } from "@hono/node-server";
 import type { Database } from "@loomcast/db";
 import type { Hono } from "hono";
 import type { Config } from "./env";
+import type { EventBus } from "./lib/bus";
 import type { Clock } from "./lib/clock";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
+import type { JobsService } from "./modules/jobs/service";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
 /** What `createApp` needs from outside. Tests build their own with a test database and clock. */
 export interface AppDeps {
   db: Database;
+  bus: EventBus;
   clock: Clock;
   logger: Logger;
   config: Config;
@@ -33,6 +36,7 @@ export interface Presence {
 export interface ModuleDeps extends AppDeps {
   sessions: SessionsService;
   tokens: TokensService;
+  jobs: JobsService;
   auth: AuthGuards;
   presence: Presence;
 }
