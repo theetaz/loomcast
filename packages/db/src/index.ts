@@ -16,6 +16,23 @@ export {
   referenceSearchExtra,
 } from "./queries/kb-search";
 export {
+  type ClaimDueTasksOptions,
+  type ClaimDueTasksResult,
+  claimDueTasks,
+  completeTask,
+  type EnqueueTaskInput,
+  type EnqueueTaskResult,
+  enqueueTask,
+  extendLease,
+  retryTask,
+  TASK_ATTEMPTS_EXHAUSTED_CODE,
+  TASK_LEASE_EXPIRED_CODE,
+  type TaskExecutor,
+  type TaskLease,
+  type TaskOutcome,
+  taskLease,
+} from "./queries/scheduler";
+export {
   nextFormatVersionNo,
   nextSkillVersion,
   nextVersionNo,

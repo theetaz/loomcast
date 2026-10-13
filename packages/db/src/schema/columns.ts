@@ -26,3 +26,13 @@ export const tsvector = customType<{ data: string; driverData: string }>({
     return "tsvector";
   },
 });
+
+/**
+ * `bytea`, read and written as a `Buffer`. Used for ciphertext and nonces; never for plaintext
+ * secrets.
+ */
+export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
