@@ -5,7 +5,7 @@ harness for Loomcast. The package is consumed as TypeScript source.
 
 | Import | Contents |
 |---|---|
-| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `enqueueTask`, `claimDueTasks`, `extendLease`, `completeTask`, `retryTask`, `consumeOAuthState`, `consumeOAuthConnection`, `purgeExpiredOAuth`, `KB_FIXTURES`, `seedKb` |
+| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `enqueueTask`, `claimDueTasks`, `extendLease`, `completeTask`, `retryTask`, `consumeOAuthState`, `consumeOAuthConnection`, `purgeExpiredOAuth`, `latestPostMetrics`, `KB_FIXTURES`, `seedKb` |
 | `@loomcast/db/schema` | Tables, pg enums and row types only |
 | `@loomcast/db/testing` | `setupTemplate` and `createTestDb` for vitest |
 
@@ -186,6 +186,23 @@ The partial indexes of these tables compare enum literals (`status <> 'cancelled
 because `post_status` and `task_status` are created, not extended, by the migrations that create
 the indexes. A later migration that adds a value to either type must not use it in the same
 batch.
+
+## Post metrics
+
+`post_metrics` is the time series of a published post's insights: one row per capture, appended
+on the contracts' `insightsSchedule`. A row holds running totals, not deltas, so the latest capture
+is the post's current performance.
+
+- `views`, `likes`, `comments`, `shares`, `saves` and `reach` are `bigint` and `avg_watch_ms` an
+  `integer`; each is null when the platform does not report it, never negative
+  (`post_metrics_counts_ck`). Null is not zero: `aggregatePosts` decides how to count it.
+- `raw` is the platform's answer as a JSON object, for metrics without a column. Strip credentials
+  before inserting it: Graph API paging links carry an access token.
+- `post_metrics_post_id_captured_at_idx` is `(post_id, captured_at desc)`, so a post's history
+  newest first (`where post_id = $1 order by captured_at desc`) and the latest capture per post
+  come from the index. `latestPostMetrics(db, postIds)` returns that latest row for each post that
+  has one (`distinct on (post_id)`); give `aggregatePosts` a `null` for the others.
+- The ids are a `bigserial`. Deleting the post deletes its captures.
 
 ## OAuth sign-ins and pending connections
 

@@ -15,6 +15,7 @@ export {
   kbSearch,
   referenceSearchExtra,
 } from "./queries/kb-search";
+export { latestPostMetrics, type MetricsExecutor } from "./queries/metrics";
 export {
   type ConsumeOAuthConnectionInput,
   type ConsumeOAuthStateInput,

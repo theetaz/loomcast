@@ -31,6 +31,7 @@ const TABLES = [
   "oauth_states",
   "pairing_codes",
   "password_tokens",
+  "post_metrics",
   "projects",
   "publish_attempts",
   "reviews",
