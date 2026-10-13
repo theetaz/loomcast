@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -16,6 +17,15 @@ import type { ProducerRunInput, ProducerRunResult, ProducerRuntime } from "../sr
 import { SdkProducerRuntime } from "../src/producer/sdk-runtime";
 import { ids, testJobToken } from "./helpers";
 import { assistantText, fakeQuery, initMessage, SESSION_ID, successResult } from "./producer-fakes";
+import {
+  contentItem,
+  contentVersion,
+  FakePlatform,
+  fakeStore,
+  fakeStudio,
+  productionDeps,
+  tempDir,
+} from "./production-fakes";
 
 const entryId = "5ab17ecd-d29f-4b6d-ae80-7f6c9daebfc5";
 const REFERENCE_URL = "https://www.instagram.com/reel/reference-video/";
@@ -259,6 +269,117 @@ describe("kb.analyze_reference handler", () => {
     const runtime = fakeRuntime(() => reply(validReply()));
     await analyzeReferenceHandler({ runtime, workspaceRoot: root })(analysisContext().ctx);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/** A TTS provider key stand-in, generated per call so no test holds a key-like literal. */
+function generatedKey(): string {
+  return ["vk", randomBytes(16).toString("hex")].join("-");
+}
+
+describe("kb.analyze_reference with uploaded media", () => {
+  const mediaAssetId = "7cd39ef0-f4b1-4d8f-80a2-9b8e1fb0d1e7";
+
+  function mediaSetup(
+    options: { voiceKey?: string; mime?: string; kind?: "reference_media" | "voice" } = {},
+  ) {
+    const platform = new FakePlatform({
+      item: contentItem(),
+      version: contentVersion(),
+      format: null,
+    });
+    platform.addReadyAsset(
+      mediaAssetId,
+      options.kind ?? "reference_media",
+      Buffer.from("reference media"),
+      {
+        itemId: null,
+        mime: options.mime ?? "video/mp4",
+      },
+    );
+    const store = fakeStore(platform);
+    const studio = fakeStudio(tempDir());
+    const media = productionDeps({
+      workspaceRoot: root,
+      platform,
+      studio,
+      voiceKey: options.voiceKey,
+      fetch: store.fetch,
+    });
+    return { platform, store, studio, media };
+  }
+
+  it("downloads, transcribes and removes the media, then analyses the transcript", async () => {
+    const key = generatedKey();
+    const { platform, store, studio, media } = mediaSetup({ voiceKey: key });
+    studio.transcript = "Batteries lie.\u0007 Check the cycle count.";
+    const runtime = fakeRuntime(() => reply(validReply()));
+    const { ctx, events } = analysisContext({ transcript: undefined, mediaAssetId });
+
+    const result = await analyzeReferenceHandler({ runtime, workspaceRoot: root, media })(ctx);
+
+    expect(parseJobResult("kb.analyze_reference", result).success).toBe(true);
+    expect(result.transcript).toBe("Batteries lie.  Check the cycle count.");
+    expect(platform.toolCalls("asset.get_url")).toEqual([{ assetId: mediaAssetId }]);
+    expect(store.requests.map((request) => request.method)).toEqual(["GET"]);
+    const referenceDir = join(workspaceDir(), "references", entryId);
+    expect(studio.transcribed).toHaveLength(1);
+    expect(studio.transcribed[0]?.apiKey).toBe(key);
+    expect(studio.transcribed[0]?.inputPath).toBe(join(referenceDir, "media.mp4"));
+    expect(existsSync(join(referenceDir, "media.mp4"))).toBe(false);
+    expect(readFileSync(join(referenceDir, "transcript.txt"), "utf8")).toBe(result.transcript);
+    expect(runtime.inputs[0]?.prompt).toContain("Check the cycle count.");
+    expect(events[1]).toEqual({ kind: "status", data: { state: "transcribing" } });
+    expect(JSON.stringify({ result, events })).not.toContain(key);
+  });
+
+  it("keeps an audio file's extension so it is sent without extraction", async () => {
+    const { studio, media } = mediaSetup({ voiceKey: generatedKey(), mime: "audio/x-m4a" });
+    const runtime = fakeRuntime(() => reply(validReply()));
+    await analyzeReferenceHandler({ runtime, workspaceRoot: root, media })(
+      analysisContext({ transcript: undefined, mediaAssetId }).ctx,
+    );
+    expect(studio.transcribed[0]?.inputPath.endsWith("media.m4a")).toBe(true);
+  });
+
+  it("fails without a TTS provider key, and for media of another kind", async () => {
+    const runtime = fakeRuntime(() => reply(validReply()));
+    await expect(
+      analyzeReferenceHandler({ runtime, workspaceRoot: root, media: mediaSetup().media })(
+        analysisContext({ transcript: undefined, mediaAssetId }).ctx,
+      ),
+    ).rejects.toMatchObject({ code: "voice_provider_key_missing", retryable: false });
+
+    await expect(
+      analyzeReferenceHandler({
+        runtime,
+        workspaceRoot: root,
+        media: mediaSetup({ voiceKey: generatedKey(), kind: "voice" }).media,
+      })(analysisContext({ transcript: undefined, mediaAssetId }).ctx),
+    ).rejects.toMatchObject({ code: "invalid_payload" });
+    expect(runtime.inputs).toHaveLength(0);
+  });
+
+  it("fails when the media has no speech", async () => {
+    const { studio, media } = mediaSetup({ voiceKey: generatedKey() });
+    studio.transcript = "   ";
+    const runtime = fakeRuntime(() => reply(validReply()));
+    await expect(
+      analyzeReferenceHandler({ runtime, workspaceRoot: root, media })(
+        analysisContext({ transcript: undefined, mediaAssetId }).ctx,
+      ),
+    ).rejects.toMatchObject({ code: "transcript_empty" });
+  });
+
+  it("uses the payload transcript without touching the media", async () => {
+    const { platform, studio, media } = mediaSetup({ voiceKey: generatedKey() });
+    const runtime = fakeRuntime(() => reply(validReply()));
+    const result = await analyzeReferenceHandler({ runtime, workspaceRoot: root, media })(
+      analysisContext({ mediaAssetId }).ctx,
+    );
+    expect(result.transcript).toBeUndefined();
+    expect(platform.calls).toEqual([]);
+    expect(studio.transcribed).toEqual([]);
   });
 });
 

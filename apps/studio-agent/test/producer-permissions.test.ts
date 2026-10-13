@@ -9,6 +9,7 @@ import {
   MCP_TOOL_ALLOW_LIST,
   mcpServersFor,
   normalizeMcpName,
+  PRODUCER_JOB_TYPES,
   type ProducerJobType,
   qualifiedToolName,
 } from "../src/producer/mcp";
@@ -218,11 +219,15 @@ describe("permission matrix per job type", () => {
     "project.get",
   ];
   const analysisMcp = ["kb.search", "kb.get", "project.get"];
+  const productionMcp = ["content.get", "format.get_rules", "kb.search", "kb.get", "project.get"];
 
   it("allows exactly the allow-listed platform tools for each job type", async () => {
     const matrix: Record<ProducerJobType, readonly string[]> = {
       "producer.chat": chatMcp,
       "kb.analyze_reference": analysisMcp,
+      "content.write_script": productionMcp,
+      "content.storyboard": productionMcp,
+      "content.revise": productionMcp,
     };
     for (const [jobType, allowed] of Object.entries(matrix) as [
       ProducerJobType,
@@ -241,7 +246,7 @@ describe("permission matrix per job type", () => {
   });
 
   it("denies other MCP servers and unknown MCP tools", async () => {
-    for (const jobType of ["producer.chat", "kb.analyze_reference"] as const) {
+    for (const jobType of PRODUCER_JOB_TYPES) {
       expect(await decide(jobType, "mcp__other__kb_search")).toBe("deny");
       expect(
         await decide(jobType, "mcp__loomcast__kb_search", {}, { name: "other", source: "user" }),
@@ -263,8 +268,18 @@ describe("permission matrix per job type", () => {
       "WebFetch",
     ]);
     expect(builtinToolsFor("kb.analyze_reference")).toEqual(["Read", "Glob", "Grep"]);
-    expect(deniedBuiltinTools("producer.chat")).toEqual([]);
+    expect(builtinToolsFor("content.write_script")).toEqual(["Read", "Glob", "Grep"]);
+    expect(builtinToolsFor("content.revise")).toEqual(["Read", "Glob", "Grep"]);
+    expect(builtinToolsFor("content.storyboard")).toEqual(["Read", "Glob", "Grep", "Bash"]);
+    expect(deniedBuiltinTools("producer.chat")).toEqual(["Bash"]);
     expect(deniedBuiltinTools("kb.analyze_reference")).toEqual([
+      "Write",
+      "Edit",
+      "WebSearch",
+      "WebFetch",
+      "Bash",
+    ]);
+    expect(deniedBuiltinTools("content.storyboard")).toEqual([
       "Write",
       "Edit",
       "WebSearch",
@@ -290,6 +305,26 @@ describe("permission matrix per job type", () => {
     }
     for (const tool of ["Bash", "NotebookEdit", "Task"]) {
       expect(await decide("kb.analyze_reference", tool, { command: "ls" })).toBe("deny");
+    }
+  });
+
+  it("keeps production-step reads inside the workspace and denies their writes", async () => {
+    for (const jobType of [
+      "content.write_script",
+      "content.storyboard",
+      "content.revise",
+    ] as const) {
+      expect(await decide(jobType, "Read", { file_path: join(workspace, "script.md") })).toBe(
+        "allow",
+      );
+      expect(await decide(jobType, "Read", { file_path: "/etc/hosts" })).toBe("deny");
+      expect(await decide(jobType, "Glob", { pattern: "../**" })).toBe("deny");
+      expect(
+        await decide(jobType, "Write", { file_path: join(workspace, "x.md"), content: "x" }),
+      ).toBe("deny");
+      expect(await decide(jobType, "WebFetch", { url: "https://example.com", prompt: "x" })).toBe(
+        "deny",
+      );
     }
   });
 
