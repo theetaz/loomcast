@@ -3,6 +3,8 @@ export * from "./common";
 export * from "./conversations";
 export * from "./devices";
 export * from "./jobs";
+export * from "./kb";
 export * from "./projects";
 export * from "./routes";
 export * from "./tokens";
+export * from "./users";

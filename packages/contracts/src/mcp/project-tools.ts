@@ -1,15 +1,7 @@
 import { z } from "zod";
 import { CreateProjectSchema, ProjectSchema } from "../api/projects";
-import { ProjectStatusSchema, type TokenScope } from "../enums";
-
-/** Contract of one MCP tool: its name, the scope a token needs, and its input and output. */
-export interface McpToolContract {
-  readonly name: string;
-  readonly scope: TokenScope;
-  readonly description: string;
-  readonly input: z.ZodObject;
-  readonly output: z.ZodObject;
-}
+import { ProjectStatusSchema } from "../enums";
+import type { McpToolContract } from "./contract";
 
 const count = z.number().int().min(0);
 
@@ -29,7 +21,7 @@ export const ProjectGetInputSchema = z.object({
 });
 export type ProjectGetInput = z.infer<typeof ProjectGetInputSchema>;
 
-/** Counts of what a project holds. `kbEntries` and `items` stay 0 until those features exist. */
+/** Counts of what a project holds. `items` stays 0 until content items exist. */
 export const ProjectStatsSchema = z.object({
   conversations: count,
   kbEntries: count,
@@ -53,11 +45,16 @@ export const ProjectListOutputSchema = z.object({
 });
 export type ProjectListOutput = z.infer<typeof ProjectListOutputSchema>;
 
-/** The M1 project tools served on `/mcp`. */
+/**
+ * The project tools served on `/mcp`. Job tokens may read projects but never create one; with a
+ * job token, `project.list` returns only the job's project.
+ */
 export const projectTools = {
   "project.create": {
     name: "project.create",
     scope: "mcp:write",
+    jobTokens: "deny",
+    projectBinding: "none",
     description:
       "Create a project. The slug is derived from the name unless given. Returns the project and its link.",
     input: ProjectCreateInputSchema,
@@ -66,6 +63,8 @@ export const projectTools = {
   "project.get": {
     name: "project.get",
     scope: "mcp:read",
+    jobTokens: "allow",
+    projectBinding: "input",
     description: "Get a project by id or slug, with counts of its conversations and content.",
     input: ProjectGetInputSchema,
     output: ProjectGetOutputSchema,
@@ -73,6 +72,8 @@ export const projectTools = {
   "project.list": {
     name: "project.list",
     scope: "mcp:read",
+    jobTokens: "allow",
+    projectBinding: "none",
     description: "List projects, optionally filtered by status.",
     input: ProjectListInputSchema,
     output: ProjectListOutputSchema,

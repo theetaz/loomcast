@@ -2,6 +2,7 @@ import {
   type AccessToken,
   DEVICE_TOKEN_RE,
   IdSchema,
+  JOB_TOKEN_RE,
   MCP_TOKEN_RE,
   MCP_TOKEN_SCOPES,
   TOKEN_NAME_MAX_LENGTH,
@@ -23,6 +24,7 @@ export const LAST_USED_RESOLUTION_MS = 60_000;
 export const ALLOWED_SCOPES: { readonly [K in TokenKind]: readonly TokenScope[] } = {
   mcp: MCP_TOKEN_SCOPES,
   device: ["bridge"],
+  job: ["mcp:read", "mcp:write"],
 };
 
 /** Scopes only the owner's tokens may hold. */
@@ -31,6 +33,7 @@ export const OWNER_ONLY_SCOPES: readonly TokenScope[] = ["mcp:admin"];
 const TOKEN_FORMAT: { readonly [K in TokenKind]: RegExp } = {
   mcp: MCP_TOKEN_RE,
   device: DEVICE_TOKEN_RE,
+  job: JOB_TOKEN_RE,
 };
 
 export interface CreateTokenInput {

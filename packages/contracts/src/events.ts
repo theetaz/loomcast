@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MessageSchema } from "./api/conversations";
 import { JobSummarySchema } from "./api/jobs";
+import { KbEntrySchema } from "./api/kb";
 import { ProjectSchema } from "./api/projects";
 import { IdSchema, TimestampSchema } from "./common";
 
@@ -44,6 +45,10 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
   ),
   liveEvent("project.created", z.object({ project: ProjectSchema })),
   liveEvent("project.updated", z.object({ project: ProjectSchema })),
+  /** Knowledge-base writes from any source: the web app, MCP, a producer session or the hook. */
+  liveEvent("kb.entry.created", z.object({ entry: KbEntrySchema })),
+  liveEvent("kb.entry.updated", z.object({ entry: KbEntrySchema })),
+  liveEvent("kb.entry.deleted", z.object({ entryId: IdSchema, projectId: IdSchema })),
   /** The client missed events it cannot replay and should refetch its data. */
   liveEvent("resync", z.object({})),
 ]);

@@ -8,12 +8,15 @@ import {
   type JobPayload,
   type JobResult,
   jobRegistry,
+  MAX_TRANSCRIPT_LENGTH,
+  MCP_ACCESS_LEVELS,
+  MCP_ACCESS_SCOPES,
   parseJobPayload,
   parseJobResult,
   projectTools,
   TOKEN_SCOPES,
 } from "../src";
-import { ids, project } from "./fixtures";
+import { analysis, ids, project } from "./fixtures";
 
 const chatPayload = {
   conversationId: ids.conversation,
@@ -38,6 +41,22 @@ describe("job registry", () => {
     for (const kind of definition.durableEventKinds) {
       expect(JOB_EVENT_KINDS).toContain(kind);
     }
+    expect(MCP_ACCESS_LEVELS).toContain(definition.mcpAccess);
+  });
+
+  it("grants MCP access only where a producer session needs it", () => {
+    const access = Object.fromEntries(JOB_TYPES.map((type) => [type, jobRegistry[type].mcpAccess]));
+
+    expect(access).toEqual({
+      "system.ping": "none",
+      "producer.chat": "read_write",
+      "kb.analyze_reference": "read",
+    });
+    expect(MCP_ACCESS_SCOPES).toEqual({
+      none: [],
+      read: ["mcp:read"],
+      read_write: ["mcp:read", "mcp:write"],
+    });
   });
 
   it("fails interrupted chats instead of running them twice", () => {
@@ -82,6 +101,67 @@ describe("job registry", () => {
     expect(parseJobResult("producer.chat", { ...chat, numTurns: -1 }).success).toBe(false);
   });
 
+  describe("kb.analyze_reference", () => {
+    const payload = {
+      projectId: ids.project,
+      entryId: ids.entry,
+      url: "https://instagram.com/reel/abc/",
+      platform: "instagram",
+      transcript: "Stop scrolling. Here is the trick.",
+      likedReason: "The cold open",
+    };
+
+    it("is a requeued producer job with read-only MCP access", () => {
+      const analyze = jobRegistry["kb.analyze_reference"];
+
+      expect(analyze.timeoutMs).toBe(15 * 60 * 1000);
+      expect(analyze.retry).toEqual({ maxAttempts: 2, onLeaseExpiry: "requeue" });
+      expect(analyze.concurrencyClass).toBe("producer");
+      expect([...analyze.durableEventKinds].sort()).toEqual(
+        ["log", "session", "status", "tool.activity", "usage"].sort(),
+      );
+      expect(allowsEventKind("kb.analyze_reference", "assistant.message")).toBe(false);
+    });
+
+    it("validates its payload", () => {
+      const { likedReason: _likedReason, ...withoutReason } = payload;
+
+      expect(parseJobPayload("kb.analyze_reference", payload).success).toBe(true);
+      expect(parseJobPayload("kb.analyze_reference", withoutReason).success).toBe(true);
+      expect(
+        parseJobPayload("kb.analyze_reference", { ...payload, transcript: undefined }).success,
+      ).toBe(false);
+      expect(
+        parseJobPayload("kb.analyze_reference", {
+          ...payload,
+          transcript: "x".repeat(MAX_TRANSCRIPT_LENGTH + 1),
+        }).success,
+      ).toBe(false);
+      expect(
+        parseJobPayload("kb.analyze_reference", { ...payload, url: "file:///etc/passwd" }).success,
+      ).toBe(false);
+      expect(
+        parseJobPayload("kb.analyze_reference", { ...payload, platform: "vimeo" }).success,
+      ).toBe(false);
+    });
+
+    it("validates its result and caps the summary", () => {
+      const result = { analysis, summaryMd: "**Hook:** result first." };
+
+      expect(parseJobResult("kb.analyze_reference", result).success).toBe(true);
+      expect(
+        parseJobResult("kb.analyze_reference", { ...result, summaryMd: "x".repeat(4_001) }).success,
+      ).toBe(false);
+      expect(parseJobResult("kb.analyze_reference", { ...result, summaryMd: " " }).success).toBe(
+        false,
+      );
+      expect(
+        parseJobResult("kb.analyze_reference", { ...result, analysis: { hook: analysis.hook } })
+          .success,
+      ).toBe(false);
+    });
+  });
+
   it("keeps payload and result types tied to the job type", () => {
     const parsed = parseJobPayload("producer.chat", chatPayload);
     if (parsed.success) {
@@ -89,6 +169,10 @@ describe("job registry", () => {
     }
     expectTypeOf<JobPayload<"producer.chat">["text"]>().toEqualTypeOf<string>();
     expectTypeOf<JobResult<"system.ping">["producerAvailable"]>().toEqualTypeOf<boolean>();
+    expectTypeOf<JobPayload<"kb.analyze_reference">["likedReason"]>().toEqualTypeOf<
+      string | undefined
+    >();
+    expectTypeOf<JobResult<"kb.analyze_reference">["summaryMd"]>().toEqualTypeOf<string>();
   });
 });
 
