@@ -25,6 +25,7 @@ describe("sidebar navigation registry", () => {
       "projects",
       "library",
       "review",
+      "approvals",
       "calendar",
       "analytics",
     ]);

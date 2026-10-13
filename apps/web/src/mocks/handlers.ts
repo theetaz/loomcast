@@ -13,6 +13,7 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
 import { createAnalyticsHandlers } from "./analytics";
+import { createApprovalHandlers } from "./approvals";
 import { createCalendarHandlers } from "./calendar";
 import { createChannelHandlers } from "./channels";
 import { createContentHandlers } from "./content";
@@ -213,6 +214,7 @@ export function createHandlers(db: MockDb) {
     ...createCalendarHandlers(db),
     ...createAnalyticsHandlers(db),
     ...createChannelHandlers(db),
+    ...createApprovalHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];
