@@ -22,6 +22,8 @@ export interface RateLimitResult {
 
 export interface RateLimiter {
   take(key: string, cost?: number): RateLimitResult;
+  /** What `take` would answer, without taking anything. Creates no bucket. */
+  peek(key: string, cost?: number): RateLimitResult;
   reset(key: string): void;
   /** Number of tracked buckets. */
   readonly size: number;
@@ -75,6 +77,21 @@ export function createRateLimiter(options: RateLimitOptions, clock: Clock): Rate
       }
       if (bucket.tokens >= cost) {
         bucket.tokens -= cost;
+        return { allowed: true, remaining: Math.floor(bucket.tokens), retryAfterMs: 0 };
+      }
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterMs: Math.ceil((cost - bucket.tokens) / refillPerMs),
+      };
+    },
+    peek(key, cost = 1) {
+      const bucket = buckets.get(key);
+      if (bucket === undefined) {
+        return { allowed: true, remaining: capacity, retryAfterMs: 0 };
+      }
+      refill(bucket, clock.now().getTime());
+      if (bucket.tokens >= cost) {
         return { allowed: true, remaining: Math.floor(bucket.tokens), retryAfterMs: 0 };
       }
       return {
