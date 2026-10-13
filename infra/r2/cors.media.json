@@ -1,0 +1,17 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://loomcast.prabhavalabs.com"],
+      "AllowedMethods": ["GET", "HEAD", "PUT"],
+      "AllowedHeaders": [
+        "content-type",
+        "content-md5",
+        "x-amz-checksum-sha256",
+        "x-amz-sdk-checksum-algorithm",
+        "x-amz-content-sha256"
+      ],
+      "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}

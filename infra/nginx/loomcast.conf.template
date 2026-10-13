@@ -1,0 +1,157 @@
+# Loomcast site for the host's nginx. Rendered by infra/scripts/render-nginx.sh; do not edit the
+# rendered copy by hand. See docs/runbooks/nginx-and-tls.md.
+#
+# The host serves other applications, so everything here is scoped to this one site:
+# - The upstream, map and TLS session cache carry a loomcast prefix, so they cannot collide with
+#   names other sites define in the shared http context.
+# - The real-IP settings live in the server block, not in http, so other sites keep theirs.
+# - Neither listen directive sets default_server, reuseport, backlog or other socket options that
+#   would change the behaviour of other sites on the same port.
+# - Security headers (HSTS, CSP and the rest) come from the app itself; nginx adds none.
+#
+# Variables substituted by the render script (see its header for defaults):
+#   LOOMCAST_DOMAIN        public hostname
+#   LOOMCAST_HTTP_PORT     loopback port the api container publishes (compose.env)
+#   LOOMCAST_ACME_ROOT     webroot for HTTP-01 challenges
+#   LOOMCAST_CERT_DIR      certificate directory (Let's Encrypt live directory)
+#   LOOMCAST_NGINX_DIR     directory holding the Cloudflare IP include and origin-pull CA
+#   LOOMCAST_LOG_DIR       nginx log directory
+# Marked blocks (a begin and an end marker line around them) are kept or dropped by the render
+# script:
+#   tls             the HTTPS server (dropped in bootstrap mode, before a certificate exists)
+#   http2           "http2 on;" for nginx 1.25.1 and later
+#   origin-pulls    Cloudflare authenticated origin pulls (client certificate check)
+
+upstream loomcast_api {
+    server 127.0.0.1:${LOOMCAST_HTTP_PORT};
+    keepalive 16;
+}
+
+# WebSocket upgrades on /bridge/. Requests without an Upgrade header keep the upstream connection
+# alive, which the keepalive pool above needs.
+map $http_upgrade $loomcast_connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+server {
+    listen 80;
+    server_name ${LOOMCAST_DOMAIN};
+    server_tokens off;
+
+    access_log ${LOOMCAST_LOG_DIR}/loomcast.access.log;
+    error_log  ${LOOMCAST_LOG_DIR}/loomcast.error.log warn;
+
+    # HTTP-01 challenges for the first certificate (record not yet proxied) and renewals.
+    location ^~ /.well-known/acme-challenge/ {
+        root ${LOOMCAST_ACME_ROOT};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://${LOOMCAST_DOMAIN}$request_uri;
+    }
+}
+
+# @begin tls
+server {
+    listen 443 ssl${LOOMCAST_LISTEN_HTTP2};
+    server_name ${LOOMCAST_DOMAIN};
+    server_tokens off;
+    # @begin http2
+    http2 on;
+    # @end http2
+
+    access_log ${LOOMCAST_LOG_DIR}/loomcast.access.log;
+    error_log  ${LOOMCAST_LOG_DIR}/loomcast.error.log warn;
+
+    ssl_certificate     ${LOOMCAST_CERT_DIR}/fullchain.pem;
+    ssl_certificate_key ${LOOMCAST_CERT_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:loomcast_tls:5m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    # No OCSP stapling: Let's Encrypt certificates no longer carry an OCSP URL.
+
+    # @begin origin-pulls
+    # Only Cloudflare, presenting the origin-pull client certificate, may connect.
+    ssl_client_certificate ${LOOMCAST_NGINX_DIR}/origin-pull-ca.pem;
+    ssl_verify_client on;
+    # @end origin-pulls
+
+    # The client address: trust CF-Connecting-IP only from Cloudflare's published ranges, written
+    # by infra/nginx/cloudflare-ips.sh. Requests from anywhere else keep their socket address.
+    include ${LOOMCAST_NGINX_DIR}/cloudflare-ips.conf;
+    real_ip_header CF-Connecting-IP;
+    real_ip_recursive off;
+
+    # Uploads go straight to object storage; the api accepts at most 1 MiB bodies.
+    client_max_body_size 2m;
+
+    # Applies to every location below that sets no proxy_set_header of its own.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_set_header X-Real-IP $remote_addr;
+    # The api reads the last X-Forwarded-For entry (TRUST_PROXY=true). Sending only the address
+    # nginx resolved keeps client-supplied entries out.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_connect_timeout 5s;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${LOOMCAST_ACME_ROOT};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    # Studio agent bridge (WebSocket, /bridge/v1). The server pings well inside 120 s.
+    location /bridge/ {
+        proxy_pass http://loomcast_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $loomcast_connection_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+        proxy_buffering off;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+
+    # Server-sent events for the browser. Heartbeats every 15 s keep the stream open.
+    location = /api/stream {
+        proxy_pass http://loomcast_api;
+        proxy_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        add_header X-Accel-Buffering no always;
+    }
+
+    # MCP over streamable HTTP; responses may stream.
+    location /mcp {
+        proxy_pass http://loomcast_api;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        add_header X-Accel-Buffering no always;
+    }
+
+    # The api, the static web app and its client-side routes.
+    location / {
+        proxy_pass http://loomcast_api;
+        proxy_read_timeout 60s;
+    }
+}
+# @end tls
