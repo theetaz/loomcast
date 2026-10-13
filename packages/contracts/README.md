@@ -31,7 +31,11 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/jobs/concurrency.ts` | Concurrency classes and the credits shape |
 | `src/jobs/durable-events.ts` | Durable job event kinds and the `data` schema of each |
 | `src/jobs/registry.ts` | `jobRegistry`, the job allow-list, with payload and result schemas, timeouts and retry policy per type |
-| `src/mcp/project-tools.ts` | `projectTools`: name, scope, description, input and output of `project.create`, `project.get` and `project.list` |
+| `src/mcp/contract.ts` | `McpToolContract`, `MCP_PATH`, the job-token policies and project bindings |
+| `src/mcp/project-tools.ts` | `projectTools`: `project.create`, `project.get` and `project.list` |
+| `src/mcp/kb-tools.ts` | `kbTools`: the `kb.*` tools |
+| `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
+| `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -142,13 +146,24 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`projectTools` describes each tool's name, required token scope, description and zod input and output. The MCP server registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `projectTools`, `kbTools` and `adminTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
-| Tool | Scope | Input | Output |
-|---|---|---|---|
-| `project.create` | `mcp:write` | `{name, slug?, description?}` | `{project: {id, slug, name, description, url}}` |
-| `project.get` | `mcp:read` | `{idOrSlug}` | `{project, stats: {conversations, kbEntries, items}}` |
-| `project.list` | `mcp:read` | `{status?}` | `{projects}` |
+- `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
+- `projectBinding: "input"`: the input names one project, directly or through an entry. The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
+- `projectBinding: "none"`: the input names no project. With a job token, results cover only the job's project.
+
+| Tool | Scope | Job tokens | Project | Input | Output |
+|---|---|---|---|---|---|
+| `project.create` | `mcp:write` | deny | none | `{name, slug?, description?}` | `{project: {id, slug, name, description, url}}` |
+| `project.get` | `mcp:read` | allow | input | `{idOrSlug}` | `{project, stats: {conversations, kbEntries, items}}` |
+| `project.list` | `mcp:read` | allow | none | `{status?}` | `{projects}` |
+| `kb.save_brainstorm` | `mcp:write` | allow | input | `{projectId, title, bodyMd, tags?, sessionRef?}` | `{entryId, url}` |
+| `kb.add_reference` | `mcp:write` | allow | input | `{projectId, url, platform?, title?, author?, likedReason?, transcript?, analysis?, tags?}` | `{entryId}` |
+| `kb.add_decision` | `mcp:write` | allow | input | `{projectId, title, decision, rationale?, supersedes?, tags?}` | `{entryId}` |
+| `kb.search` | `mcp:read` | allow | input | `{query, projectId?, kinds?, limit?}` (`limit` at most 50) | `{hits: KbSearchHit[]}` |
+| `kb.get` | `mcp:read` | allow | input | `{entryId}` | `{entry: KbEntryDetail}` |
+| `kb.save_session_summary` | `mcp:write` | deny | input | `{projectId?, sessionId, summaryMd, cwd?}` | `{entryId}` |
+| `admin.create_user` | `mcp:admin` | deny | none | `{email, name, role}` | `{userId, setPasswordUrl, expiresAt}` (never a password) |
 
 ## Limits and formats
 
