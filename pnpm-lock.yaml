@@ -362,6 +362,12 @@ importers:
       '@loomcast/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@loomcast/studio':
+        specifier: workspace:*
+        version: link:../../studio
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.32.1(zod@4.6.7)
       ws:
         specifier: 'catalog:'
         version: 8.22.0
