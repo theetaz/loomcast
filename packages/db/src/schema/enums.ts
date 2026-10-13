@@ -2,6 +2,7 @@ import {
   ACTOR_KINDS,
   ASSET_KINDS,
   ASSET_STATUSES,
+  CHANNEL_STATUSES,
   CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
@@ -10,6 +11,7 @@ import {
   MESSAGE_ROLES,
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
+  PLATFORMS,
   PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
@@ -48,3 +50,5 @@ export const reviewDecision = pgEnum("review_decision", REVIEW_DECISIONS);
 export const assetKind = pgEnum("asset_kind", ASSET_KINDS);
 export const assetStatus = pgEnum("asset_status", ASSET_STATUSES);
 export const skillKind = pgEnum("skill_kind", SKILL_KINDS);
+export const platform = pgEnum("platform", PLATFORMS);
+export const channelStatus = pgEnum("channel_status", CHANNEL_STATUSES);

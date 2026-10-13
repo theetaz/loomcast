@@ -1,6 +1,7 @@
 export * from "./assets";
 export * from "./audit";
 export * from "./auth";
+export * from "./channels";
 export * from "./content";
 export * from "./conversations";
 export * from "./devices";

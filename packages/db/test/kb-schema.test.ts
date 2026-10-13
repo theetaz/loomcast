@@ -2,6 +2,7 @@ import {
   ACTOR_KINDS,
   ASSET_KINDS,
   ASSET_STATUSES,
+  CHANNEL_STATUSES,
   CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
@@ -10,6 +11,7 @@ import {
   MESSAGE_ROLES,
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
+  PLATFORMS,
   PRODUCE_TARGETS,
   PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
@@ -373,6 +375,8 @@ describe("pg enums", () => {
     asset_kind: ASSET_KINDS,
     asset_status: ASSET_STATUSES,
     skill_kind: SKILL_KINDS,
+    platform: PLATFORMS,
+    channel_status: CHANNEL_STATUSES,
   };
 
   it("hold exactly the contracts values, in order", async () => {

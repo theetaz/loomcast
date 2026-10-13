@@ -57,6 +57,13 @@
       "when": 1791853580889,
       "tag": "0007_add_assets_and_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791854737839,
+      "tag": "0008_add_channels",
+      "breakpoints": true
     }
   ]
 }
