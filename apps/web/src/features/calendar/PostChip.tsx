@@ -1,8 +1,15 @@
 import { useDraggable } from "@dnd-kit/core";
 import type { Channel, ScheduledPost } from "@loomcast/contracts";
 import { cn } from "@loomcast/ui/lib/cn";
-import type { ComponentProps, KeyboardEvent, MouseEvent, Ref } from "react";
+import {
+  type ComponentProps,
+  type KeyboardEvent,
+  type MouseEvent,
+  type Ref,
+  useLayoutEffect,
+} from "react";
 import { useBoard } from "./board-context";
+import { isPendingFocus, restorePostFocus } from "./focus-return";
 import { isReschedulable } from "./model";
 import {
   PlatformDot,
@@ -38,6 +45,10 @@ export function PostChip({ post, day, time, compact }: PostChipProps) {
   const board = useBoard();
   const busy = board.saving.has(post.id);
   const draggable = isReschedulable(post) && !busy;
+  // A chip that mounts for a post waiting for focus (it just moved cells) takes it back.
+  useLayoutEffect(() => {
+    if (isPendingFocus(post.id)) restorePostFocus();
+  }, [post.id]);
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: post.id,
     data: { post },

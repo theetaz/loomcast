@@ -1,8 +1,9 @@
 import { routes } from "@loomcast/contracts";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, getConfig, screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockPost, updatePost } from "@/mocks/calendar";
+import { publish } from "@/mocks/db";
 import { CALENDAR_NOW, CALENDAR_ZONE, calendarSetup } from "./support/calendar";
 import { recordRequests } from "./support/kb";
 import { fakeStream } from "./support/live";
@@ -10,12 +11,17 @@ import { renderApp } from "./support/render";
 
 const previousZone = process.env.TZ;
 
+const previousTimeout = getConfig().asyncUtilTimeout;
+
 beforeAll(() => {
   // The browser's time zone: the grid follows it unless the series zone is chosen.
   process.env.TZ = CALENDAR_ZONE;
+  // These screens wait on several queries and a drag; shared CI runners need the extra room.
+  configure({ asyncUtilTimeout: 10_000 });
 });
 afterAll(() => {
   process.env.TZ = previousZone;
+  configure({ asyncUtilTimeout: previousTimeout });
 });
 beforeEach(() => {
   // Only the clock is fixed; timers stay real for the router, MSW and user-event.
@@ -302,6 +308,169 @@ describe("rescheduling", () => {
     await waitFor(() => expect(cellOf(chip(MOVES))).toBe("cell:2026-10-18:24"));
     expect(within(chip(MOVES)).getByText("Publishing")).toBeInTheDocument();
     expect(chip(MOVES)).not.toHaveAttribute("aria-roledescription");
+  });
+});
+
+/** A promise the test resolves when it wants a mocked response to go out. */
+function gate() {
+  let open: () => void = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
+
+// Every order in which the save, a live event and a refetch can land after a keyboard move. The
+// chip re-mounts or re-renders at each step; focus must end on it in its new cell every time.
+const FOCUS_ORDERS = [
+  "save, then the live event",
+  "live event, then the save",
+  "save, then a slow refetch",
+  "a refetch started before the save lands after it",
+  "a refetch started before the save lands before it",
+] as const;
+
+describe("focus after a keyboard move", () => {
+  it.each(FOCUS_ORDERS)("returns to the post: %s", async (order) => {
+    const setup = calendarSetup();
+    const { db } = setup;
+    const id = setup.posts.moves.id;
+    const save = gate();
+    const refetch = gate();
+    let calendarRequests = 0;
+    let saveRequested = false;
+    const requests = recordRequests();
+    const { user } = renderCalendar(setup, "/calendar", [
+      http.patch(`*${routes["scheduledPosts.reschedule"].path}`, async ({ request }) => {
+        const body = (await request.json()) as { scheduledAt: string };
+        saveRequested = true;
+        await save.opened;
+        const post = db.posts.find((entry) => entry.id === id);
+        if (!post) return HttpResponse.json({}, { status: 404 });
+        post.scheduledAt = body.scheduledAt;
+        post.updatedAt = "2026-10-14T08:00:05.000Z";
+        return HttpResponse.json({ ...post });
+      }),
+      // The first load answers at once; later ones wait for the test, then read the db.
+      http.get(`*${routes["calendar.get"].path}`, async () => {
+        calendarRequests += 1;
+        if (calendarRequests > 1) await refetch.opened;
+        return undefined;
+      }),
+    ]);
+    const liveEvent = () => {
+      const post = db.posts.find((entry) => entry.id === id);
+      if (post) publish(db, { type: "post.updated", payload: { post: { ...post } } });
+    };
+    // `resync` refetches every query, like a reconnect would.
+    const startRefetch = () => publish(db, { type: "resync", payload: {} });
+    const movedChip = () => document.querySelector<HTMLElement>(`[data-post-chip="${id}"]`);
+    const saved = () => waitFor(() => expect(movedChip()).not.toHaveAttribute("aria-busy"));
+
+    const moves = await screen.findByRole("button", { name: new RegExp(`^${MOVES}`) });
+    moves.focus();
+    await user.keyboard(" ");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowLeft}");
+    await user.keyboard(" ");
+    await waitFor(() => expect(saveRequested).toBe(true));
+
+    switch (order) {
+      case "save, then the live event":
+        save.open();
+        await saved();
+        liveEvent();
+        break;
+      case "live event, then the save": {
+        const post = db.posts.find((entry) => entry.id === id);
+        if (post) {
+          post.scheduledAt = "2026-10-15T09:00:00.000Z";
+          post.updatedAt = "2026-10-14T08:00:04.000Z";
+        }
+        liveEvent();
+        save.open();
+        await saved();
+        break;
+      }
+      case "save, then a slow refetch":
+        save.open();
+        await saved();
+        startRefetch();
+        await waitFor(() => expect(calendarRequests).toBeGreaterThan(1));
+        refetch.open();
+        break;
+      case "a refetch started before the save lands after it":
+        startRefetch();
+        await waitFor(() => expect(calendarRequests).toBeGreaterThan(1));
+        save.open();
+        await saved();
+        refetch.open();
+        break;
+      case "a refetch started before the save lands before it":
+        startRefetch();
+        await waitFor(() => expect(calendarRequests).toBeGreaterThan(1));
+        // The refetch still reads the old time: the post jumps back, then forward with the save.
+        refetch.open();
+        await waitFor(() =>
+          expect(requests.filter((request) => request.path === "/api/calendar").length).toBe(2),
+        );
+        save.open();
+        await saved();
+        break;
+    }
+
+    await waitFor(
+      () => {
+        expect(cellOf(movedChip() as HTMLElement)).toBe("cell:2026-10-15:8");
+        expect(movedChip()).not.toHaveAttribute("aria-busy");
+        expect(document.activeElement).toBe(movedChip());
+      },
+      { timeout: 10_000 },
+    );
+  });
+});
+
+describe("focus after a keyboard move, later", () => {
+  async function keyboardMove(setup: Setup) {
+    const id = setup.posts.moves.id;
+    const view = renderCalendar(setup);
+    const moves = await screen.findByRole("button", { name: new RegExp(`^${MOVES}`) });
+    moves.focus();
+    await view.user.keyboard(" ");
+    await view.user.keyboard("{ArrowDown}{ArrowDown}{ArrowLeft}");
+    await view.user.keyboard(" ");
+    const movedChip = () => document.querySelector<HTMLElement>(`[data-post-chip="${id}"]`);
+    await waitFor(() => {
+      expect(cellOf(movedChip() as HTMLElement)).toBe("cell:2026-10-15:8");
+      expect(movedChip()).not.toHaveAttribute("aria-busy");
+      expect(document.activeElement).toBe(movedChip());
+    });
+    return { ...view, movedChip };
+  }
+
+  it("follows the post when a live event moves it again after the save", async () => {
+    const setup = calendarSetup();
+    const { movedChip } = await keyboardMove(setup);
+    // The chip re-mounts in another cell, after its save settled.
+    updatePost(setup.db, setup.posts.moves.id, (post) => {
+      post.scheduledAt = "2026-10-17T10:00:00.000Z";
+    });
+    await waitFor(() => {
+      expect(cellOf(movedChip() as HTMLElement)).toBe("cell:2026-10-17:10");
+      expect(document.activeElement).toBe(movedChip());
+    });
+  });
+
+  it("leaves focus alone once the user tabs away", async () => {
+    const setup = calendarSetup();
+    const { user, movedChip } = await keyboardMove(setup);
+    await user.tab();
+    const elsewhere = document.activeElement;
+    expect(elsewhere).not.toBe(movedChip());
+    updatePost(setup.db, setup.posts.moves.id, (post) => {
+      post.scheduledAt = "2026-10-17T10:00:00.000Z";
+    });
+    await waitFor(() => expect(cellOf(movedChip() as HTMLElement)).toBe("cell:2026-10-17:10"));
+    expect(document.activeElement).not.toBe(movedChip());
   });
 });
 

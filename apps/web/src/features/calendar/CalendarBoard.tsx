@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import { BoardContext, type BoardContextValue, type DragState } from "./board-context";
 import type { DropData } from "./DropCell";
+import { forgetPostFocus, restorePostFocus, returnFocusTo } from "./focus-return";
 import { layoutEntries, startTarget } from "./layout";
 import { MonthGrid } from "./MonthGrid";
 import { LiftedChip } from "./PostChip";
@@ -100,8 +101,6 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
   const [drag, setDragState] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [saving, setSaving] = useState<ReadonlySet<string>>(() => new Set());
-  /** After a keyboard drag: the post to focus again, and the cell it is expected in. */
-  const [refocus, setRefocus] = useState<{ postId: string; cell: string } | null>(null);
   /** Set while a keyboard drag has not left its starting cell yet. */
   const keyboardStart = useRef(false);
 
@@ -215,6 +214,7 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
     const post = postOf(active.data.current);
     if (!post) return;
     const keyboard = activatorEvent instanceof KeyboardEvent;
+    forgetPostFocus();
     keyboardStart.current = keyboard;
     setDrag({
       post,
@@ -242,9 +242,7 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
       at !== null &&
       at.getTime() !== Date.parse(post.scheduledAt) &&
       at.getTime() >= earliestMs;
-    if (current.mode === "keyboard") {
-      setRefocus({ postId: post.id, cell: moves && target ? targetId(target) : "" });
-    }
+    if (current.mode === "keyboard") returnFocusTo(post.id);
     if (!target || !at || at.getTime() === Date.parse(post.scheduledAt)) return;
     if (!moves) {
       toast.error("Pick a later time", {
@@ -269,7 +267,7 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
   const onDragCancel = () => {
     const current = dragRef.current;
     setDrag(null);
-    if (current?.mode === "keyboard") setRefocus({ postId: current.post.id, cell: "" });
+    if (current?.mode === "keyboard") returnFocusTo(current.post.id);
   };
 
   // A keyboard move can leave the visible part of the grid: bring the marker along, instantly.
@@ -281,28 +279,10 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [keyboardTargetId]);
 
-  // After a keyboard move the chip re-mounts in its new cell, and again as the save, the refetch or
-  // a live event re-render it. Until the post settles (its save finished), every commit looks the
-  // chip up again by post id and gives it focus, so focus never stays on a node that was replaced.
-  // Focus the user moved elsewhere in the meantime (Tab, a click) is left alone.
+  // A keyboard move hands focus back to the moved chip (focus-return.ts); every commit is a chance
+  // that the chip was replaced and focus fell to the body.
   useEffect(() => {
-    if (!refocus) return;
-    const settled = !saving.has(refocus.postId);
-    const chip = document.querySelector<HTMLElement>(`[data-post-chip="${refocus.postId}"]`);
-    const active = document.activeElement;
-    const elsewhere =
-      active instanceof HTMLElement &&
-      active !== document.body &&
-      active.dataset.postChip !== refocus.postId;
-    if (elsewhere) {
-      setRefocus(null);
-      return;
-    }
-    if (!chip) return;
-    const cell = chip.closest<HTMLElement>("[data-cell]")?.dataset.cell;
-    if (cell !== refocus.cell && !settled) return;
-    if (active !== chip) chip.focus();
-    if (settled) setRefocus(null);
+    restorePostFocus();
   });
 
   const value: BoardContextValue = { ...context, view, drag, saving };
@@ -314,7 +294,7 @@ export function CalendarBoard({ period, data, onDraggingChange, ...context }: Ca
         sensors={sensors}
         collisionDetection={collisionDetection}
         accessibility={{
-          // The effect above returns focus once the moved chip is in its new cell.
+          // focus-return.ts gives focus back to the moved chip wherever it re-mounts.
           restoreFocus: false,
           announcements,
           screenReaderInstructions: { draggable: INSTRUCTIONS },
