@@ -26,4 +26,5 @@ export function isLivePlatformAvailable(platform: Platform): boolean {
   return platform !== "x";
 }
 
+export { createDryRunAdapter, DRY_RUN_MEDIA_ORIGIN, dryRunMediaUrl } from "./dry-run";
 export { notConfiguredAdapter } from "./not-configured";
