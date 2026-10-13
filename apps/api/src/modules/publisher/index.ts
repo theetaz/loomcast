@@ -10,6 +10,7 @@ import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { flagNeedsReauth } from "../channels/reauth";
 import { contentServiceFor } from "../content";
+import { enqueueInsightsPulls } from "../insights/schedule";
 import { publisherAdapters } from "./adapters";
 import { createFacebookAdapter, type MetaAdapterOptions } from "./adapters/facebook";
 import { createInstagramAdapter } from "./adapters/instagram";
@@ -106,6 +107,9 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     content: contentServiceFor(deps),
     alert: deps.alert,
     usage,
+    onLivePublished: async (tx, post) => {
+      await enqueueInsightsPulls(deps.scheduler, tx, post);
+    },
     adapters: {
       ...publisherAdapters,
       instagram: createInstagramAdapter({
