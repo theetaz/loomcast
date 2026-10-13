@@ -6,3 +6,12 @@ import { notConfiguredAdapter } from "../not-configured";
  * `not_configured`. The live adapter must send what `requests/instagram.ts` builds.
  */
 export const instagramAdapter: PublisherAdapter = notConfiguredAdapter("instagram");
+
+export {
+  type GraphClientSource,
+  graphClientFromEnv,
+  INSTAGRAM_QUOTA_RETRY_MS,
+  instagramErrorOf,
+} from "./graph";
+export { checkQuota, INSTAGRAM_DEFAULT_QUOTA, type InstagramQuota, parseQuota } from "./quota";
+export { INSTAGRAM_REELS_MEDIA, validateInstagramReel } from "./validate";
