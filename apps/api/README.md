@@ -8,10 +8,11 @@ built web app, so the browser only ever talks to one origin.
 
 ```bash
 pnpm --filter @loomcast/api dev        # tsx watch src/server.ts on API_PORT (8790)
-pnpm --filter @loomcast/api build      # tsdown: dist/server.mjs and dist/cli/admin.mjs
+pnpm --filter @loomcast/api build      # tsdown: dist/server.mjs and dist/cli/{admin,vault}.mjs
 pnpm --filter @loomcast/api start      # node dist/server.mjs
 pnpm --filter @loomcast/api test       # vitest against per-file Postgres databases
 pnpm --filter @loomcast/api typecheck
+pnpm --filter @loomcast/api run vault:rotate -- --dry-run   # see "Token vault"
 ```
 
 ## Configuration
@@ -37,6 +38,9 @@ production the repository's `.env` is loaded first; variables already set win.
 | `S3_PUBLIC_BUCKET` | `loomcast-public` | Public-read bucket served at `PUBLIC_BASE_URL` |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | required in production | Object storage keys |
 | `ASSET_VERIFY_MAX_BYTES` | 512 MiB | Largest upload finalize hashes itself when the store kept no checksum |
+| `LOOMCAST_ENCRYPTION_KEY` | required in production | Token vault key: 32 random bytes, base64 (`openssl rand -base64 32`) |
+| `LOOMCAST_ENCRYPTION_KEY_VERSION` | `1` | Version stored with values the current key seals |
+| `LOOMCAST_ENCRYPTION_KEYS_PREVIOUS` | unset | Earlier keys during a rotation: `version:base64key,...` |
 | `SCHEDULER_ENABLED` | `true` | Runs the scheduled task loop in this process |
 | `SCHEDULER_TICK_MS` | `5000` | Pause between two claims of due tasks |
 | `PUBLISHING_MODE` | `dry-run` | `dry-run` records what would be posted; `live` posts |
@@ -45,7 +49,9 @@ production the repository's `.env` is loaded first; variables already set win.
 
 Outside production, `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` may all be left out (not
 just some of them): the API then starts without object storage, and uploads and downloads answer
-503 `storage_unavailable`.
+503 `storage_unavailable`. Likewise `LOOMCAST_ENCRYPTION_KEY` may be left out outside production;
+storing or reading channel credentials then answers 503 `vault_unavailable`. A key that is not
+exactly 32 bytes is refused at startup.
 
 ## Layout
 
@@ -56,9 +62,11 @@ just some of them): the API then starts without object storage, and uploads and 
 | `src/deps.ts` | `AppDeps` (db, bus, clock, logger, config, lifecycle, httpServer) and `ModuleDeps` |
 | `src/lib/` | Event bus, rate limiter, audit log, crypto, passwords, transactions, errors, logger |
 | `src/lib/storage/` | Object storage: presigned PUT and GET, verification reads, `promoteToPublic` |
+| `src/lib/vault.ts` | Token vault: AES-256-GCM sealing of channel credentials, key rotation |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
 | `src/modules/scheduler/` | Scheduled task loop, task handlers registry and the admin endpoints |
 | `src/cli/admin.ts` | The admin CLI |
+| `src/cli/vault.ts` | The vault CLI (`vault:rotate`) |
 
 ## Writing a module
 
@@ -79,6 +87,7 @@ router is mounted. `createApp` already registers every module, so a module never
 - `storage`: object storage (below). `AppDeps.storage` overrides the S3 client built from config.
 - `assets`: uploads, finalize and downloads of stored files, shared by REST and the MCP tools.
 - `scheduler`: server-side scheduled tasks (below). Register handlers in `register`.
+- `vault`: encryption of channel credentials (below).
 
 ### Object storage and assets
 
@@ -131,6 +140,21 @@ and lease.
 - **Admin.** `GET /api/scheduler/tasks?status=&kind=&cursor=&limit=` and
   `POST /api/scheduler/tasks/:id/retry` (a `failed` or `dead` task; 409 otherwise, or when another
   task holds its dedupe key) for the owner and admins.
+
+### Token vault
+
+`deps.vault` seals channel credentials with AES-256-GCM: `vault.encrypt(value, channelAad(id))`
+returns `{secretCiphertext, secretNonce, keyVersion}` for the `channels` columns (ciphertext with
+the 16-byte tag appended, a random 12-byte nonce), and `vault.decrypt(sealedSecretOf(row),
+channelAad(row.id))` opens it. The additional data binds a value to its row. Never select the
+`secret_*` columns into a response or a log line; the logger redacts them as a safety net.
+
+**Rotating the key.** Generate a new key, set it as `LOOMCAST_ENCRYPTION_KEY` with the next
+`LOOMCAST_ENCRYPTION_KEY_VERSION`, and move the old one to `LOOMCAST_ENCRYPTION_KEYS_PREVIOUS`
+(`1:<old key>`). Restart, then run `pnpm --filter @loomcast/api run vault:rotate -- --dry-run` and
+`vault:rotate` (in the production image: `node dist/cli/vault.mjs rotate`). It seals every value
+again with the current key in one transaction and refuses when a row uses a key version that is
+not configured. Remove the previous key once it reports success.
 
 ### Authentication
 

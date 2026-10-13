@@ -17,6 +17,7 @@ import {
   type Storage,
   type StorageConfig,
 } from "./lib/storage";
+import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
 import { createSessionsService } from "./modules/auth/sessions";
@@ -125,6 +126,8 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     config: config.scheduler,
     alert: deps.alert,
   });
+  const vault: TokenVault =
+    config.encryption === null ? createUnconfiguredVault() : createVault(config.encryption);
   const moduleDeps: ModuleDeps = {
     ...deps,
     sessions,
@@ -137,6 +140,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
     storage,
     assets,
     scheduler,
+    vault,
   };
   const media = mediaOrigins(config);
 

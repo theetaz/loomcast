@@ -7,6 +7,7 @@ import type { Clock } from "./lib/clock";
 import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { Storage } from "./lib/storage";
+import type { TokenVault } from "./lib/vault";
 import type { AssetsService } from "./modules/assets/service";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
@@ -70,6 +71,11 @@ export interface ModuleDeps extends AppDeps {
    * enqueue tasks (optionally in a transaction). The loop runs only under `startServer`.
    */
   scheduler: Scheduler;
+  /**
+   * AES-256-GCM encryption of channel credentials (`encrypt(value, channelAad(id))`). When the
+   * server has no `LOOMCAST_ENCRYPTION_KEY` (outside production) every call answers 503.
+   */
+  vault: TokenVault;
 }
 
 /**

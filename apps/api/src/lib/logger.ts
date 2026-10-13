@@ -24,6 +24,13 @@ const SENSITIVE_KEYS = [
   "credentials",
   // Object storage keys (`config.storage`).
   "secretAccessKey",
+  // Token vault keys (`config.encryption`) and the settings they come from.
+  "encryption",
+  "LOOMCAST_ENCRYPTION_KEY",
+  "LOOMCAST_ENCRYPTION_KEYS_PREVIOUS",
+  // Sealed channel credentials (`channels.secret_*`).
+  "secretCiphertext",
+  "secretNonce",
 ] as const;
 
 function redactPaths(): string[] {

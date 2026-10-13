@@ -17,7 +17,8 @@
     "admin": "tsx src/cli/admin.ts",
     "admin:create": "tsx src/cli/admin.ts create",
     "admin:token": "tsx src/cli/admin.ts token",
-    "admin:reset-password": "tsx src/cli/admin.ts reset-password"
+    "admin:reset-password": "tsx src/cli/admin.ts reset-password",
+    "vault:rotate": "tsx src/cli/vault.ts rotate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",

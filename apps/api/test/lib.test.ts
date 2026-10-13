@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { DEVICE_TOKEN_RE, MCP_TOKEN_RE } from "@loomcast/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { ConfigError, parseConfig } from "../src/env";
@@ -222,6 +223,7 @@ describe("config", () => {
   it("binds every interface in production and resolves the web directory", () => {
     const config = parseConfig({
       ...base,
+      LOOMCAST_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
       NODE_ENV: "production",
       WEB_DIST_DIR: "web/dist",
       TRUST_PROXY: "true",
@@ -262,18 +264,18 @@ describe("config", () => {
       }
       return [];
     };
-    expect(issuesOf({ ...rest, NODE_ENV: "production" })).toEqual([
-      "S3_ENDPOINT",
-      "S3_ACCESS_KEY",
-      "S3_SECRET_KEY",
-    ]);
+    const encryptionKey = randomBytes(32).toString("base64");
+    expect(
+      issuesOf({ ...rest, LOOMCAST_ENCRYPTION_KEY: encryptionKey, NODE_ENV: "production" }),
+    ).toEqual(["S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"]);
     expect(issuesOf({ ...rest, S3_ENDPOINT: base.S3_ENDPOINT })).toEqual([
       "S3_ACCESS_KEY",
       "S3_SECRET_KEY",
     ]);
-    expect(parseConfig({ ...base, NODE_ENV: "production" }).storage?.endpoint).toBe(
-      base.S3_ENDPOINT,
-    );
+    expect(
+      parseConfig({ ...base, LOOMCAST_ENCRYPTION_KEY: encryptionKey, NODE_ENV: "production" })
+        .storage?.endpoint,
+    ).toBe(base.S3_ENDPOINT);
   });
 
   it("lists every problem", () => {
