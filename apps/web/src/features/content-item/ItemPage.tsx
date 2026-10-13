@@ -23,6 +23,7 @@ import {
   useFormatTarget,
   versionQueryOptions,
 } from "./queries";
+import { ScriptSkeleton, ScriptTab } from "./ScriptTab";
 import type { ItemSearch, ItemTab } from "./search";
 import type { ItemTabProps } from "./tab-props";
 import { useItemJob } from "./use-item-job";
@@ -225,7 +226,7 @@ function ItemView({
                 retrying={other.isFetching}
               />
             ) : (
-              <Skeleton aria-hidden="true" className="m-4 h-40 rounded-md" />
+              <ScriptSkeleton />
             )}
           </Tabs>
           {mainCards.map(({ id, component: Card }) => (
@@ -268,7 +269,9 @@ function ItemTabs({
   return (
     <>
       <TabsContent value="script">
-        {null}
+        {tab === "script" ? (
+          <ScriptTab {...props} compareId={compareId} onCompare={onCompare} />
+        ) : null}
       </TabsContent>
       <TabsContent value="storyboard">
         {null}
