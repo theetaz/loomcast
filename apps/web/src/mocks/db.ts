@@ -1,4 +1,5 @@
 import {
+  type AccessToken,
   type Device,
   type LiveEvent,
   type Me,
@@ -6,6 +7,8 @@ import {
   PAIRING_CODE_TTL_MS,
   type PairingCode,
   type Project,
+  TOKEN_PREFIXES,
+  TOKEN_SECRET_LENGTH,
 } from "@loomcast/contracts";
 
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
@@ -15,6 +18,8 @@ export interface MockDb {
   signedIn: boolean;
   projects: Project[];
   devices: Device[];
+  /** Access tokens as listed; secrets are never kept. */
+  tokens: AccessToken[];
   /** Pairing codes handed out, newest last. */
   pairingCodes: PairingCode[];
   /**
@@ -46,6 +51,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     signedIn: false,
     projects: [],
     devices: [],
+    tokens: [],
     pairingCodes: [],
     ...seed,
     listeners: new Set(),
@@ -100,6 +106,33 @@ export function mockPairingCode(now = Date.now()): PairingCode {
   return {
     code: `${randomFrom(PAIRING_CODE_ALPHABET, 4)}-${randomFrom(PAIRING_CODE_ALPHABET, 4)}`,
     expiresAt: new Date(now + PAIRING_CODE_TTL_MS).toISOString(),
+  };
+}
+
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** A secret shaped like a real MCP token. */
+export function mockTokenSecret(): string {
+  return `${TOKEN_PREFIXES.mcp}${randomFrom(BASE62, TOKEN_SECRET_LENGTH)}`;
+}
+
+/** The listed part of a token: its first characters, as the API stores them. */
+export function tokenPrefix(secret: string): string {
+  return secret.slice(0, TOKEN_PREFIXES.mcp.length + 4);
+}
+
+export function mockToken(
+  overrides: Partial<AccessToken> & Pick<AccessToken, "name" | "scopes">,
+): AccessToken {
+  return {
+    id: mockId(),
+    kind: "mcp",
+    prefix: tokenPrefix(mockTokenSecret()),
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null,
+    ...overrides,
   };
 }
 
@@ -183,6 +216,19 @@ export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
         createdAt: minutesAgo(30 * 24 * 60, now),
         revokedAt: null,
       },
+    ],
+    tokens: [
+      mockToken({
+        name: "Editor on my laptop",
+        scopes: ["mcp:read", "mcp:write"],
+        createdAt: minutesAgo(6 * 24 * 60, now),
+        lastUsedAt: minutesAgo(25, now),
+      }),
+      mockToken({
+        name: "Research notebook",
+        scopes: ["mcp:read"],
+        createdAt: minutesAgo(2 * 24 * 60, now),
+      }),
     ],
   };
 }
