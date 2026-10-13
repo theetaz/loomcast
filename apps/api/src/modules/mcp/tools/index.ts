@@ -8,6 +8,7 @@ import { seriesServiceFor } from "../../series";
 import { skillsServiceFor } from "../../skills";
 import { createAdminTools } from "./admin";
 import { createAssetTools } from "./assets";
+import { createCalendarTools } from "./calendar";
 import { createKbTools } from "./kb";
 import { createPipelineTools } from "./pipeline";
 import { createProjectTools } from "./projects";
@@ -16,6 +17,7 @@ import { createSkillTools } from "./skills";
 
 export { type AdminToolsDeps, createAdminTools } from "./admin";
 export { type AssetToolsDeps, createAssetTools } from "./assets";
+export { type CalendarToolsDeps, createCalendarTools } from "./calendar";
 export { createKbTools, type KbToolsDeps, kbEntryUrl, projectIdFromCwd } from "./kb";
 export { createPipelineTools, type PipelineToolsDeps, tokenActor } from "./pipeline";
 export { createProjectTools, type ProjectToolsDeps, projectUrl } from "./projects";
@@ -54,5 +56,6 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
     }),
     ...createAssetTools({ assets: deps.assets, content }),
     ...createSkillTools({ skills: skillsServiceFor(deps) }),
+    ...createCalendarTools({ db, series: seriesServiceFor(deps) }),
   ];
 }
