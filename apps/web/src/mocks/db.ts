@@ -1,4 +1,12 @@
-import type { Device, LiveEvent, Me, Project } from "@loomcast/contracts";
+import {
+  type Device,
+  type LiveEvent,
+  type Me,
+  PAIRING_CODE_ALPHABET,
+  PAIRING_CODE_TTL_MS,
+  type PairingCode,
+  type Project,
+} from "@loomcast/contracts";
 
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
 export interface MockDb {
@@ -7,6 +15,13 @@ export interface MockDb {
   signedIn: boolean;
   projects: Project[];
   devices: Device[];
+  /** Pairing codes handed out, newest last. */
+  pairingCodes: PairingCode[];
+  /**
+   * Mock mode only: a studio agent "pairs" this long after a code is created,
+   * so the pairing dialog can be seen closing. Tests leave it unset.
+   */
+  autoPairAfterMs?: number;
   /** Live stream clients; the mock API publishes to them like the real bus. */
   listeners: Set<(event: LiveEvent) => void>;
   /** Called when a login or logout changes the session. */
@@ -31,6 +46,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     signedIn: false,
     projects: [],
     devices: [],
+    pairingCodes: [],
     ...seed,
     listeners: new Set(),
   };
@@ -72,9 +88,50 @@ export function mockProject(overrides: Partial<Project> & Pick<Project, "name" |
   };
 }
 
+function randomFrom(alphabet: string, length: number): string {
+  return Array.from(
+    { length },
+    () => alphabet[Math.floor(Math.random() * alphabet.length)] ?? alphabet[0],
+  ).join("");
+}
+
+/** A fresh `XXXX-XXXX` code, valid for ten minutes like the real one. */
+export function mockPairingCode(now = Date.now()): PairingCode {
+  return {
+    code: `${randomFrom(PAIRING_CODE_ALPHABET, 4)}-${randomFrom(PAIRING_CODE_ALPHABET, 4)}`,
+    expiresAt: new Date(now + PAIRING_CODE_TTL_MS).toISOString(),
+  };
+}
+
+/**
+ * What the server does when a studio agent pairs and connects: the device is
+ * added and a `device.status` event says it is online.
+ */
+export function pairMockDevice(db: MockDb, overrides: Partial<Device> = {}): Device {
+  const at = new Date().toISOString();
+  const device: Device = {
+    id: mockId(),
+    name: "Studio MacBook Pro",
+    platform: "darwin-arm64",
+    agentVersion: "0.1.0",
+    online: true,
+    lastSeenAt: at,
+    createdAt: at,
+    revokedAt: null,
+    ...overrides,
+  };
+  db.devices.push(device);
+  publish(db, {
+    type: "device.status",
+    payload: { deviceId: device.id, online: device.online, lastSeenAt: device.lastSeenAt },
+  });
+  return device;
+}
+
 /** Demo content for `pnpm --filter @loomcast/web dev:mock`. */
 export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
   return {
+    autoPairAfterMs: 30_000,
     projects: [
       mockProject({
         name: "Rust in 60 seconds",
@@ -114,6 +171,16 @@ export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
         online: true,
         lastSeenAt: minutesAgo(0, now),
         createdAt: minutesAgo(9 * 24 * 60, now),
+        revokedAt: null,
+      },
+      {
+        id: mockId(),
+        name: "Old iMac",
+        platform: "darwin-x64",
+        agentVersion: "0.0.9",
+        online: false,
+        lastSeenAt: minutesAgo(3 * 24 * 60, now),
+        createdAt: minutesAgo(30 * 24 * 60, now),
         revokedAt: null,
       },
     ],
