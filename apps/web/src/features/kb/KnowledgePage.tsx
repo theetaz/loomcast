@@ -15,6 +15,8 @@ function emptyAction(projectParam: string, kind: KbFilter) {
       return <NewEntryButton projectParam={projectParam} kind="note" label="New note" />;
     case "decision":
       return <NewEntryButton projectParam={projectParam} kind="decision" label="Record decision" />;
+    case "reference":
+      return <NewEntryButton projectParam={projectParam} kind="reference" label="Add reference" />;
     default:
       return null;
   }

@@ -104,6 +104,30 @@ and the composer.
   end.
 - ⌘Enter or Ctrl+Enter sends. Messages sent from the keyboard appear without animation.
 
+## Knowledge base
+
+`features/kb` is the project's Knowledge tab (`/projects/:id/kb`), its entry pages
+(`kb/$entryId`) and the create forms (`kb/new?kind=brainstorm|note|decision|reference`).
+
+- The list filters by kind (a segmented control), one tag (chips from `kb.tags`) and a search
+  box debounced at 200 ms; all three live in the address. A query switches from `kb.list`
+  (paged with Load more) to `kb.search`, whose snippets mark matches with the `\u0002` and
+  `\u0003` sentinels. `lib/snippet.tsx` turns them into `<mark>` elements; stored text is never
+  rendered as HTML, and markdown previews use the chat renderer with raw HTML shown as text.
+- `kb.entry.created`, `updated` and `deleted` events patch every loaded list, the tags, the
+  searches and the open entry (`queries.ts`, mounted once by the project layout).
+- Brainstorms and notes open in an editor whose unsaved changes are kept in localStorage
+  (`draft.ts`) and restored on return. ⌘S or Ctrl+S saves. Saves send `expectedUpdatedAt`; a
+  `409` shows a banner to reload the stored version or overwrite it.
+- The Decisions filter is a timeline, newest first. Supersede opens the create form with
+  `supersedes`, and the API marks the old decision superseded.
+- References store a link (never fetched), why it was saved and an optional transcript, pasted
+  or loaded from a `.txt`, `.srt`, `.vtt` or `.json` word-list file the user owns. Files are
+  parsed in the browser into `[mm:ss] text` lines (`transcript.ts`, at most 200,000
+  characters). The detail page has find-in-transcript and the analysis panes; the Analyze
+  button queues `kb.analyze_reference`, and `analysis-status.ts` combines the stored status
+  with `job.updated` for the status pill.
+
 ## Screens and conventions
 
 - Pages use `Page` and `PageHeader`. Lists sit in a card (`rounded-lg bg-card shadow-card`)

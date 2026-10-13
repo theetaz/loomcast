@@ -5,6 +5,7 @@ import { DecisionForm } from "./DecisionForm";
 import { EntrySkeleton } from "./EntryChrome";
 import { type CreatableKind, KIND_META } from "./kinds";
 import { kbEntryQueryOptions } from "./queries";
+import { ReferenceIntake } from "./ReferenceIntake";
 import { TextEntryEditor } from "./TextEntryEditor";
 
 export interface NewEntryPageProps {
@@ -44,5 +45,7 @@ export function NewEntryPage({ project, projectParam, kind, supersedes }: NewEnt
         />
       );
     }
+    case "reference":
+      return <ReferenceIntake project={project} projectParam={projectParam} />;
   }
 }

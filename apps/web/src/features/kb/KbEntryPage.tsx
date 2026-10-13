@@ -12,6 +12,7 @@ import { useTitle } from "@/lib/use-title";
 import { DecisionView } from "./DecisionView";
 import { DeleteEntryButton, EntryMeta, EntrySkeleton, EntryToolbar, TagChips } from "./EntryChrome";
 import { kbEntryQueryOptions } from "./queries";
+import { ReferenceView } from "./ReferenceView";
 import { TextEntryEditor } from "./TextEntryEditor";
 
 export function KbEntryCrumb({ id }: { id: string }) {
@@ -76,6 +77,8 @@ export function KbEntryPage({ project, projectParam, entryId }: KbEntryPageProps
       );
     case "decision":
       return <DecisionView project={project} projectParam={projectParam} entry={entry} />;
+    case "reference":
+      return <ReferenceView entry={entry} projectParam={projectParam} />;
     default:
       return <EntryReadView entry={entry} projectParam={projectParam} />;
   }

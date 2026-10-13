@@ -69,7 +69,7 @@ export function filterKinds(filter: KbFilter): KbEntryKind[] | undefined {
 }
 
 /** Kinds the web app writes. Session summaries come only from producer sessions over MCP. */
-export const CREATABLE_KINDS = ["brainstorm", "note", "decision"] as const;
+export const CREATABLE_KINDS = ["brainstorm", "note", "decision", "reference"] as const;
 export type CreatableKind = (typeof CREATABLE_KINDS)[number];
 
 export const PLATFORM_META: Record<ReferencePlatform, { label: string; icon: LucideIcon }> = {
