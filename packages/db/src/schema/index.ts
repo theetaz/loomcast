@@ -10,6 +10,7 @@ export * from "./formats";
 export * from "./jobs";
 export * from "./kb";
 export * from "./messages";
+export * from "./oauth";
 export * from "./posts";
 export * from "./projects";
 export * from "./scheduler";

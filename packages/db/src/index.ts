@@ -16,6 +16,15 @@ export {
   referenceSearchExtra,
 } from "./queries/kb-search";
 export {
+  type ConsumeOAuthConnectionInput,
+  type ConsumeOAuthStateInput,
+  consumeOAuthConnection,
+  consumeOAuthState,
+  type OAuthExecutor,
+  type PurgeExpiredOAuthResult,
+  purgeExpiredOAuth,
+} from "./queries/oauth";
+export {
   type ClaimDueTasksOptions,
   type ClaimDueTasksResult,
   claimDueTasks,

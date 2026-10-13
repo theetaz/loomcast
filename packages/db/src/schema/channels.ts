@@ -1,4 +1,4 @@
-import type { JsonObject } from "@loomcast/contracts";
+import type { JsonObject, PublishError } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -45,6 +45,9 @@ export const CHANNEL_SECRET_TAG_BYTES = 16;
  *
  * **Parent.** An Instagram account published through a Facebook Page points at the Page's channel
  * with `parentChannelId`; it keeps its own copy of the Page token.
+ *
+ * **Health.** `lastVerifiedAt` and `lastError` record the daily credential check; `rateLimit` keeps
+ * the platform's last usage report. None of them holds a credential.
  */
 export const channels = pgTable(
   "channels",
@@ -70,6 +73,18 @@ export const channels = pgTable(
     tokenExpiresAt: timestamptz("token_expires_at"),
     /** Platform details that need no column of their own, such as a profile picture URL. */
     meta: jsonb("meta").$type<JsonObject>().notNull().default({}),
+    /** When the daily check last found the credentials valid; null until the first check. */
+    lastVerifiedAt: timestamptz("last_verified_at"),
+    /**
+     * Why the platform last refused the credentials, such as the `auth` error that set
+     * `needs_reauth`. Cleared when a check or a reconnect succeeds.
+     */
+    lastError: jsonb("last_error").$type<PublishError>(),
+    /**
+     * The platform's latest usage report for the account (the throttling headers of its last
+     * call), so the publisher can hold back before a limit is reached. Null until the first call.
+     */
+    rateLimit: jsonb("rate_limit").$type<JsonObject>(),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: timestamptz("updated_at")
@@ -107,6 +122,8 @@ export const channels = pgTable(
       sql`case ${t.status}::text when 'active' then ${t.secretCiphertext} is not null when 'disconnected' then ${t.secretCiphertext} is null else true end`,
     ),
     check("channels_parent_ck", sql`${t.parentChannelId} <> ${t.id}`),
+    check("channels_last_error_ck", sql`jsonb_typeof(${t.lastError}) = 'object'`),
+    check("channels_rate_limit_ck", sql`jsonb_typeof(${t.rateLimit}) = 'object'`),
   ],
 );
 

@@ -9,6 +9,7 @@ import {
   KB_CREATED_VIA,
   KB_ENTRY_KINDS,
   MESSAGE_ROLES,
+  OAUTH_PROVIDERS,
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
   PLATFORMS,
@@ -56,3 +57,4 @@ export const platform = pgEnum("platform", PLATFORMS);
 export const channelStatus = pgEnum("channel_status", CHANNEL_STATUSES);
 export const postStatus = pgEnum("post_status", POST_STATUSES);
 export const taskStatus = pgEnum("task_status", TASK_STATUSES);
+export const oauthProvider = pgEnum("oauth_provider", OAUTH_PROVIDERS);

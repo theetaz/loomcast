@@ -27,6 +27,8 @@ const TABLES = [
   "kb_entries",
   "kb_references",
   "messages",
+  "oauth_connections",
+  "oauth_states",
   "pairing_codes",
   "password_tokens",
   "projects",
