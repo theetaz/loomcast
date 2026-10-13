@@ -1,0 +1,46 @@
+# Build context for infra/docker/app.Dockerfile is the repository root. This is an allowlist:
+# everything is excluded, then only what the image build needs is let back in. Anything new at
+# the root stays out of the context unless it is added here.
+*
+
+# Workspace manifests, lockfile and shared configuration
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!vitest.shared.ts
+
+# The api, the web app and the packages they bundle
+!apps/api
+!apps/web
+!packages
+
+# Manifests of workspace projects the image does not build, so the workspace matches the lockfile
+!apps/studio-agent/package.json
+!studio/package.json
+!tests/*/package.json
+
+# Files copied into the runtime image
+!infra/compose
+!infra/docker/entrypoint.sh
+
+# Excluded again inside the allowed paths
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/*.tsbuildinfo
+**/routeTree.gen.ts
+**/test
+**/*.test.ts
+**/*.test.tsx
+**/*.md
+**/.DS_Store
+**/*.log
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+infra/compose/env/*
+!infra/compose/env/*.example
