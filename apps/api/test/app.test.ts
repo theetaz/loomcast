@@ -257,6 +257,25 @@ describe("web app in production", () => {
     }
   });
 
+  it("serves the public legal pages as the web app, with the web policy", async () => {
+    const app = productionApp();
+    for (const path of ["/privacy", "/terms", "/data-deletion"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await app.request(path, { method });
+        expect(response.status, `${method} ${path}`).toBe(200);
+        expect(response.headers.get("content-type"), path).toContain("text/html");
+        expect(response.headers.get("location"), path).toBeNull();
+        if (method === "GET") {
+          expect(await response.text()).toContain("<title>Loomcast</title>");
+        }
+      }
+      // The web app's policy loads its own scripts; the server paths' policy would block them.
+      const csp = (await app.request(path)).headers.get("content-security-policy") ?? "";
+      expect(csp, path).toContain("script-src 'self'");
+      expect(csp, path).not.toContain("default-src 'none'");
+    }
+  });
+
   it("leaves server paths and missing files alone", async () => {
     const app = productionApp();
     expect((await app.request("/api/projects")).status).toBe(401);
