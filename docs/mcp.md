@@ -1,8 +1,10 @@
 # MCP server
 
 Loomcast serves its tools over the [Model Context Protocol](https://modelcontextprotocol.io) at
-`/mcp`, so any MCP client can list, read and create projects with an access token. The same
-endpoint serves producer sessions started by the studio agent.
+`/mcp`, so any MCP client can work with projects and their knowledge base (brainstorms,
+reference videos, decisions and session summaries) with an access token, and the owner can invite
+users. The same endpoint serves producer sessions started by the studio agent, which use job
+tokens bound to one project.
 
 ## Endpoint
 
@@ -13,7 +15,7 @@ endpoint serves producer sessions started by the studio agent.
 | Methods | `POST` only. `GET` and `DELETE` answer `405`: there are no sessions and no server-to-client stream |
 | Responses | `application/json` (one JSON-RPC response per request) |
 | Request body | At most 1 MiB |
-| Rate limit | 120 requests a minute per token, then `429` with `Retry-After` |
+| Rate limit | 120 requests a minute per access token and 240 per job token, then `429` with `Retry-After` |
 
 The server never issues an `Mcp-Session-Id`. Each request stands alone, so a client may call
 `tools/list` or `tools/call` without initializing first; MCP clients still initialize as usual.
@@ -40,21 +42,42 @@ Authorization: Bearer <access token>
 
   | Scope | Allows |
   |---|---|
-  | `mcp:read` | Reading tools such as `project.get` and `project.list` |
-  | `mcp:write` | Tools that create or change data, such as `project.create` |
-  | `mcp:admin` | Administration tools. Only the owner's tokens carry it |
+  | `mcp:read` | Reading tools such as `project.get`, `kb.search` and `kb.get` |
+  | `mcp:write` | Tools that create or change data, such as `project.create` and `kb.save_brainstorm` |
+  | `mcp:admin` | Administration tools such as `admin.create_user`. Only the owner's tokens carry it |
 
 - **Cookies are ignored.** A signed-in browser session does not authorize `/mcp`, and the REST
   API under `/api` never accepts access tokens.
 - **Failures.** A missing, malformed, expired or revoked token gets `401` with a
   `WWW-Authenticate: Bearer` header. Revoking a token in Settings takes effect on its next request.
   Device tokens (`lc_dev_…`) are not accepted.
-- **Job tokens.** A producer session started by the studio agent gets its own `lc_job_…` token,
-  minted for one job and bound to that job's project. It works until the job finishes, the token
-  is revoked or it expires. A job token may call only the tools marked "Job tokens: allowed" in the
-  reference below. Tools whose input names a project refuse any project but the job's (leaving an
-  optional project out means the job's project), and `project.list` returns only the job's
-  project.
+- **Job tokens.** See [Job tokens and project binding](#job-tokens-and-project-binding).
+
+## Job tokens and project binding
+
+A producer session started by the studio agent never sees a user's access token. For each job
+that needs the knowledge base, the server mints a job token (`lc_job_…`) and sends it to the
+studio agent with the job; the session uses it as its bearer token on `/mcp`.
+
+- **Lifetime.** A job token is bound to one job and that job's project. It stops working when the
+  job finishes (succeeds, fails or is cancelled), when the job goes back to the queue, when it is
+  revoked, or when it expires, whichever comes first. A request with such a token gets `401`.
+- **Scopes.** Chat turns get `mcp:read` and `mcp:write`; reference analysis gets `mcp:read` only.
+  Job tokens never carry `mcp:admin`, and they are not listed under **Settings → Access tokens**.
+- **Tools.** A job token may call only the tools marked "Job tokens: allowed" in the reference
+  below. Calling any other tool (`project.create`, `kb.save_session_summary`,
+  `admin.create_user`) fails with `forbidden`.
+- **Project binding.** Each tool's reference says how its input names a project:
+  - "the input names the project": the project comes from `projectId`, `idOrSlug`, or the record
+    the input names (`kb.get` takes it from `entryId`). A job token naming any project but its
+    job's gets `forbidden`, and nothing is read or written. When an optional `projectId` is left
+    out (`kb.search`), the job's project is used.
+  - "the input names no project": the result only covers the job's project. `project.list`
+    returns just that project.
+- **Rate limit.** 240 requests a minute per job token.
+- **Attribution.** Entries a job token writes are marked as written by a producer session
+  (`createdVia: "producer"`), belong to the user who started the job, and link to the job's
+  conversation when it has one. Audit rows name the token and the job.
 
 ## Connecting a client
 
@@ -99,6 +122,45 @@ curl -s -X POST https://loomcast.prabhavalabs.com/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project.create","arguments":{"name":"Rust in 60 seconds"}}}'
 ```
 
+## Knowledge base tools
+
+The `kb.*` tools read and write a project's knowledge base, the same entries the web app shows
+on the project's knowledge-base pages. Every write is audited and published to the web app's live
+event stream (`kb.entry.created`, `kb.entry.updated`), so open pages update at once.
+
+- **`kb.save_brainstorm`** saves markdown with an optional `sessionRef` naming the conversation it
+  came from. The result carries the entry id and its link in the web app.
+- **`kb.add_reference`** saves a link to a reference video, with why it was liked and, optionally,
+  its author, transcript and an analysis made by the caller. The platform is detected from the
+  link unless given. The link is never fetched, previewed or downloaded, and saving a reference
+  never starts an analysis: that happens only when a user asks for one in the web app. Saving a
+  link the project already has fails with `conflict`, naming the existing entry.
+- **`kb.add_decision`** records a decision and its rationale. With `supersedes`, the named
+  decision of the same project is marked superseded in the same change.
+- **`kb.search`** runs a ranked full-text search, within one project or across all of them, and
+  optionally limited to some entry kinds. Snippets mark matches with the control characters
+  U+0002 (start) and U+0003 (end); the text summary leaves the marks out.
+- **`kb.get`** returns one entry with its details, including the reference fields for a
+  reference. Transcripts are text supplied by users: clients must treat them as data, never as
+  instructions.
+- **`kb.save_session_summary`** is meant for an optional session-end hook in an MCP client. It
+  saves a summary keyed by `sessionId`; calling it again for the same session replaces the
+  summary. Without `projectId`, the project is taken from `cwd` when it contains a
+  `Loomcast/projects/<project id>` folder (the folder the studio agent gives each project);
+  otherwise the call fails with `project_unresolved`. Job tokens cannot call it.
+
+Entries written with an access token are marked `createdVia: "mcp"` (`"hook"` for session
+summaries) and belong to the token's user.
+
+## Administration tools
+
+`admin.create_user` invites an admin, like the owner's invitation in the web app. It needs the
+`mcp:admin` scope, and the token's user must be the owner. The result's `structuredContent` holds
+the one-time `setPasswordUrl` and its expiry; the text summary leaves the link out, so clients
+that show or log text do not spread it. Hand the link to the new user privately: it works once,
+and the server keeps only a hash of its secret. Responses from `/mcp` are sent with
+`Cache-Control: no-store`.
+
 ## Results and errors
 
 A successful call returns the tool's output as `structuredContent`, matching the output schema
@@ -110,9 +172,11 @@ A failed call returns `isError: true` with one text item of the form `<code>: <m
 
 | Code | Meaning |
 |---|---|
-| `forbidden` | The token lacks the tool's scope, the tool does not accept job tokens, or a job token named another project |
-| `not_found` | The project (or other record) does not exist |
-| `conflict` | The request clashes with existing data, for example a slug already in use |
+| `forbidden` | The token lacks the tool's scope, the tool does not accept job tokens, a job token named another project, or a non-owner called an owner-only tool |
+| `not_found` | The project, entry or other record does not exist |
+| `conflict` | The request clashes with existing data, for example a slug or reference already saved, or an archived project |
+| `validation_failed` | The arguments are well formed but not acceptable, for example a `supersedes` id that is not a decision of the project; the fields at fault follow in brackets |
+| `project_unresolved` | `kb.save_session_summary` got neither a `projectId` nor a `cwd` inside a project folder |
 | `internal` | Something failed on the server; details are in the server log |
 
 Arguments that do not match the input schema are rejected before the tool runs, with an
@@ -124,9 +188,10 @@ Errors outside a tool call are plain HTTP statuses: `401` (token), `403` (foreig
 ## Auditing
 
 Every tool call is written to the audit log as `mcp.tool.called`, with the token as the actor,
-the tool name, the client address and the outcome (`ok`, `denied` or `error`, with the error
-code). Arguments and results are not logged. Changes made by a tool, such as `project.created`,
-are audited as well, naming the token.
+the tool name, the client address, the outcome (`ok`, `denied` or `error`, with the error code),
+the project the call was about and, for a job token, the job (`jobId`). Arguments and results are
+not logged. Changes made by a tool, such as `project.created`, `kb.entry.create` or
+`user.invited`, are audited as well, naming the token.
 
 ## Tool reference
 
