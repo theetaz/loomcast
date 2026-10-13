@@ -18,8 +18,10 @@ import { clientIp, idParam, readJson } from "../../lib/http";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { channelColumns, toChannel } from "./mappers";
+import { ensureChannelSweeps, registerRefreshTask } from "./tasks";
 
 export { type ChannelView, channelColumns, toChannel } from "./mappers";
+export { channelSweepDedupeKey, ensureChannelSweeps } from "./tasks";
 
 /** Dedupe key of the replanning a change of a series' channels asks for. */
 export function seriesPlanDedupeKey(seriesId: string): string {
@@ -43,6 +45,14 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const mode = () => deps.config.publishing.mode;
   const trustProxy = deps.config.trustProxy;
   const router = new Hono<AppEnv>();
+
+  registerRefreshTask(deps);
+  // A served process makes sure the daily credential sweeps are queued (they re-queue themselves).
+  if (deps.httpServer !== undefined && deps.config.scheduler.enabled) {
+    ensureChannelSweeps(scheduler, null, deps.clock.now()).catch((error: unknown) => {
+      deps.logger.error({ err: error }, "could not queue the channel credential sweeps");
+    });
+  }
 
   async function loadChannel(
     executor: Executor,

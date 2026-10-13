@@ -9,6 +9,7 @@ import { HttpError } from "../../lib/errors";
 import { oauthConnectionAad, sealedSecretOf, type TokenVault } from "../../lib/vault";
 import { type StoredChannelSecret, sealChannelSecret } from "../channels/credentials";
 import { channelColumns, toChannel } from "../channels/mappers";
+import { ensureChannelSweeps } from "../channels/tasks";
 import { type CandidateSecret, ConnectionSecretSchema } from "./types";
 
 export const connectionExpired = () =>
@@ -69,7 +70,7 @@ export interface AcceptInput {
  */
 export async function acceptConnection(
   tx: Transaction,
-  deps: Pick<ModuleDeps, "vault" | "bus" | "config">,
+  deps: Pick<ModuleDeps, "vault" | "bus" | "config" | "scheduler">,
   input: AcceptInput,
 ): Promise<Channel[]> {
   const consumed = await consumeOAuthConnection(tx, {
@@ -112,6 +113,8 @@ export async function acceptConnection(
     afterCommit(tx, () => deps.bus.publish({ type: "channel.updated", payload: { channel } }));
     result.push(channel);
   }
+  // Connected channels are checked and refreshed by the daily sweeps.
+  await ensureChannelSweeps(deps.scheduler, tx, input.now);
   return result;
 }
 
