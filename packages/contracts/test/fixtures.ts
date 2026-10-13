@@ -34,6 +34,11 @@ export const ids = {
   formatVersion: "3b4c5d6e-7f80-4192-a3b4-c5d6e7f80912",
   skill: "1f2e3d4c-5b6a-4798-8a9b-0c1d2e3f4a5b",
   asset: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  channel: "c0d1e2f3-a4b5-4c6d-8e7f-a0b1c2d3e4f5",
+  channel2: "d1e2f3a4-b5c6-4d7e-9f80-b1c2d3e4f5a6",
+  post: "e2f3a4b5-c6d7-4e8f-a091-c2d3e4f5a6b7",
+  task: "f3a4b5c6-d7e8-4f90-81a2-d3e4f5a6b7c8",
+  attempt: "a4b5c6d7-e8f9-4a01-92b3-e4f5a6b7c8d9",
 } as const;
 
 export const at = "2026-10-12T09:30:00.000Z";

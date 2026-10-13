@@ -18,6 +18,7 @@ export * from "./pipeline/format-rules";
 export * from "./pipeline/skills";
 export * from "./pipeline/style";
 export * from "./pipeline/transitions";
+export * from "./scheduler/tasks";
 export * from "./util/reference-url";
 export * from "./util/slug";
 export * from "./util/ulid";

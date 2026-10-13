@@ -22,7 +22,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 
 | Module | Contents |
 |---|---|
-| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds |
+| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
 | `src/api/*` | REST DTOs for auth, projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills; `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
@@ -42,6 +42,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/pipeline/artifacts.ts` | `ScriptSchema`, `StoryboardSchema` and `VoiceAlignmentSchema`, the artifacts of a content version |
 | `src/pipeline/style.ts` | Style, card and slot id shapes from the studio's style library |
 | `src/pipeline/skills.ts` | Skill names, versions, file paths and limits, `skill.json`, and `skillChecksumInput` |
+| `src/scheduler/tasks.ts` | `scheduledTaskRegistry`, the allow-list of scheduled tasks, with payloads, attempts, backoff and leases, and `taskRetryDelayMs` |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -315,6 +316,37 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 - `content.submit_for_review` moves the item to the stage its artifacts reach (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is refused instead of overwritten.
 - `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
 - `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
+
+## Calendar and publishing
+
+Channels publish to `PLATFORMS`: `facebook` (Page Reels), `instagram` (Reels), `threads` and `x` (behind a feature flag). Every value array below is mirrored as a pg enum.
+
+| Enum | Values |
+|---|---|
+| `CHANNEL_STATUSES` | `disconnected` (no credentials, dry-run only), `active`, `needs_reauth`, `disabled` |
+| `POST_STATUSES` | `planned` (a slot holds it, the item is not approved), `queued` (approved, waits for its time), `publishing`, `published`, `failed`, `cancelled`, `missed` (its time came while still `planned`) |
+| `TASK_STATUSES` | `pending`, `running`, `succeeded`, `failed` (gave up with an error no retry fixes), `dead` (every attempt failed; waits for a manual retry) |
+| `PUBLISH_MODES` | `auto`, `approval` |
+| `PUBLISHING_MODES` | `dry-run`, `live`: the server's `PUBLISHING_MODE` |
+
+`OPEN_POST_STATUSES` (`planned`, `queued`) are the posts that wait for their time. `RESCHEDULABLE_POST_STATUSES` adds `failed` and `missed`; publishing, published and cancelled posts cannot move. `TERMINAL_TASK_STATUSES` are `succeeded`, `failed` and `dead`.
+
+### Scheduled tasks
+
+The scheduler runs server-side tasks at a set time. Tasks never reach the studio agent; `scheduled_tasks.kind` is text, so a new kind needs a `scheduledTaskRegistry` entry but no migration.
+
+| Kind | Payload | Attempts | Backoff base | Lease |
+|---|---|---|---|---|
+| `cadence.plan` | `{seriesId?}` (every active series when left out) | 3 | 1 min | 5 min |
+| `cadence.produce` | `{itemId}` | 5 | 2 min | 2 min |
+| `post.publish` | `{postId}` | 5 | 1 min | 5 min |
+| `post.check_status` | `{postId, since}` | 5 | 15 s | 1 min |
+| `assets.cleanup` | `{}` | 3 | 5 min | 10 min |
+
+- A failed run is retried after `taskRetryDelayMs(backoffBaseMs, attempt)`: `min(base · 2^(attempt − 1), 1 h)`, varied by ±20%. After `maxAttempts` failed runs the task is `dead`.
+- The lease is extended every `leaseMs / 2` while the handler runs. `cadence.plan` and `assets.cleanup` recur every hour (`RECURRING_TASK_INTERVAL_MS`).
+- `post.check_status` polls every 15 s, backing off to 60 s, and gives up 20 minutes after `since` (`POST_STATUS_POLL_INITIAL_MS`, `POST_STATUS_POLL_MAX_MS`, `POST_STATUS_TIMEOUT_MS`).
+- Use `isScheduledTaskKind` and `parseScheduledTaskPayload(kind, payload)` rather than reading schemas by hand.
 
 ## Limits and formats
 
