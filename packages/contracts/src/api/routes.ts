@@ -12,12 +12,32 @@ import {
 import { DeviceSchema, PairingCodeSchema, PairRequestSchema, PairResponseSchema } from "./devices";
 import { JobSummarySchema } from "./jobs";
 import {
+  CaptureConversationSchema,
+  CreateKbEntrySchema,
+  KbEntryDetailSchema,
+  KbEntrySchema,
+  KbSearchHitSchema,
+  KbSearchQuerySchema,
+  KbTagCountSchema,
+  ListKbQuerySchema,
+  UpdateKbEntrySchema,
+} from "./kb";
+import {
   CreateProjectSchema,
   ListProjectsQuerySchema,
   ProjectSchema,
   UpdateProjectSchema,
 } from "./projects";
 import { AccessTokenSchema, CreateTokenRequestSchema, CreateTokenResponseSchema } from "./tokens";
+import {
+  InspectPasswordTokenRequestSchema,
+  InviteUserRequestSchema,
+  InviteUserResponseSchema,
+  PasswordTokenInfoSchema,
+  ResetLinkResponseSchema,
+  SetPasswordRequestSchema,
+  UserSummarySchema,
+} from "./users";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -48,7 +68,11 @@ const IdParamsSchema = z.object({ id: IdSchema });
 const ProjectIdParamsSchema = z.object({ projectId: IdSchema });
 const IdOrSlugParamsSchema = z.object({ idOrSlug: z.string().min(1).max(64) });
 
-/** Every REST route of the M1 API. The web client and the API both build on this map. */
+/**
+ * Every REST route of the API. The web client and the API both build on this map.
+ *
+ * `kb.search` (`/api/kb/search`) must be registered before the `/api/kb/:id` routes.
+ */
 export const routes = {
   "auth.login": route({
     method: "POST",
@@ -79,6 +103,57 @@ export const routes = {
     body: ChangePasswordRequestSchema,
     response: null,
     status: 204,
+  }),
+  /** Public: shows who a set-password link is for. Unknown, used and expired tokens are 404. */
+  "auth.inspectPasswordToken": route({
+    method: "POST",
+    path: "/api/auth/password-tokens/inspect",
+    auth: "none",
+    body: InspectPasswordTokenRequestSchema,
+    response: PasswordTokenInfoSchema,
+    status: 200,
+  }),
+  /** Public: consumes a set-password link. The user signs in afterwards. */
+  "auth.setPassword": route({
+    method: "POST",
+    path: "/api/auth/set-password",
+    auth: "none",
+    body: SetPasswordRequestSchema,
+    response: null,
+    status: 204,
+  }),
+
+  /** The user routes are owner-only. */
+  "users.list": route({
+    method: "GET",
+    path: "/api/users",
+    auth: "session",
+    response: listSchema(UserSummarySchema),
+    status: 200,
+  }),
+  "users.invite": route({
+    method: "POST",
+    path: "/api/users/invitations",
+    auth: "session",
+    body: InviteUserRequestSchema,
+    response: InviteUserResponseSchema,
+    status: 201,
+  }),
+  "users.resetLink": route({
+    method: "POST",
+    path: "/api/users/:id/reset-link",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ResetLinkResponseSchema,
+    status: 201,
+  }),
+  "users.disable": route({
+    method: "POST",
+    path: "/api/users/:id/disable",
+    auth: "session",
+    params: IdParamsSchema,
+    response: UserSummarySchema,
+    status: 200,
   }),
 
   "projects.list": route({
@@ -182,6 +257,85 @@ export const routes = {
     params: IdParamsSchema,
     response: JobSummarySchema,
     status: 200,
+  }),
+
+  "kb.list": route({
+    method: "GET",
+    path: "/api/projects/:projectId/kb",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    query: ListKbQuerySchema,
+    response: cursorPageSchema(KbEntrySchema),
+    status: 200,
+  }),
+  "kb.create": route({
+    method: "POST",
+    path: "/api/projects/:projectId/kb",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CreateKbEntrySchema,
+    response: KbEntryDetailSchema,
+    status: 201,
+  }),
+  "kb.capture": route({
+    method: "POST",
+    path: "/api/projects/:projectId/kb/capture",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CaptureConversationSchema,
+    response: KbEntryDetailSchema,
+    status: 201,
+  }),
+  "kb.tags": route({
+    method: "GET",
+    path: "/api/projects/:projectId/kb/tags",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    response: listSchema(KbTagCountSchema),
+    status: 200,
+  }),
+  "kb.search": route({
+    method: "GET",
+    path: "/api/kb/search",
+    auth: "session",
+    query: KbSearchQuerySchema,
+    response: listSchema(KbSearchHitSchema),
+    status: 200,
+  }),
+  "kb.get": route({
+    method: "GET",
+    path: "/api/kb/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: KbEntryDetailSchema,
+    status: 200,
+  }),
+  /** `409 conflict` when `expectedUpdatedAt` is not the entry's current `updatedAt`. */
+  "kb.update": route({
+    method: "PATCH",
+    path: "/api/kb/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateKbEntrySchema,
+    response: KbEntryDetailSchema,
+    status: 200,
+  }),
+  "kb.delete": route({
+    method: "DELETE",
+    path: "/api/kb/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: null,
+    status: 204,
+  }),
+  /** Queues `kb.analyze_reference` for a reference that has a transcript. */
+  "kb.analyze": route({
+    method: "POST",
+    path: "/api/kb/:id/analyze",
+    auth: "session",
+    params: IdParamsSchema,
+    response: JobSummarySchema,
+    status: 201,
   }),
 
   "devices.list": route({

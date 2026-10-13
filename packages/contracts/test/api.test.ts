@@ -176,10 +176,15 @@ describe("routes", () => {
     expect(route.status === 204).toBe(route.response === null);
   });
 
-  it("keeps public routes to login and device pairing", () => {
+  it("keeps public routes to login, set-password links and device pairing", () => {
     const publicRoutes = entries.filter(([, route]) => route.auth === "none").map(([name]) => name);
 
-    expect(publicRoutes.sort()).toEqual(["auth.login", "bridge.pair"]);
+    expect(publicRoutes.sort()).toEqual([
+      "auth.inspectPasswordToken",
+      "auth.login",
+      "auth.setPassword",
+      "bridge.pair",
+    ]);
   });
 
   it("builds paths with encoded parameters", () => {
