@@ -1,7 +1,9 @@
+import { useDraggable } from "@dnd-kit/core";
 import type { Channel, ScheduledPost } from "@loomcast/contracts";
 import { cn } from "@loomcast/ui/lib/cn";
-import type { ComponentProps } from "react";
+import type { ComponentProps, KeyboardEvent, MouseEvent, Ref } from "react";
 import { useBoard } from "./board-context";
+import { isReschedulable } from "./model";
 import {
   PlatformDot,
   PostStatusDot,
@@ -28,17 +30,43 @@ export interface PostChipProps {
   compact?: boolean;
 }
 
-/** A post on the board. Clicking it, or Enter, opens its video. */
+/**
+ * A post on the board. Posts that can move are draggable; the rest (and posts whose move is still
+ * saving) only open their video. One element either way, so focus survives the switch.
+ */
 export function PostChip({ post, day, time, compact }: PostChipProps) {
   const board = useBoard();
+  const busy = board.saving.has(post.id);
+  const draggable = isReschedulable(post) && !busy;
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: post.id,
+    data: { post },
+    disabled: !draggable,
+  });
+
   return (
     <ChipButton
+      ref={setNodeRef}
       post={post}
       day={day}
       time={time}
       compact={compact}
       channel={board.channels.get(post.channelId)}
-      onClick={() => board.onOpenPost(post)}
+      draggable={draggable}
+      dimmed={board.drag?.post.id === post.id}
+      busy={busy}
+      {...(draggable ? { ...attributes, ...listeners } : {})}
+      // Keyboard clicks (Space after a drop, Enter) have no detail; Enter opens the video below.
+      onClick={(event) => {
+        if (event.detail > 0 && !board.drag) board.onOpenPost(post);
+      }}
+      onKeyDown={(event) => {
+        if (draggable) listeners?.onKeyDown?.(event);
+        if (event.key === "Enter" && !event.defaultPrevented && !board.drag) {
+          event.preventDefault();
+          board.onOpenPost(post);
+        }
+      }}
     />
   );
 }
@@ -49,6 +77,13 @@ interface ChipButtonProps extends Omit<ComponentProps<"button">, "children"> {
   time: string;
   channel: Channel | undefined;
   compact?: boolean;
+  draggable?: boolean;
+  /** The original stays in place, faded, while its copy is dragged. */
+  dimmed?: boolean;
+  busy?: boolean;
+  ref?: Ref<HTMLButtonElement>;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }
 
 function ChipButton({
@@ -57,6 +92,9 @@ function ChipButton({
   time,
   channel,
   compact = false,
+  draggable = false,
+  dimmed = false,
+  busy = false,
   className,
   ...props
 }: ChipButtonProps) {
@@ -66,11 +104,14 @@ function ChipButton({
       data-post-chip={post.id}
       data-status={post.status}
       aria-label={postSummary(post, `${longDayLabel(day)}, ${time}`, channel)}
+      aria-busy={busy || undefined}
       className={cn(
         "relative flex w-full min-w-0 select-none rounded-md bg-card text-left shadow-card outline-none",
         "transition-[background-color,opacity] focus-visible:ring-2 focus-visible:ring-ring",
         "hover:bg-secondary",
-        "cursor-pointer",
+        draggable ? "cursor-grab touch-manipulation" : "cursor-pointer",
+        dimmed && "opacity-40",
+        busy && "opacity-70",
         compact ? "items-center gap-1.5 px-1.5 py-[3px]" : "flex-col gap-1 px-1.5 py-1",
         className,
       )}
@@ -121,5 +162,26 @@ export function ChipBody({
         />
       </span>
     </>
+  );
+}
+
+/**
+ * The copy that follows the pointer. It lifts (scale 1.02 and a deeper shadow over 160 ms) when the
+ * drag starts; under reduced motion only the shadow changes.
+ */
+export function LiftedChip({ post, time, compact }: Omit<PostChipProps, "day">) {
+  return (
+    <div
+      aria-hidden="true"
+      data-drag-overlay=""
+      className={cn(
+        "flex w-full min-w-0 cursor-grabbing select-none rounded-md bg-card",
+        "scale-[1.02] shadow-pop transition-[scale,box-shadow] duration-160 ease-out",
+        "starting:scale-100 starting:shadow-card motion-reduce:scale-100",
+        compact ? "items-center gap-1.5 px-1.5 py-[3px]" : "flex-col gap-1 px-1.5 py-1",
+      )}
+    >
+      <ChipBody post={post} time={time} compact={compact} />
+    </div>
   );
 }

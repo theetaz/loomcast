@@ -3,7 +3,7 @@ import { Tabs, TabsContent } from "@loomcast/ui/components/tabs";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
-import { type ReactNode, useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 import { ErrorState } from "@/components/ErrorState";
 import { Page, PageHeader } from "@/components/PageHeader";
 import { type SeriesOption, useSeriesOptions } from "@/features/library/queries";
@@ -57,7 +57,8 @@ export interface CalendarPageProps {
 }
 
 /**
- * Every post on every channel in a week or month; open cadence slots are drawn dashed.
+ * Every post on every channel in a week or month. Posts that haven't started publishing can be
+ * dragged (or moved with the keyboard) to a new time; open cadence slots are drawn dashed.
  */
 export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
   useTitle("Calendar");
@@ -102,7 +103,14 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
   );
   const goToday = useCallback(() => update({ date: undefined }), [update]);
 
-  useCalendarShortcuts({ onPrevious: () => goTo(-1), onNext: () => goTo(1), onToday: goToday });
+  const draggingRef = useRef(false);
+  const onDraggingChange = useCallback((dragging: boolean) => {
+    draggingRef.current = dragging;
+  }, []);
+  useCalendarShortcuts(
+    { onPrevious: () => goTo(-1), onNext: () => goTo(1), onToday: goToday },
+    draggingRef,
+  );
 
   const onOpenPost = useCallback(
     (post: ScheduledPost) =>
@@ -122,7 +130,7 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
     <Page className="max-w-[1320px]">
       <PageHeader
         title="Calendar"
-        description="Every post on every channel, by week or by month."
+        description="Every post on every channel. Drag a post to move it to a new time."
       />
       <Tabs
         value={view}
@@ -183,6 +191,7 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
               series={seriesById}
               onOpenPost={onOpenPost}
               onShowDay={onShowDay}
+              onDraggingChange={onDraggingChange}
             />
           )}
         </TabsContent>

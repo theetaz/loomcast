@@ -6,7 +6,10 @@ import {
   type ContentItem,
   type Format,
   generateSlots,
+  MIN_SCHEDULE_LEAD_MS,
   type Platform,
+  RESCHEDULABLE_POST_STATUSES,
+  ReschedulePostRequestSchema,
   routes,
   type ScheduledPost,
   type Series,
@@ -27,6 +30,8 @@ function apiError(status: number, code: string, message: string) {
 }
 
 const unauthorized = () => apiError(401, "unauthorized", "Sign in to continue.");
+const postNotFound = () => apiError(404, "not_found", "No scheduled post has that id.");
+
 function invalid(error: z.ZodError) {
   const issue = error.issues[0];
   const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
@@ -192,6 +197,58 @@ export function createCalendarHandlers(db: MockDb) {
         .map((post) => ({ ...post }));
       const slots = mockSlots(db, { from, to }, { projectId, channelIds, seriesIds });
       return HttpResponse.json({ posts, slots });
+    }),
+
+    http.patch(path("scheduledPosts.reschedule"), async ({ params, request }) => {
+      if (!db.signedIn) return unauthorized();
+      const found = db.posts.find((post) => post.id === params.id);
+      if (!found) return postNotFound();
+      const parsed = ReschedulePostRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return invalid(parsed.error);
+      const { scheduledAt, expectedUpdatedAt } = parsed.data;
+      if (!(RESCHEDULABLE_POST_STATUSES as readonly string[]).includes(found.status)) {
+        return apiError(
+          409,
+          "post_not_editable",
+          "This post is publishing, published or cancelled.",
+        );
+      }
+      if (Date.parse(expectedUpdatedAt) !== Date.parse(found.updatedAt)) {
+        return apiError(409, "conflict", "The post changed since you loaded it.");
+      }
+      if (Date.parse(scheduledAt) < Date.now() + MIN_SCHEDULE_LEAD_MS) {
+        return apiError(
+          400,
+          "validation_failed",
+          "scheduledAt: Pick a time at least two minutes ahead.",
+        );
+      }
+      const post = updatePost(db, found.id, (entry) => {
+        entry.scheduledAt = new Date(scheduledAt).toISOString();
+        // A failed or missed post waits for its new time again.
+        if (entry.status === "failed" || entry.status === "missed") {
+          entry.status = entry.versionId ? "queued" : "planned";
+          entry.lastError = null;
+        }
+      });
+      return HttpResponse.json(post);
+    }),
+
+    http.post(path("scheduledPosts.cancel"), ({ params }) => {
+      if (!db.signedIn) return unauthorized();
+      const found = db.posts.find((post) => post.id === params.id);
+      if (!found) return postNotFound();
+      if (!(RESCHEDULABLE_POST_STATUSES as readonly string[]).includes(found.status)) {
+        return apiError(
+          409,
+          "post_not_editable",
+          "This post is publishing, published or cancelled.",
+        );
+      }
+      const post = updatePost(db, found.id, (entry) => {
+        entry.status = "cancelled";
+      });
+      return HttpResponse.json(post);
     }),
   ];
 }

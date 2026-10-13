@@ -57,6 +57,44 @@ function withPosts(data: CalendarResponse, posts: ScheduledPost[]): CalendarResp
   return { posts, slots: linkSlots(posts, data.slots) };
 }
 
+/** Moves a post to `scheduledAt` (the optimistic half of a reschedule). */
+export function movePost(
+  data: CalendarResponse,
+  postId: string,
+  scheduledAt: string,
+): CalendarResponse {
+  if (!data.posts.some((post) => post.id === postId)) return data;
+  return withPosts(
+    data,
+    data.posts.map((post) => (post.id === postId ? { ...post, scheduledAt } : post)),
+  );
+}
+
+/** A reschedule in flight: the post as it was and the time it was moved to. */
+export interface PendingMove {
+  previous: ScheduledPost;
+  scheduledAt: string;
+}
+
+/**
+ * Undoes an optimistic move. The post goes back only while it is still the optimistic copy: if a
+ * live event replaced it meanwhile, the newer copy stays.
+ */
+export function rollbackMove(data: CalendarResponse, move: PendingMove): CalendarResponse {
+  const current = data.posts.find((post) => post.id === move.previous.id);
+  if (
+    !current ||
+    current.updatedAt !== move.previous.updatedAt ||
+    !sameInstant(current.scheduledAt, move.scheduledAt)
+  ) {
+    return data;
+  }
+  return withPosts(
+    data,
+    data.posts.map((post) => (post.id === move.previous.id ? move.previous : post)),
+  );
+}
+
 /** Whether `post` belongs in the response for `key`. */
 export function postMatches(post: ScheduledPost, key: CalendarQueryKey): boolean {
   const at = Date.parse(post.scheduledAt);

@@ -1,10 +1,23 @@
 import type { CalendarResponse, Channel, Format, List, ScheduledPost } from "@loomcast/contracts";
-import { type QueryClient, queryOptions, useQueries } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQueries,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
-import { api } from "@/lib/api";
-import { type CalendarQueryKey, upsertPost } from "./model";
+import { toast } from "sonner";
+import { api, errorMessage, isApiError } from "@/lib/api";
+import {
+  type CalendarQueryKey,
+  movePost,
+  type PendingMove,
+  rollbackMove,
+  upsertPost,
+} from "./model";
 
-/** Calendar, channel and format query keys. Live events patch the same caches. */
+/** Calendar, channel and format query keys. Moves, new posts and live events patch the same caches. */
 export const calendarKeys = {
   all: ["calendar"] as const,
   ranges: ["calendar", "range"] as const,
@@ -114,5 +127,49 @@ export function applyChannel(queryClient: QueryClient, channel: Channel) {
       ? list.items.map((entry) => (entry.id === channel.id ? channel : entry))
       : [...list.items, channel];
     return { items };
+  });
+}
+
+// Mutations -------------------------------------------------------------------------
+
+export interface RescheduleInput {
+  post: ScheduledPost;
+  scheduledAt: string;
+}
+
+/**
+ * Moves a post. The calendars show the new time at once; a failure puts the post back and says
+ * why. A `409` means the post changed elsewhere (or started publishing): the calendars refetch.
+ */
+export function useReschedulePost() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ post, scheduledAt }: RescheduleInput) =>
+      api.request("scheduledPosts.reschedule", {
+        params: { id: post.id },
+        body: { scheduledAt, expectedUpdatedAt: post.updatedAt },
+      }),
+    onMutate: async ({ post, scheduledAt }): Promise<PendingMove> => {
+      const move: PendingMove = { previous: post, scheduledAt };
+      // A refetch in flight would bring the old time back. Cancelling restores the data from
+      // before that fetch, so it finishes first; the answer or the live event corrects the rest.
+      await queryClient.cancelQueries({ queryKey: calendarKeys.ranges });
+      updateCalendars(queryClient, (data) => movePost(data, post.id, scheduledAt));
+      return move;
+    },
+    onSuccess: (post) => applyPost(queryClient, post),
+    onError: (error, _input, move) => {
+      if (move) updateCalendars(queryClient, (data) => rollbackMove(data, move));
+      if (isApiError(error, 409)) {
+        toast.error(
+          error.code === "post_not_editable"
+            ? "This post can't move any more. It is publishing, published or cancelled."
+            : "This post changed somewhere else. The calendar now shows the latest times.",
+        );
+        void queryClient.invalidateQueries({ queryKey: calendarKeys.ranges });
+        return;
+      }
+      toast.error("Couldn't move the post", { description: errorMessage(error) });
+    },
   });
 }

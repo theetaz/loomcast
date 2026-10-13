@@ -42,7 +42,7 @@ voice and render to review, one version every second or so, with the live events
 The calendar's mock (`src/mocks/calendar.ts`) adds planning channels, links them to the demo
 series and puts posts on the next slots of each series' cadence (from the formats in
 `src/mocks/formats.ts`), leaving a few slots open, with published and missed posts in the past
-(`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get` and `channels.list`,
+(`db.channels`, `db.seriesChannels`, `db.posts`). It answers `calendar.get`, rescheduling and `channels.list`,
 and publishes `post.updated` like the scheduler will.
 
 ### Dev proxy
@@ -291,11 +291,22 @@ by month.
   day and "+n more", which opens that week. Chips show the platform dot, the title, the time and
   the post state. Cadence slots no post holds are drawn dashed.
 - `←` and `→` change the period and `t` returns to today, except while typing, in menus and
-  dialogs.
+  dialogs, and while dragging.
+- Posts in `RESCHEDULABLE_POST_STATUSES` drag with dnd-kit: the mouse or a pen
+  (`PointerSensor`, after 4px), a press-and-hold on touch, or the keyboard (Space picks up, the
+  arrows move by half an hour or a day, a day or a week in the month view, Space or Enter drops,
+  Escape cancels). Enter opens the video when not dragging. A pointer drag lifts a copy (scale
+  1.02 and a deeper shadow over 160 ms; under reduced motion only the shadow); a keyboard drag
+  moves a marker from cell to cell without animation, and focus returns to the post after the
+  drop. Moves into the past (or the next two minutes) are refused.
+- A drop patches every loaded range at once (`movePost` in `model.ts`) and sends
+  `scheduledPosts.reschedule` with `expectedUpdatedAt`. A failure puts the post back
+  (`rollbackMove`, which keeps a newer copy from a live event) and shows a toast; a `409` also
+  refetches the calendar.
 - `post.updated` patches every loaded range (moved, added or dropped by range and filter),
   `channel.updated` the channel list and `content.item.updated` the titles and states on chips.
 - Post states use a local mapping (`post-status.tsx`) until `StatusPill` gets a `post` kind.
-- date-fns stays in the calendar's route chunk.
+- dnd-kit and date-fns stay in the calendar's route chunk.
 
 ## Screens and conventions
 
