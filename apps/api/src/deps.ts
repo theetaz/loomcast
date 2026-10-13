@@ -8,7 +8,9 @@ import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
+import type { JobHooks } from "./modules/jobs/hooks";
 import type { JobsService } from "./modules/jobs/service";
+import type { KbService } from "./modules/kb/service";
 import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
@@ -37,6 +39,13 @@ export interface ModuleDeps extends AppDeps {
   sessions: SessionsService;
   tokens: TokensService;
   jobs: JobsService;
+  /** Knowledge-base entries, shared by the REST routes and the MCP tools. */
+  kb: KbService;
+  /**
+   * The job-type hook registry (`createJobHooks` in `modules/jobs/handlers`). Every
+   * `createJobLifecycle(deps)` runs these instead of its built-in default.
+   */
+  hooks: JobHooks;
   auth: AuthGuards;
   presence: Presence;
 }
