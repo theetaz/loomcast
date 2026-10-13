@@ -8,6 +8,20 @@
       "when": 1791848367441,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791851451511,
+      "tag": "0001_add_job_enum_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791851490637,
+      "tag": "0002_add_kb_tables",
+      "breakpoints": true
     }
   ]
 }

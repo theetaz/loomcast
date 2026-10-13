@@ -4,6 +4,7 @@ export * from "./conversations";
 export * from "./devices";
 export * from "./enums";
 export * from "./jobs";
+export * from "./kb";
 export * from "./messages";
 export * from "./projects";
 export * from "./users";

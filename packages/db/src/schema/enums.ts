@@ -2,8 +2,11 @@ import {
   ACTOR_KINDS,
   JOB_STATUSES,
   JOB_TYPES,
+  KB_CREATED_VIA,
+  KB_ENTRY_KINDS,
   MESSAGE_ROLES,
   PROJECT_STATUSES,
+  REFERENCE_PLATFORMS,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -22,3 +25,6 @@ export const jobType = pgEnum("job_type", JOB_TYPES);
 export const jobStatus = pgEnum("job_status", JOB_STATUSES);
 export const messageRole = pgEnum("message_role", MESSAGE_ROLES);
 export const actorKind = pgEnum("actor_kind", ACTOR_KINDS);
+export const kbEntryKind = pgEnum("kb_entry_kind", KB_ENTRY_KINDS);
+export const kbCreatedVia = pgEnum("kb_created_via", KB_CREATED_VIA);
+export const referencePlatform = pgEnum("reference_platform", REFERENCE_PLATFORMS);

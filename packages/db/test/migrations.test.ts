@@ -5,13 +5,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MIGRATIONS_FOLDER, migrate } from "../src/migrate";
 import { createTestDb, type TestDb } from "../src/testing";
 
-const M1_TABLES = [
+const TABLES = [
   "api_tokens",
   "audit_log",
   "conversations",
   "devices",
   "job_events",
   "jobs",
+  "kb_entries",
+  "kb_references",
   "messages",
   "pairing_codes",
   "projects",
@@ -49,19 +51,19 @@ describe("migrations", () => {
     await testDb.drop();
   });
 
-  it("apply to an empty database and create every M1 table", async () => {
+  it("apply to an empty database and create every table", async () => {
     expect(await publicTables(testDb)).toEqual([]);
 
     await migrate(testDb.url);
 
-    expect(await publicTables(testDb)).toEqual(M1_TABLES);
+    expect(await publicTables(testDb)).toEqual(TABLES);
     expect(await appliedMigrations(testDb)).toBe(journal.entries.length);
   });
 
   it("are a no-op when run again", async () => {
     await migrate(testDb.url);
 
-    expect(await publicTables(testDb)).toEqual(M1_TABLES);
+    expect(await publicTables(testDb)).toEqual(TABLES);
     expect(await appliedMigrations(testDb)).toBe(journal.entries.length);
   });
 

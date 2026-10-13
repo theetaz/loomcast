@@ -54,6 +54,17 @@ mistakes with a new migration.
 4. Run `pnpm db:generate` again: it must report "No schema changes".
 5. Apply it with `pnpm db:migrate`, then run the tests.
 
+**New enum values.** drizzle-kit adds a value with `ALTER TYPE ... ADD VALUE`. Postgres refuses
+to use a value added by a transaction that has not committed yet, and the migrator applies every
+pending migration in **one** transaction. So keep the `ADD VALUE` statements in a migration of
+their own, and never use a new value (in a default, a check, an index predicate or an update)
+in any migration that may run in the same batch. Compare as text instead, as
+`api_tokens_job_id_ck` does with `kind::text = 'job'`.
+
+**Extensions and functions.** `pg_trgm` and the `lc_tags_text(text[])` function are created by
+`0002_add_kb_tables`, written by hand above the generated statements; drizzle-kit does not track
+them.
+
 `pnpm db:migrate` reads `DATABASE_URL` (from the environment, or from the repository's `.env`),
 applies pending migrations under an advisory lock and records them in
 `drizzle.__drizzle_migrations`. Running it again is a no-op. Code can do the same with
