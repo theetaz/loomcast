@@ -17,6 +17,7 @@ export {
 } from "./queries/kb-search";
 export {
   nextFormatVersionNo,
+  nextSkillVersion,
   nextVersionNo,
   type VersionExecutor,
 } from "./queries/versions";

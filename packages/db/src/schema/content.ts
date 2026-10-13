@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { assets } from "./assets";
 import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import {
   actorKind,
@@ -87,7 +88,7 @@ export const contentItems = pgTable(
  *
  * `jobId` is the job whose result the version is. It is unique, so storing a job result twice (a
  * replayed `job.complete`) is refused instead of writing a second version. `parentVersionId` must
- * be a version of the same item.
+ * be a version of the same item. An asset a version points at cannot be deleted.
  */
 export const contentVersions = pgTable(
   "content_versions",
@@ -104,9 +105,10 @@ export const contentVersions = pgTable(
     formatVersionId: uuid("format_version_id").references(() => formatVersions.id),
     script: jsonb("script").$type<Script>(),
     storyboard: jsonb("storyboard").$type<Storyboard>(),
-    voiceAssetId: uuid("voice_asset_id"),
-    renderAssetId: uuid("render_asset_id"),
-    posterAssetId: uuid("poster_asset_id"),
+    // Typed as `AnyPgColumn` because `assets` reaches back to this table through `item_id`.
+    voiceAssetId: uuid("voice_asset_id").references((): AnyPgColumn => assets.id),
+    renderAssetId: uuid("render_asset_id").references((): AnyPgColumn => assets.id),
+    posterAssetId: uuid("poster_asset_id").references((): AnyPgColumn => assets.id),
     /** The post caption; when null, the script's caption is used. */
     caption: text("caption"),
     notes: text("notes"),

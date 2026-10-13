@@ -1,5 +1,7 @@
 import {
   ACTOR_KINDS,
+  ASSET_KINDS,
+  ASSET_STATUSES,
   CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
@@ -13,6 +15,7 @@ import {
   REFERENCE_PLATFORMS,
   REVIEW_DECISIONS,
   SERIES_STATUSES,
+  SKILL_KINDS,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -367,6 +370,9 @@ describe("pg enums", () => {
     content_created_via: CONTENT_CREATED_VIA,
     version_created_via: VERSION_CREATED_VIA,
     review_decision: REVIEW_DECISIONS,
+    asset_kind: ASSET_KINDS,
+    asset_status: ASSET_STATUSES,
+    skill_kind: SKILL_KINDS,
   };
 
   it("hold exactly the contracts values, in order", async () => {

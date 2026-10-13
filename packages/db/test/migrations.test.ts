@@ -13,6 +13,7 @@ import { apiTokenValues, insertProject, insertUser } from "./fixtures";
 
 const TABLES = [
   "api_tokens",
+  "assets",
   "audit_log",
   "content_items",
   "content_versions",
@@ -31,6 +32,8 @@ const TABLES = [
   "reviews",
   "series",
   "sessions",
+  "skill_versions",
+  "skills",
   "users",
 ];
 

@@ -6,6 +6,7 @@ import {
 } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import { check, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { assets } from "./assets";
 import { apiTokens } from "./auth";
 import { createdAt, timestamptz, tsvector, uuidPrimaryKey } from "./columns";
 import { conversations } from "./conversations";
@@ -117,6 +118,8 @@ export const kbReferences = pgTable(
       .default("none"),
     analysisJobId: uuid("analysis_job_id").references(() => jobs.id, { onDelete: "set null" }),
     analyzedAt: timestamptz("analyzed_at"),
+    /** Uploaded `reference_media` the analysis can transcribe instead of a pasted transcript. */
+    mediaAssetId: uuid("media_asset_id").references(() => assets.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
   (t) => [

@@ -1,3 +1,4 @@
+export * from "./assets";
 export * from "./audit";
 export * from "./auth";
 export * from "./content";
@@ -9,4 +10,5 @@ export * from "./jobs";
 export * from "./kb";
 export * from "./messages";
 export * from "./projects";
+export * from "./skills";
 export * from "./users";

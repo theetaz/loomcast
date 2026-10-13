@@ -1,6 +1,13 @@
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../client";
-import { contentItems, contentVersions, formats, formatVersions } from "../schema";
+import {
+  contentItems,
+  contentVersions,
+  formats,
+  formatVersions,
+  skills,
+  skillVersions,
+} from "../schema";
 
 // Version numbering. Each helper locks the parent row with `SELECT ... FOR UPDATE` and then reads
 // the highest number in a second statement, so writers of the same parent queue up and each sees
@@ -42,5 +49,18 @@ export function nextFormatVersionNo(tx: VersionExecutor, formatId: string): Prom
     sql`select 1 from ${formats} where ${formats.id} = ${formatId} for update`,
     sql`select coalesce(max(${formatVersions.versionNo}), 0)::int + 1 as next
         from ${formatVersions} where ${formatVersions.formatId} = ${formatId}`,
+  );
+}
+
+/**
+ * Locks the skill and returns the number its next published version gets. Returns null when the
+ * skill does not exist yet; its first version is 1.
+ */
+export function nextSkillVersion(tx: VersionExecutor, skillId: string): Promise<number | null> {
+  return nextNumber(
+    tx,
+    sql`select 1 from ${skills} where ${skills.id} = ${skillId} for update`,
+    sql`select coalesce(max(${skillVersions.version}), 0)::int + 1 as next
+        from ${skillVersions} where ${skillVersions.skillId} = ${skillId}`,
   );
 }

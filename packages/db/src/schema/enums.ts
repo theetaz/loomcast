@@ -1,5 +1,7 @@
 import {
   ACTOR_KINDS,
+  ASSET_KINDS,
+  ASSET_STATUSES,
   CONTENT_CREATED_VIA,
   JOB_STATUSES,
   JOB_TYPES,
@@ -13,6 +15,7 @@ import {
   REFERENCE_PLATFORMS,
   REVIEW_DECISIONS,
   SERIES_STATUSES,
+  SKILL_KINDS,
   TOKEN_KINDS,
   TOKEN_SCOPES,
   USER_ROLES,
@@ -42,3 +45,6 @@ export const produceTarget = pgEnum("produce_target", PRODUCE_TARGETS);
 export const contentCreatedVia = pgEnum("content_created_via", CONTENT_CREATED_VIA);
 export const versionCreatedVia = pgEnum("version_created_via", VERSION_CREATED_VIA);
 export const reviewDecision = pgEnum("review_decision", REVIEW_DECISIONS);
+export const assetKind = pgEnum("asset_kind", ASSET_KINDS);
+export const assetStatus = pgEnum("asset_status", ASSET_STATUSES);
+export const skillKind = pgEnum("skill_kind", SKILL_KINDS);
