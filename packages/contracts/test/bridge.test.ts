@@ -8,6 +8,9 @@ import {
   CLOSE_CODES,
   createUlid,
   encode,
+  JOB_TOKEN_RE,
+  MAX_TRANSCRIPT_LENGTH,
+  MCP_PATH,
   parseAgentMessage,
   parseServerMessage,
   type ServerToAgentDraft,
@@ -300,5 +303,97 @@ describe("utf8ByteLength", () => {
     ["\ud800", 3],
   ])("counts %j as %i bytes", (text, bytes) => {
     expect(utf8ByteLength(text)).toBe(bytes);
+  });
+});
+
+describe("job.assign credentials", () => {
+  const token = `lc_job_${"aZ09".repeat(10)}xyz`;
+  const credentials = { mcp: { endpoint: MCP_PATH, token, expiresAt: at } };
+  const assign = serverDrafts["job.assign"];
+
+  function withCredentials(value: unknown): string {
+    return JSON.stringify({
+      v: 1,
+      id: createUlid(),
+      type: "job.assign",
+      ts: at,
+      payload: { ...assign.payload, credentials: value },
+    });
+  }
+
+  it("round-trips a job.assign with credentials", () => {
+    const draft: ServerToAgentDraft = {
+      type: "job.assign",
+      payload: { ...assign.payload, credentials },
+    };
+    const parsed = parseServerMessage(encode(draft, now));
+
+    expect(token).toMatch(JOB_TOKEN_RE);
+    expect(parsed.ok && parsed.message.type === "job.assign" && parsed.message.payload).toEqual({
+      ...assign.payload,
+      credentials,
+    });
+  });
+
+  it("still parses an old-style job.assign without credentials", () => {
+    const frame = JSON.stringify({
+      v: 1,
+      id: createUlid(),
+      type: "job.assign",
+      ts: at,
+      payload: {
+        job: { id: ids.job, type: "system.ping", attempt: 1, payload: {}, projectId: ids.project },
+        leaseMs: 600_000,
+      },
+    });
+    const parsed = parseServerMessage(frame);
+
+    expect(parsed.ok).toBe(true);
+    expect(
+      parsed.ok && parsed.message.type === "job.assign" && parsed.message.payload,
+    ).not.toHaveProperty("credentials");
+  });
+
+  it.each([
+    ["a device token", { ...credentials.mcp, token: `lc_dev_${"aZ09".repeat(10)}xyz` }],
+    ["a user MCP token", { ...credentials.mcp, token: `lc_mcp_${"aZ09".repeat(10)}xyz` }],
+    ["a short token", { ...credentials.mcp, token: `lc_job_${"s".repeat(5)}` }],
+    ["an absolute URL", { ...credentials.mcp, endpoint: "https://evil.example/mcp" }],
+    ["a protocol-relative URL", { ...credentials.mcp, endpoint: "//evil.example/mcp" }],
+    ["a backslash path", { ...credentials.mcp, endpoint: "/\\evil.example/mcp" }],
+    ["a relative path", { ...credentials.mcp, endpoint: "mcp" }],
+    ["a missing expiry", { endpoint: MCP_PATH, token }],
+  ])("rejects credentials with %s", (_name, mcp) => {
+    expect(parseServerMessage(withCredentials({ mcp })).ok).toBe(false);
+  });
+
+  it("rejects credentials without an mcp entry", () => {
+    expect(parseServerMessage(withCredentials({})).ok).toBe(false);
+  });
+
+  it("fits the longest analysis payload with credentials in one frame", () => {
+    const draft: ServerToAgentDraft = {
+      type: "job.assign",
+      payload: {
+        job: {
+          id: ids.job,
+          type: "kb.analyze_reference",
+          attempt: 1,
+          payload: {
+            projectId: ids.project,
+            entryId: ids.job,
+            url: `https://example.com/${"a".repeat(2_000)}`,
+            platform: "other",
+            transcript: "€".repeat(MAX_TRANSCRIPT_LENGTH),
+            likedReason: "€".repeat(2_000),
+          },
+          projectId: ids.project,
+        },
+        leaseMs: 600_000,
+        credentials,
+      },
+    };
+
+    expect(() => encode(draft)).not.toThrow();
   });
 });

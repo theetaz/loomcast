@@ -1,4 +1,4 @@
-import type { JobSummary, KbEntry, Message, Project } from "../src";
+import type { JobSummary, KbEntry, Message, Project, ReferenceAnalysis } from "../src";
 
 export const ids = {
   user: "4f6d1c2a-8b3e-4a5f-9c7d-1e2f3a4b5c6d",
@@ -66,3 +66,20 @@ export const kbEntry: KbEntry = {
   createdAt: at,
   updatedAt: at,
 };
+
+export const analysis: ReferenceAnalysis = {
+  hook: { text: "This one line saves you an hour", type: "bold-claim", timeToHookMs: 800 },
+  structure: [
+    { label: "Hook", startMs: 0, endMs: 2_000, summary: "States the payoff up front." },
+    { label: "Demo", startMs: 2_000, endMs: 24_000, summary: "Shows the command running." },
+  ],
+  pacing: { wordsPerMinute: 190, cutsPerMinute: 24, notes: "A cut on every sentence." },
+  retention: [{ technique: "Open loop", evidence: "Promises a second trick at the end." }],
+  visualStyle: "Terminal close-ups with bold captions.",
+  cta: "Follow for part two.",
+  takeaways: ["Show the result in the first second."],
+  applicability: "Fits the Rust series: lead with the compiler output.",
+};
+
+/** A fresh value per run, so the suite holds no credential-like literals. */
+export const fakeSecret = (label: string): string => `${label}-${crypto.randomUUID()}`;

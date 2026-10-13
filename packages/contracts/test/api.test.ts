@@ -6,8 +6,12 @@ import {
   CreateTokenRequestSchema,
   CreateTokenResponseSchema,
   CursorPageQuerySchema,
+  DEVICE_TOKEN_RE,
+  JOB_TOKEN_RE,
+  JobTokenSecretSchema,
   LoginRequestSchema,
   MAX_MESSAGE_TEXT_LENGTH,
+  MCP_TOKEN_RE,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_RE,
   PairRequestSchema,
@@ -18,6 +22,8 @@ import {
   type RouteBody,
   type RouteResponse,
   routes,
+  TOKEN_KINDS,
+  TOKEN_PREFIXES,
   UpdateProjectSchema,
 } from "../src";
 import { ids, job, message } from "./fixtures";
@@ -140,6 +146,32 @@ describe("token DTOs", () => {
     expect(CreateTokenResponseSchema.safeParse({ token, secret: "lc_mcp_short" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("token formats", () => {
+  const patterns = { mcp: MCP_TOKEN_RE, device: DEVICE_TOKEN_RE, job: JOB_TOKEN_RE };
+
+  it("has a distinct prefix for every token kind", () => {
+    expect(Object.keys(TOKEN_PREFIXES).sort()).toEqual([...TOKEN_KINDS].sort());
+    expect(new Set(Object.values(TOKEN_PREFIXES)).size).toBe(TOKEN_KINDS.length);
+    expect(TOKEN_PREFIXES.job).toBe("lc_job_");
+  });
+
+  it.each(TOKEN_KINDS)("matches only %s tokens with the %s pattern", (kind) => {
+    for (const other of TOKEN_KINDS) {
+      expect(patterns[kind].test(secret(TOKEN_PREFIXES[other]))).toBe(other === kind);
+    }
+  });
+
+  it.each([
+    ["too short", `lc_job_${"a".repeat(42)}`],
+    ["too long", `lc_job_${"a".repeat(44)}`],
+    ["not base62", `lc_job_${"a".repeat(42)}-`],
+    ["upper-case prefix", `LC_JOB_${"a".repeat(43)}`],
+    ["surrounding space", ` lc_job_${"a".repeat(43)}`],
+  ])("rejects a job token that is %s", (_name, value) => {
+    expect(JobTokenSecretSchema.safeParse(value).success).toBe(false);
   });
 });
 
