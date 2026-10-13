@@ -9,6 +9,7 @@ import {
   KB_CREATED_VIA,
   KB_ENTRY_KINDS,
   MESSAGE_ROLES,
+  OAUTH_PROVIDERS,
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
   PLATFORMS,
@@ -381,6 +382,7 @@ describe("pg enums", () => {
     channel_status: CHANNEL_STATUSES,
     post_status: POST_STATUSES,
     task_status: TASK_STATUSES,
+    oauth_provider: OAUTH_PROVIDERS,
   };
 
   it("hold exactly the contracts values, in order", async () => {

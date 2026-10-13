@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   DEFAULT_FORMAT_RULES,
+  OAUTH_CONNECTION_TTL_MS,
+  OAUTH_STATE_TTL_MS,
   type SkillFile,
   type SkillKind,
   skillChecksumInput,
@@ -24,8 +26,12 @@ import {
   type NewContentItemRow,
   type NewJobRow,
   type NewKbEntryRow,
+  type NewOAuthConnectionRow,
+  type NewOAuthStateRow,
   type NewScheduledPostRow,
   type NewUserRow,
+  oauthConnections,
+  oauthStates,
   projects,
   scheduledPosts,
   series,
@@ -301,4 +307,63 @@ export async function insertPost(db: Writer, values: PostFixture) {
   const [post] = await db.insert(scheduledPosts).values(postValues(values)).returning();
   if (post === undefined) throw new Error("post was not inserted");
   return post;
+}
+
+/**
+ * A sign-in state as `oauth.start` makes one: random bytes, of which only the SHA-256 is stored.
+ * Both are generated here; no secret is involved.
+ */
+export function oauthState() {
+  const value = randomBytes(32).toString("base64url");
+  return { value, hash: createHash("sha256").update(value).digest("hex") };
+}
+
+/** A sealed PKCE verifier as the token vault writes it: random bytes, no secret involved. */
+export function sealedPkce(keyVersion = 1) {
+  const { secretCiphertext, secretNonce } = sealedSecret(keyVersion);
+  return { pkceCiphertext: secretCiphertext, pkceNonce: secretNonce, keyVersion };
+}
+
+type OAuthStateFixture = Pick<NewOAuthStateRow, "userId"> & Partial<NewOAuthStateRow>;
+
+export async function insertOAuthState(db: Writer, values: OAuthStateFixture) {
+  const [state] = await db
+    .insert(oauthStates)
+    .values({
+      stateHash: oauthState().hash,
+      provider: "meta",
+      expiresAt: new Date(Date.now() + OAUTH_STATE_TTL_MS),
+      ...values,
+    })
+    .returning();
+  if (state === undefined) throw new Error("oauth state was not inserted");
+  return state;
+}
+
+type OAuthConnectionFixture = Pick<NewOAuthConnectionRow, "userId"> &
+  Partial<NewOAuthConnectionRow>;
+
+/** A pending connection with a sealed secret and one Facebook Page candidate. */
+export async function insertOAuthConnection(db: Writer, values: OAuthConnectionFixture) {
+  const pageId = `page-${randomUUID()}`;
+  const [connection] = await db
+    .insert(oauthConnections)
+    .values({
+      provider: "meta",
+      ...sealedSecret(),
+      candidates: [
+        {
+          id: `facebook:${pageId}`,
+          platform: "facebook",
+          externalId: pageId,
+          name: "Test Page",
+          parentId: null,
+        },
+      ],
+      expiresAt: new Date(Date.now() + OAUTH_CONNECTION_TTL_MS),
+      ...values,
+    })
+    .returning();
+  if (connection === undefined) throw new Error("oauth connection was not inserted");
+  return connection;
 }

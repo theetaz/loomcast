@@ -251,3 +251,52 @@ describe("series_channels", () => {
     expect(links.map((link) => [link.seriesId, link.channelId])).toEqual([[second.id, channel.id]]);
   });
 });
+
+describe("channel health", () => {
+  it("starts empty, then records the last check, refusal and usage report", async () => {
+    const channel = await insertActiveChannel(testDb.db, { platform: "facebook" });
+    expect(channel).toMatchObject({ lastVerifiedAt: null, lastError: null, rateLimit: null });
+
+    const verifiedAt = new Date(Date.UTC(2026, 9, 13, 3));
+    const lastError = {
+      code: "auth" as const,
+      retryable: false,
+      platformCode: "190",
+      message: "The session was invalidated",
+    };
+    const rateLimit = { app: { call_count: 12, total_time: 3, total_cputime: 2 } };
+    const [updated] = await testDb.db
+      .update(channels)
+      .set({ status: "needs_reauth", lastVerifiedAt: verifiedAt, lastError, rateLimit })
+      .where(eq(channels.id, channel.id))
+      .returning();
+    expect(updated).toMatchObject({ lastVerifiedAt: verifiedAt, lastError, rateLimit });
+
+    const dto = ChannelSchema.parse({
+      ...updated,
+      connected: true,
+      liveBlocker: null,
+      lastVerifiedAt: verifiedAt.toISOString(),
+      createdAt: channel.createdAt.toISOString(),
+      updatedAt: channel.updatedAt.toISOString(),
+    });
+    expect(dto.lastError).toEqual(lastError);
+    expect(dto).not.toHaveProperty("rateLimit");
+  });
+
+  it("keeps the refusal and the usage report as JSON objects", async () => {
+    const channel = await insertActiveChannel(testDb.db);
+    for (const [column, constraint] of [
+      ["last_error", "channels_last_error_ck"],
+      ["rate_limit", "channels_rate_limit_ck"],
+    ] as const) {
+      expect(
+        await pgError(
+          testDb.db.execute(
+            sql`update channels set ${sql.identifier(column)} = '[]'::jsonb where id = ${channel.id}`,
+          ),
+        ),
+      ).toEqual({ code: PG.checkViolation, constraint });
+    }
+  });
+});

@@ -5,7 +5,7 @@ harness for Loomcast. The package is consumed as TypeScript source.
 
 | Import | Contents |
 |---|---|
-| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `enqueueTask`, `claimDueTasks`, `extendLease`, `completeTask`, `retryTask`, `KB_FIXTURES`, `seedKb` |
+| `@loomcast/db` | `createDb`, `migrate`, `MIGRATIONS_FOLDER`, every table, enum and row type, `kbSearch`, `nextVersionNo`, `nextFormatVersionNo`, `nextSkillVersion`, `enqueueTask`, `claimDueTasks`, `extendLease`, `completeTask`, `retryTask`, `consumeOAuthState`, `consumeOAuthConnection`, `purgeExpiredOAuth`, `latestPostMetrics`, `KB_FIXTURES`, `seedKb` |
 | `@loomcast/db/schema` | Tables, pg enums and row types only |
 | `@loomcast/db/testing` | `setupTemplate` and `createTestDb` for vitest |
 
@@ -140,6 +140,10 @@ with `enabled`).
   planning channels have a null `external_id`. An Instagram account published through a Facebook
   Page points at the Page's channel with `parent_channel_id` (set null if the Page is deleted).
 - A channel with posts cannot be deleted (`scheduled_posts_channel_id_channels_id_fk`); disable it.
+- **Health.** `last_verified_at` is when the daily check last found the credentials valid,
+  `last_error` the `PublishError` of the last refusal (cleared by a successful check or
+  reconnect), and `rate_limit` the platform's last usage report as a JSON object. None of them
+  holds a credential.
 
 **Posts** (`scheduled_posts`) put one item on one channel at one time.
 
@@ -182,6 +186,68 @@ The partial indexes of these tables compare enum literals (`status <> 'cancelled
 because `post_status` and `task_status` are created, not extended, by the migrations that create
 the indexes. A later migration that adds a value to either type must not use it in the same
 batch.
+
+## Post metrics
+
+`post_metrics` is the time series of a published post's insights: one row per capture, appended
+on the contracts' `insightsSchedule`. A row holds running totals, not deltas, so the latest capture
+is the post's current performance.
+
+- `views`, `likes`, `comments`, `shares`, `saves` and `reach` are `bigint` and `avg_watch_ms` an
+  `integer`; each is null when the platform does not report it, never negative
+  (`post_metrics_counts_ck`). Null is not zero: `aggregatePosts` decides how to count it.
+- `raw` is the platform's answer as a JSON object, for metrics without a column. Strip credentials
+  before inserting it: Graph API paging links carry an access token.
+- `post_metrics_post_id_captured_at_idx` is `(post_id, captured_at desc)`, so a post's history
+  newest first (`where post_id = $1 order by captured_at desc`) and the latest capture per post
+  come from the index. `latestPostMetrics(db, postIds)` returns that latest row for each post that
+  has one (`distinct on (post_id)`); give `aggregatePosts` a `null` for the others.
+- The ids are a `bigserial`. Deleting the post deletes its captures.
+
+## OAuth sign-ins and pending connections
+
+Connecting a channel goes through two short-lived tables. Neither stores an OAuth code, a state
+or a token in the clear.
+
+**Sign-in states** (`oauth_states`) are written by `oauth.start` and read once by the callback.
+
+- `state_hash` is the SHA-256 of the state sent to the platform, as lowercase hex
+  (`oauth_states_state_hash_ck`); the state itself is never stored. It is unique
+  (`oauth_states_state_hash_uq`).
+- A PKCE code verifier, when the provider uses one, is token-vault output in `pkce_ciphertext`
+  (GCM tag appended), `pkce_nonce` (12 bytes) and `key_version`, set or cleared together
+  (`oauth_states_pkce_ck`), with the same size checks as the channel columns.
+- `redirect_to` is an app path (`oauth_states_redirect_to_ck`: starts with `/`, at most
+  `OAUTH_REDIRECT_TO_MAX_LENGTH`); validate it with `OAuthRedirectToSchema` first.
+- `expires_at` is `OAUTH_STATE_TTL_MS` (10 minutes) after creation and must be later than
+  `created_at`.
+- `consumeOAuthState(db, { stateHash, provider, userId, now? })` consumes a state in one
+  statement: it must match the hash, provider and user, be unused and unexpired. It returns the
+  row with its sealed verifier and leaves it used with the verifier cleared
+  (`oauth_states_pkce_used_ck` keeps used states without one). It returns null for an unknown,
+  expired, used or foreign state, and concurrent callbacks consume a state at most once. A refusal
+  never uses the state up.
+
+**Pending connections** (`oauth_connections`) are written by the callback and accepted once.
+
+- The tokens are sealed with the same columns and format as `channels`: `secret_ciphertext`,
+  `secret_nonce` and `key_version`, set or cleared together (`oauth_connections_secret_ck`). Key
+  rotation must cover this table too.
+- `candidates` is the JSON array of accounts the sign-in offers, at most
+  `MAX_CONNECTION_ACCOUNTS` (`oauth_connections_candidates_ck`), each an `OAuthCandidateRow`:
+  the contracts' `CandidateAccount` without `alreadyConnected`, which is computed on read. No
+  credential goes in it.
+- A pending connection has a secret and a consumed one has none
+  (`oauth_connections_consumed_ck`). `consumeOAuthConnection(db, { id, userId, now? })` checks the
+  user and expiry, sets `consumed_at`, clears the secret and returns the row with the secret it
+  had, or null. Call it in the transaction that creates the channels, so a failed accept leaves
+  the connection pending.
+- `expires_at` is `OAUTH_CONNECTION_TTL_MS` (30 minutes) after the callback.
+
+Both tables cascade from `users`. `purgeExpiredOAuth(db, { now? })` deletes every state and
+connection whose `expires_at` has passed, used or not, through `oauth_states_expires_at_idx` and
+`oauth_connections_expires_at_idx`, and returns the counts. `provider` is the `oauth_provider` enum,
+built from `OAUTH_PROVIDERS`.
 
 ## Knowledge-base search
 
