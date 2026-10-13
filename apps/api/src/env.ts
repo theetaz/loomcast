@@ -64,6 +64,9 @@ export const DEFAULT_META_GRAPH_BASE_URL = "https://graph.facebook.com";
 /** The Threads API host. Tests and E2E runs may point `THREADS_GRAPH_BASE_URL` at a fake. */
 export const DEFAULT_THREADS_GRAPH_BASE_URL = "https://graph.threads.net";
 
+/** The X API host. Tests and E2E runs may point `X_API_BASE_URL` at a fake. */
+export const DEFAULT_X_API_BASE_URL = "https://api.x.com";
+
 /** A base URL without a trailing slash; an empty value counts as unset. */
 const optionalBaseUrl = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
@@ -77,6 +80,7 @@ const optionalBaseUrl = z.preprocess(
 const OAUTH_PROVIDER_KEYS = {
   meta: ["META_APP_ID", "META_APP_SECRET", "META_LOGIN_CONFIG_ID"],
   threads: ["THREADS_APP_ID", "THREADS_APP_SECRET"],
+  x: ["X_CLIENT_ID", "X_CLIENT_SECRET"],
 } as const;
 
 const PlatformsEnvShape = {
@@ -97,6 +101,18 @@ const PlatformsEnvShape = {
   THREADS_APP_ID: optionalText,
   THREADS_APP_SECRET: optionalText,
   THREADS_GRAPH_BASE_URL: optionalBaseUrl,
+  /**
+   * X publishing feature flag, off by default. While it is off nothing is sent to X: X is not
+   * offered for connecting, X channels cannot be created and the X adapter refuses every post.
+   */
+  FEATURE_X_PUBLISHING: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.stringbool().default(false),
+  ),
+  /** X app OAuth 2.0 client id and secret (a confidential client). */
+  X_CLIENT_ID: optionalText,
+  X_CLIENT_SECRET: optionalText,
+  X_API_BASE_URL: optionalBaseUrl,
 };
 
 interface PlatformsEnv {
@@ -108,6 +124,10 @@ interface PlatformsEnv {
   THREADS_APP_ID?: string | undefined;
   THREADS_APP_SECRET?: string | undefined;
   THREADS_GRAPH_BASE_URL?: string | undefined;
+  FEATURE_X_PUBLISHING: boolean;
+  X_CLIENT_ID?: string | undefined;
+  X_CLIENT_SECRET?: string | undefined;
+  X_API_BASE_URL?: string | undefined;
 }
 
 /** Each provider's settings are all set or all unset. Messages never include the values. */
@@ -360,6 +380,12 @@ export interface ThreadsAppConfig {
   appSecret: string;
 }
 
+/** The X app: an OAuth 2.0 confidential client. */
+export interface XAppConfig {
+  clientId: string;
+  clientSecret: string;
+}
+
 export interface PlatformsConfig {
   /** Origin the OAuth redirect URIs start with (`OAUTH_REDIRECT_BASE`, default `APP_ORIGIN`). */
   redirectBase: string;
@@ -373,6 +399,15 @@ export interface PlatformsConfig {
   meta: MetaAppConfig | null;
   /** Null until `THREADS_APP_ID` and `THREADS_APP_SECRET` are set. */
   threads: ThreadsAppConfig | null;
+  /**
+   * `FEATURE_X_PUBLISHING`. Absent or false: X is off and nothing is ever sent to it. Optional so
+   * settings built before X existed read as off.
+   */
+  xPublishing?: boolean;
+  /** Null (or absent) until `X_CLIENT_ID` and `X_CLIENT_SECRET` are set. */
+  x?: XAppConfig | null;
+  /** X API host, without a trailing slash. Absent means `DEFAULT_X_API_BASE_URL`. */
+  xApiBaseUrl?: string;
 }
 
 export interface SchedulerConfig {
@@ -476,6 +511,12 @@ function platformsConfig(values: PlatformsEnv): Omit<PlatformsConfig, "redirectB
       values.THREADS_APP_ID === undefined || values.THREADS_APP_SECRET === undefined
         ? null
         : { appId: values.THREADS_APP_ID, appSecret: values.THREADS_APP_SECRET },
+    // The X settings appear only once set: absent reads as off, unconfigured and the default host.
+    ...(values.FEATURE_X_PUBLISHING ? { xPublishing: true } : {}),
+    ...(values.X_CLIENT_ID === undefined || values.X_CLIENT_SECRET === undefined
+      ? {}
+      : { x: { clientId: values.X_CLIENT_ID, clientSecret: values.X_CLIENT_SECRET } }),
+    ...(values.X_API_BASE_URL === undefined ? {} : { xApiBaseUrl: values.X_API_BASE_URL }),
   };
 }
 
