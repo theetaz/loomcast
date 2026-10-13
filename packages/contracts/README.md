@@ -354,10 +354,15 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 | `post.publish` | `{postId}` | 5 | 1 min | 5 min |
 | `post.check_status` | `{postId, since}` | 5 | 15 s | 1 min |
 | `assets.cleanup` | `{}` | 3 | 5 min | 10 min |
+| `channel.refresh_token` | `{channelId?}` (every connected channel when left out) | 3 | 2 min | 5 min |
+| `channel.verify` | `{channelId?}` (every connected channel when left out) | 3 | 5 min | 5 min |
+| `insights.pull` | `{postId}` | 4 | 5 min | 2 min |
 
 - A failed run is retried after `taskRetryDelayMs(backoffBaseMs, attempt)`: `min(base · 2^(attempt − 1), 1 h)`, varied by ±20%. After `maxAttempts` failed runs the task is `dead`.
 - The lease is extended every `leaseMs / 2` while the handler runs. `cadence.plan` and `assets.cleanup` recur every hour (`RECURRING_TASK_INTERVAL_MS`).
 - `post.check_status` polls every 15 s, backing off to 60 s, and gives up 20 minutes after `since` (`POST_STATUS_POLL_INITIAL_MS`, `POST_STATUS_POLL_MAX_MS`, `POST_STATUS_TIMEOUT_MS`).
+- `channel.refresh_token` and `channel.verify` sweep every connected channel once a day (`DAILY_TASK_INTERVAL_MS`). `TOKEN_REFRESH_LEAD_MS` says how long before expiry each provider's credentials are refreshed: never for `meta` (Page credentials do not expire; they are only verified), 15 days for `threads`, and 10 minutes for `x`, whose channels each get their own `{channelId}` task.
+- `insights.pull` runs once per time of `insightsSchedule(publishedAt)` after a post goes live.
 - Use `isScheduledTaskKind` and `parseScheduledTaskPayload(kind, payload)` rather than reading schemas by hand.
 
 ### Channels, posts and the calendar
