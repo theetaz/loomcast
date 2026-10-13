@@ -19,6 +19,7 @@ import { register as registerJobs } from "./modules/jobs";
 import { register as registerMcp } from "./modules/mcp";
 import { register as registerProjects } from "./modules/projects";
 import { register as registerStream } from "./modules/stream";
+import { createTokensService, register as registerTokens } from "./modules/tokens";
 import type { AppEnv } from "./types";
 
 /** Largest request body accepted on `/api/*`. */
@@ -73,9 +74,10 @@ export interface CreateAppOptions {
 export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<AppEnv> {
   const { config, logger } = deps;
   const sessions = createSessionsService(deps);
-  const auth = createAuthGuards({ config, clock: deps.clock, sessions });
+  const tokens = createTokensService(deps);
+  const auth = createAuthGuards({ config, clock: deps.clock, sessions, tokens });
   const presence: Presence = { connectedDevices: () => NO_DEVICES };
-  const moduleDeps: ModuleDeps = { ...deps, sessions, auth, presence };
+  const moduleDeps: ModuleDeps = { ...deps, sessions, tokens, auth, presence };
 
   const app = new Hono<AppEnv>();
 
@@ -91,7 +93,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
       path: c.req.path,
       status,
       durationMs: Math.round(performance.now() - started),
-      userId: c.get("user")?.id,
+      userId: c.get("user")?.id ?? c.get("token")?.user.id,
     };
     if (status >= 500) {
       log.error(fields, "request failed");
@@ -154,6 +156,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   });
 
   registerAuth(app, moduleDeps);
+  registerTokens(app, moduleDeps);
   registerProjects(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerStream(app, moduleDeps);

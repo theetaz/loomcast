@@ -22,6 +22,7 @@ export {
   type AuthGuards,
   createAuthGuards,
   currentSession,
+  currentToken,
   currentUser,
 } from "./guards";
 export { createSessionsService, type SessionsService } from "./sessions";

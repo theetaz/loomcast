@@ -7,6 +7,7 @@ import type { Lifecycle } from "./lib/lifecycle";
 import type { Logger } from "./lib/logger";
 import type { AuthGuards } from "./modules/auth/guards";
 import type { SessionsService } from "./modules/auth/sessions";
+import type { TokensService } from "./modules/tokens/service";
 import type { AppEnv } from "./types";
 
 /** What `createApp` needs from outside. Tests build their own with a test database and clock. */
@@ -31,6 +32,7 @@ export interface Presence {
 /** What every module's `register` receives: the app deps plus the shared services and guards. */
 export interface ModuleDeps extends AppDeps {
   sessions: SessionsService;
+  tokens: TokensService;
   auth: AuthGuards;
   presence: Presence;
 }
