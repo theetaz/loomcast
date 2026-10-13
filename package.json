@@ -14,7 +14,7 @@
     "test": "pnpm -r --if-present test",
     "lint": "biome ci .",
     "format": "biome check --write .",
-    "test:e2e": "pnpm --filter @loomcast/e2e test",
+    "test:e2e": "pnpm --filter @loomcast/e2e test:e2e",
     "db:generate": "pnpm --filter @loomcast/db run generate",
     "db:migrate": "pnpm --filter @loomcast/db run migrate",
     "db:studio": "pnpm --filter @loomcast/db run studio",

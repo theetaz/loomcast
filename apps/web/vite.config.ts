@@ -8,7 +8,8 @@ import { defineConfig } from "vite";
 import { sharedVitestConfig } from "../../vitest.shared.ts";
 import { themeInit } from "./vite/theme-init.ts";
 
-const API_TARGET = "http://127.0.0.1:8790";
+// The API the dev server proxies to. The end-to-end tests point it at an API on a free port.
+const API_TARGET = process.env.LOOMCAST_API_URL ?? "http://127.0.0.1:8790";
 
 // `vite --mode mock` serves the app against the in-browser mock API (src/mocks).
 export default defineConfig(({ mode }) => ({
@@ -29,6 +30,10 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       // REST and the `/api/stream` server-sent events.
       "/api": { target: API_TARGET, changeOrigin: false },
+      // MCP clients may use the web origin shown in Settings, as in production.
+      "/mcp": { target: API_TARGET, changeOrigin: false },
+      // The bridge, for a studio agent paired with the web origin (`--server http://localhost:5173`).
+      "/bridge": { target: API_TARGET, changeOrigin: false, ws: true },
       // Reserved for WebSocket endpoints.
       "/live": { target: API_TARGET, ws: true },
     },

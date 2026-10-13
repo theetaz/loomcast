@@ -98,6 +98,41 @@ Publish bus events only once the data is committed. Run writes in `transaction(d
 for `job.enqueued`. Internal events (`job.enqueued`, `device.revoked`) never reach
 `bus.subscribeLive`, which feeds the browser stream.
 
+## Bridge and jobs
+
+The bridge module (`src/modules/bridge/`) is the `/bridge/v1` WebSocket hub for studio agents;
+the protocol is described in [docs/bridge-protocol.md](../../docs/bridge-protocol.md).
+
+- **Only under `startServer`.** The hub attaches to the Node server's `upgrade` event through
+  `deps.httpServer`, so it runs on the API's own port when the app is served by `startServer`,
+  and not at all under `app.request()`. In development the agent connects to
+  `http://127.0.0.1:8790`, or to `http://localhost:5173` through the Vite proxy (`/bridge` with
+  `ws: true`).
+- **Reverse proxies** must pass `Upgrade` and `Connection` and keep the read timeout above 20
+  seconds, the server's ping interval.
+- **Presence.** The hub replaces `deps.presence.connectedDevices()` with the devices whose
+  connection completed `hello`, and publishes `device.status` when one connects or disconnects.
+- **Dispatch.** `createDispatcher` (in `modules/jobs`) claims queued jobs for connected agents
+  with `FOR UPDATE SKIP LOCKED`, by advertised job type, free credits and device affinity. A
+  round runs on `hello`, `credits`, `job.enqueued`, every finished job, and every 5 seconds.
+  Enqueue with `deps.jobs.enqueue(tx, …)` inside `transaction()`, so dispatch starts after the
+  commit.
+- **Lifecycle.** `createJobLifecycle` applies every status change in its own transaction and
+  publishes `job.updated`; messages about a job count only from the device that claimed it. The
+  reaper (`createReaper`, every 15 seconds) applies the registry's lease-expiry policy, and the
+  dispatch tick re-queues jobs not accepted within 30 seconds.
+- **Per-type side effects** are `JobTypeHooks` (`onEvent`, `onSucceeded`) in
+  `modules/jobs/handlers/`, registered in `defaultJobHooks`. `producer.chat` turns
+  `assistant.message` events into conversation messages and stores the producer session id and
+  device on the conversation.
+- **Shutdown.** The lifecycle hook closes every agent connection with `1001`, stops the timers
+  and waits up to 5 seconds for messages already received.
+
+`configureBridge(server, options)` sets the hub's timings before `createApp` runs, and
+`bridgeHubFor(server)` returns the hub. Tests use `startBridgeServer` and `FakeAgent` from
+`test/bridge-support.ts`, which serve the app on an ephemeral port with the background timers
+off, so a test drives sweeps and dispatch rounds itself.
+
 ## Admin CLI
 
 ```bash

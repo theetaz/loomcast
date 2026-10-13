@@ -1,0 +1,24 @@
+{
+  "name": "@loomcast/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end smoke tests: the API and web app in a browser, with a fake studio agent on the bridge",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "fake-agent": "tsx support/fake-agent.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@loomcast/contracts": "workspace:*",
+    "@loomcast/db": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "@types/ws": "catalog:",
+    "pg": "catalog:",
+    "playwright": "^1.59.1",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "ws": "catalog:"
+  }
+}

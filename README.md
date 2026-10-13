@@ -50,13 +50,26 @@ cd loomcast
 pnpm install
 cp .env.example .env                 # placeholders; fill only the keys you need
 cp studio/.env.example studio/.env   # fill only the keys you need
-pnpm stack:up                        # local Postgres in Docker
-pnpm dev                             # API and web app
+pnpm stack:up                        # local Postgres and object storage in Docker
+pnpm db:migrate
+pnpm admin:create --email you@example.com --name "Your Name" --role owner
+pnpm dev                             # API on :8790, web app on http://localhost:5173
 ```
 
-Other root scripts: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` and `pnpm stack:down`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full list of checks.
+Other root scripts: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm build` and `pnpm stack:down`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full list of checks, and the [local development guide](docs/local-development.md) for pairing a studio agent, connecting an MCP client and troubleshooting.
 
 Open `design/brand/loomcast-brand.html` in a browser to see the theme and components.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [Architecture](docs/architecture.md) | Components, decisions, data model, live events and the security model |
+| [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, tests, the M1 acceptance runbook and troubleshooting |
+| [Bridge protocol](docs/bridge-protocol.md) | Pairing, the `/bridge/v1` WebSocket protocol, the job lifecycle and its reliability rules |
+| [MCP server](docs/mcp.md) | Endpoint, authentication, client configuration and the tool reference |
+
+Each app and package also has a README: [`apps/api`](apps/api/README.md), [`apps/web`](apps/web/README.md), [`apps/studio-agent`](apps/studio-agent/README.md), [`packages/contracts`](packages/contracts/README.md), [`packages/db`](packages/db/README.md) and [`packages/ui`](packages/ui/README.md).
 
 ## Contributing
 

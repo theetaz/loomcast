@@ -593,6 +593,39 @@ importers:
         specifier: ^1.59.1
         version: 1.64.0
 
+  tests/e2e:
+    devDependencies:
+      '@loomcast/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@loomcast/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
+      '@types/ws':
+        specifier: 'catalog:'
+        version: 8.18.2
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
+      playwright:
+        specifier: ^1.59.1
+        version: 1.64.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      ws:
+        specifier: 'catalog:'
+        version: 8.22.0
+
 packages:
 
   '@adobe/css-tools@4.5.0':
