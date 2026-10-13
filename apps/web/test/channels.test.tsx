@@ -85,7 +85,7 @@ describe("channel settings", () => {
     expect(requests.some((request) => request.method === "PATCH")).toBe(false);
   });
 
-  it("lets a channel go live after a confirmation once the server allows it", async () => {
+  it("lets a channel go live after a typed confirmation once the server allows it", async () => {
     const { db, channels } = channelsSetup({ mode: "live" });
     const requests = recordRequests();
     const { user } = renderApp("/settings/channels", db);
@@ -105,9 +105,9 @@ describe("channel settings", () => {
     expect(requests.some((request) => request.method === "PATCH")).toBe(false);
 
     await user.click(dryRunSwitch(PAGE));
-    await user.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish live" }),
-    );
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(within(dialog).getByLabelText("Type publish live to confirm"), "publish live");
+    await user.click(within(dialog).getByRole("button", { name: "Publish live" }));
     await waitFor(() => expect(dryRunSwitch(PAGE)).not.toBeChecked());
     expect(requests.find((request) => request.method === "PATCH")).toMatchObject({
       path: `/api/channels/${channels.page.id}`,
@@ -143,9 +143,9 @@ describe("channel settings", () => {
     if (page) page.status = "needs_reauth";
 
     await user.click(dryRunSwitch(PAGE));
-    await user.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish live" }),
-    );
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(within(dialog).getByLabelText("Type publish live to confirm"), "publish live");
+    await user.click(within(dialog).getByRole("button", { name: "Publish live" }));
     const title = await screen.findByText(`${PAGE} can't leave dry-run`);
     const notice = title.closest("[data-sonner-toast]");
     if (!(notice instanceof HTMLElement)) throw new Error("expected a toast");

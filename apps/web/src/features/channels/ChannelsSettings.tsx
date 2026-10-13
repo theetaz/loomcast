@@ -1,4 +1,8 @@
-import { type Channel, LivePublishingBlockerSchema } from "@loomcast/contracts";
+import {
+  type Channel,
+  LivePublishingBlockerSchema,
+  oauthProviderForPlatform,
+} from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { PlusIcon, RadioTowerIcon } from "lucide-react";
@@ -12,6 +16,10 @@ import { useNow } from "@/lib/use-now";
 import { AddChannelDialog } from "./AddChannelDialog";
 import { ChannelRow } from "./ChannelRow";
 import { ConnectButton } from "./ConnectButton";
+import { startOAuth } from "./connect/navigation";
+import { connectProviders } from "./connect/providers";
+import { useXPublishing } from "./connect/queries";
+import { DisconnectChannelDialog } from "./DisconnectChannelDialog";
 import { GoLiveDialog } from "./GoLiveDialog";
 import { PublisherBanner } from "./PublisherBanner";
 import { channelLabel, sortChannels } from "./platforms";
@@ -42,7 +50,7 @@ function reportFailure(error: Error, { channel }: UpdateChannelInput) {
 
 /**
  * Settings → Channels: every channel with its status and switches, the server's dry-run banner,
- * planning channels, and the place connecting accounts starts.
+ * planning channels, connecting and reconnecting accounts, and disconnecting them.
  */
 export function ChannelsSettings() {
   useChannelsLive();
@@ -51,6 +59,9 @@ export function ChannelsSettings() {
   const update = useUpdateChannel({ onFailure: reportFailure });
   const [goingLive, setGoingLive] = useState<Channel | null>(null);
   const [renaming, setRenaming] = useState<Channel | null>(null);
+  const [disconnecting, setDisconnecting] = useState<Channel | null>(null);
+  const providers = connectProviders(useXPublishing());
+  const reconnect = (channel: Channel) => startOAuth(oauthProviderForPlatform(channel.platform));
   const channels = useMemo(() => sortChannels(query.data?.items ?? []), [query.data]);
 
   const save = (channel: Channel, change: { dryRun?: boolean; requiresApproval?: boolean }) =>
@@ -120,6 +131,12 @@ export function ChannelsSettings() {
                   save(target, { requiresApproval })
                 }
                 onRename={setRenaming}
+                onReconnect={
+                  providers.includes(oauthProviderForPlatform(channel.platform))
+                    ? reconnect
+                    : undefined
+                }
+                onDisconnect={setDisconnecting}
               />
             ))}
           </ul>
@@ -139,6 +156,7 @@ export function ChannelsSettings() {
         }}
       />
       <RenameChannelDialog channel={renaming} onClose={() => setRenaming(null)} />
+      <DisconnectChannelDialog channel={disconnecting} onClose={() => setDisconnecting(null)} />
     </div>
   );
 }

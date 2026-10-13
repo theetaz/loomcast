@@ -4,11 +4,19 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@loomcast/ui/components/dropdown-menu";
 import { StatusPill } from "@loomcast/ui/components/StatusPill";
 import { cn } from "@loomcast/ui/lib/cn";
-import { LockIcon, MoreHorizontalIcon, PencilIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  LockIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  TriangleAlertIcon,
+  UnplugIcon,
+} from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { RelativeTime } from "@/components/RelativeTime";
 import { channelLabel, PlatformTile, platformLabel } from "./platforms";
@@ -22,6 +30,10 @@ export interface ChannelRowProps {
   onDryRunChange: (channel: Channel, dryRun: boolean) => void;
   onRequiresApprovalChange: (channel: Channel, requiresApproval: boolean) => void;
   onRename: (channel: Channel) => void;
+  /** Signs in again with the channel's platform; absent while the server can't connect it. */
+  onReconnect?: (channel: Channel) => void;
+  /** Asks to disconnect the channel; the page confirms first. */
+  onDisconnect: (channel: Channel) => void;
 }
 
 /**
@@ -35,12 +47,15 @@ export function ChannelRow({
   onDryRunChange,
   onRequiresApprovalChange,
   onRename,
+  onReconnect,
+  onDisconnect,
 }: ChannelRowProps) {
   const id = useId();
   const label = channelLabel(channel);
   const dryRun = dryRunSwitchState(channel);
   const expiry = tokenExpiryWarning(channel, now);
   const locked = isPlatformLocked(channel);
+  const needsReauth = channel.status === "needs_reauth";
 
   return (
     <li
@@ -86,7 +101,7 @@ export function ChannelRow({
             <span>Planning channel, no account connected</span>
           )}
         </p>
-        {channel.lastError ? (
+        {channel.lastError && !needsReauth ? (
           <Notice tone="red">
             The platform refused the stored access: {channel.lastError.message}
           </Notice>
@@ -127,9 +142,25 @@ export function ChannelRow({
               <PencilIcon aria-hidden="true" />
               Rename…
             </DropdownMenuItem>
+            {channel.connected && onReconnect ? (
+              <DropdownMenuItem onSelect={() => onReconnect(channel)}>
+                <RefreshCwIcon aria-hidden="true" />
+                Reconnect
+              </DropdownMenuItem>
+            ) : null}
+            {channel.connected ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onDisconnect(channel)}>
+                  <UnplugIcon aria-hidden="true" />
+                  Disconnect…
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {needsReauth ? <ReauthBanner channel={channel} onReconnect={onReconnect} /> : null}
     </li>
   );
 }
@@ -145,5 +176,47 @@ function Notice({ tone, children }: { tone: "red" | "amber"; children: ReactNode
       <TriangleAlertIcon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
       <span className="min-w-0 text-pretty">{children}</span>
     </p>
+  );
+}
+
+/**
+ * A channel that needs reconnecting: the platform refused its stored access, so nothing publishes
+ * until the user signs in again. Reconnecting keeps the channel's name, switches and posts.
+ */
+function ReauthBanner({
+  channel,
+  onReconnect,
+}: {
+  channel: Channel;
+  onReconnect: ((channel: Channel) => void) | undefined;
+}) {
+  const platform = platformLabel(channel.platform);
+  return (
+    <div
+      data-reauth=""
+      className="flex basis-full flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-status-amber/11 px-3 py-2 sm:ml-10"
+    >
+      <TriangleAlertIcon aria-hidden="true" className="size-4 shrink-0 text-status-amber" />
+      <div className="min-w-0 flex-1 basis-48 text-small text-pretty">
+        <p className="font-medium text-foreground">
+          Reconnect to keep publishing. Nothing posts to {platform} until you do.
+        </p>
+        {channel.lastError ? (
+          <p className="text-muted-foreground">
+            The platform refused the stored access: {channel.lastError.message}
+          </p>
+        ) : null}
+      </div>
+      {onReconnect ? (
+        <Button size="sm" onClick={() => onReconnect(channel)}>
+          <RefreshCwIcon aria-hidden="true" />
+          Reconnect
+        </Button>
+      ) : (
+        <span className="text-small text-muted-foreground">
+          Connecting {platform} isn't available on this server.
+        </span>
+      )}
+    </div>
   );
 }

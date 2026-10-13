@@ -3,6 +3,7 @@ import {
   type LivePublishingBlocker,
   oauthProviderForPlatform,
   type Platform,
+  type PublisherStatus,
   TOKEN_REFRESH_LEAD_MS,
 } from "@loomcast/contracts";
 import { platformLabel } from "./platforms";
@@ -86,4 +87,57 @@ export function tokenExpiryWarning(
     tone: "amber",
     message: `Access expires ${inDays(left)}. Reconnect the account if it isn't renewed.`,
   };
+}
+
+/** The words that confirm going live, typed by the user. */
+export const GO_LIVE_PHRASE = "publish live";
+
+/** Whether `typed` confirms going live: the phrase exactly, ignoring surrounding spaces. */
+export function confirmsGoLive(typed: string): boolean {
+  return typed.trim() === GO_LIVE_PHRASE;
+}
+
+export interface GoLivePrecondition {
+  id: "connected" | "active" | "server_live" | "platform" | "publishing_running";
+  label: string;
+  met: boolean;
+  /** A precondition that only warns: the channel can go live without it. */
+  advisory?: boolean;
+}
+
+/**
+ * What the server checks before a channel leaves dry-run, from the channel's `liveBlocker` and
+ * the publisher's switches, in the order the server checks them. Publishing being paused does not
+ * block going live; due posts wait until it resumes.
+ */
+export function goLivePreconditions(
+  channel: Pick<Channel, "connected" | "status" | "liveBlocker" | "platform">,
+  publisher: Pick<PublisherStatus, "mode" | "enabled"> | undefined,
+): GoLivePrecondition[] {
+  const blocker = channel.liveBlocker;
+  const conditions: GoLivePrecondition[] = [
+    {
+      id: "platform",
+      label: `Live publishing to ${platformLabel(channel.platform)} is available`,
+      met: blocker !== "platform_unavailable",
+    },
+    { id: "connected", label: "The account is connected", met: channel.connected },
+    { id: "active", label: "The channel is active", met: channel.status === "active" },
+    {
+      id: "server_live",
+      label: "The server publishes live",
+      met: publisher ? publisher.mode === "live" : blocker !== "publishing_dry_run",
+    },
+  ];
+  if (publisher) {
+    conditions.push({
+      id: "publishing_running",
+      label: publisher.enabled
+        ? "Publishing is running"
+        : "Publishing is paused: due posts wait until it resumes",
+      met: publisher.enabled,
+      advisory: true,
+    });
+  }
+  return conditions;
 }
