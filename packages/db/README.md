@@ -60,9 +60,9 @@ pending migration in **one** transaction. So keep the `ADD VALUE` statements in 
 their own, and never use a new value (in a default, a check, an index predicate or an update)
 in any migration that may run in the same batch. Compare as text instead, as
 `api_tokens_job_id_ck` does with `kind::text = 'job'`. Index predicates are the exception: they
-must be immutable and an enum-to-text cast is not, so a partial index can only compare an enum
-whose type the same migration creates (as `assets_project_id_kind_sha256_uq` does), never a value
-added by `ADD VALUE`.
+must be immutable and an enum-to-text cast is not, so a partial index can only compare a value
+the enum type was created with (as the assets dedupe indexes compare `asset_status` 'failed',
+created by `0007` and recreated by `0013`), never a value added by `ADD VALUE`.
 
 **Hand-edited statements.** drizzle-kit cannot mark a foreign key `DEFERRABLE`, and it emits
 foreign keys before the unique indexes that composite keys reference. Migrations `0005` to `0007`
@@ -109,11 +109,16 @@ parent always points at its current version (`current_version_id` is never null)
 - **Idempotent job results.** `content_versions_job_id_uq` allows one version per job. Store a job
   result with ``onConflictDoNothing({ target: contentVersions.jobId, where: sql`job_id is not null` })``,
   or treat `23505` on that constraint as "already stored".
-- **Assets.** `assets_project_id_kind_sha256_uq` keeps one pending or ready asset per project, kind
-  and SHA-256 (lowercase hex, `assets_sha256_ck`); failed assets are left out so an upload can be
-  retried. Insert-or-skip with `target: [projectId, kind, sha256]` and
-  ``where: sql`status <> 'failed'` ``. `meta` holds `{ probe?, alignment? }` (`AssetMeta`). Assets a
-  version points at cannot be deleted.
+- **Assets.** Uploads are deduplicated per owner. `assets_project_id_item_id_kind_sha256_uq` keeps
+  one pending or ready asset per item, kind and SHA-256 (lowercase hex, `assets_sha256_ck`), so two
+  items may each hold the same voice take or render and a version always points at its own item's
+  asset. `assets_project_id_kind_sha256_uq` does the same per project for project-level media
+  (`item_id` null, such as reference media). Failed assets are left out of both so an upload can
+  be retried. Insert-or-skip with `target: [projectId, itemId, kind, sha256]` and
+  ``where: sql`item_id is not null and status <> 'failed'` ``, or `target: [projectId, kind,
+  sha256]` and ``where: sql`item_id is null and status <> 'failed'` ``; or leave the target out.
+  `meta` holds `{ probe?, alignment? }` (`AssetMeta`). Assets a version points at cannot be
+  deleted.
 - **Skills.** `skill_versions_skill_id_checksum_uq` refuses a version whose files a skill already
   has, including an earlier version's; answer with that version. Names follow `SKILL_NAME_RE`
   (`skills_name_ck`).
