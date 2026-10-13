@@ -12,6 +12,7 @@ Build once, then use the `studio-agent` bin (`dist/cli.mjs`). From the repositor
 | `studio-agent run [--log-level debug\|info\|warn\|error]` | Connect and run jobs until stopped |
 | `studio-agent status` | Show the configuration; the device token is redacted |
 | `studio-agent service install\|uninstall\|status` | Manage the launchd agent |
+| `studio-agent secrets set\|unset voice-provider-key` | Store or remove the TTS provider key |
 
 ## Pairing
 
@@ -74,7 +75,13 @@ Jobs that were running when the agent stopped are reported as `interrupted` on t
 |---|---|
 | `system.ping` | Reports the agent version, the Node runtime and whether the producer is available |
 | `producer.chat` | Runs one conversation turn in a producer session confined to the project workspace, resuming the previous session when it exists and streaming text and tool activity back. If the producer runtime fails to load, the job type is not advertised |
-| `kb.analyze_reference` | Analyses a saved reference from its transcript in a new, read-only producer session and returns a schema-checked analysis with a short summary. The transcript is written to `references/<entryId>/transcript.txt` in the project workspace; the reference URL is never fetched |
+| `kb.analyze_reference` | Analyses a saved reference from its transcript in a new, read-only producer session and returns a schema-checked analysis with a short summary. The transcript is written to `references/<entryId>/transcript.txt` in the project workspace; the reference URL is never fetched. A reference with uploaded media and no transcript is transcribed first (see below) and the result carries the transcript |
+| `content.write_script` | Writes the item's script in a new producer session; the reply must match the script contract |
+| `content.storyboard` | Sets the script to cards of the format's style; the reply must pass the studio runtime's storyboard validation |
+| `content.revise` | Revises the script or storyboard; the owner's review comment is passed as trusted text |
+| `content.voice` | Synthesizes the script with the TTS provider through the studio runtime and uploads the take with its word timings |
+| `content.render` | Renders the storyboard over the voice take with the studio runtime and uploads the video and its poster |
+| `skills.sync` | Pulls published skills into `~/Loomcast/skills/<name>/` |
 
 ### Knowledge-base access
 
@@ -86,10 +93,54 @@ The session gets the platform's MCP server (`loomcast`) with that token, and the
 |---|---|---|
 | `producer.chat` | `kb.search`, `kb.get`, `kb.save_brainstorm`, `kb.add_decision`, `kb.add_reference`, `project.get` | Read, Glob, Grep, Write and Edit in the workspace, WebSearch, WebFetch |
 | `kb.analyze_reference` | `kb.search`, `kb.get`, `project.get` | Read, Glob and Grep inside the workspace only |
+| `content.write_script`, `content.revise` | `content.get`, `format.get_rules`, `kb.search`, `kb.get`, `project.get` | Read, Glob and Grep inside the workspace only |
+| `content.storyboard` | the same | Read, Glob and Grep inside the workspace, and the two allow-listed commands |
 
 The producer runtime names MCP tools `mcp__<server>__<tool>` with every character outside `[A-Za-z0-9_-]` replaced by `_`, so `kb.search` appears as `mcp__loomcast__kb_search`. Every other MCP tool and server is denied.
 
 Handlers are registered in `src/jobs/index.ts`. The runner validates every payload and result against the contracts job registry, rejects unknown job types, enforces the per-class credits and the registry timeout, and aborts a job on `job.cancel`.
+
+### Production jobs
+
+Production jobs read the item and write assets through the platform's MCP server with the job token (`content.get`, `content.upload_asset`, `content.finalize_asset`, `asset.get_url`, `skill.pull`). A job works in the folder of the version it starts from:
+
+```
+~/Loomcast/projects/<projectId>/items/<itemId>/v<n>/
+  script.json  storyboard.json  voice.mp3  alignment.json  render/  out/final.mp4  poster.jpg
+```
+
+- **Producer steps** (`write_script`, `storyboard`, `revise`) start a new producer session in the project workspace. The step brief, the format rules, the item's topic and the skill pack are appended to its system prompt. The reply must hold one fenced JSON block; up to two repair turns in the same session get the problems found. The session only reads: the item, the format and the knowledge base through MCP, and files inside the project workspace.
+- **Voice and render** run the studio runtime directly; no producer session takes part, so renders are never produced by a producer session. Progress is reported as `status` events every 10%. Render checks for ffmpeg, ffprobe, the studio's pinned HyperFrames CLI, GSAP and a render browser already on the Mac, and never downloads one.
+- **Uploads** are content-addressed: the file is hashed while streamed from disk, `content.upload_asset` gets the size and SHA-256, the bytes are PUT with exactly the signed headers (including the checksum header) and `duplex: "half"`, retried up to 3 attempts on network errors and 408/429/5xx, and the asset is finalized with its probe (and a voice take's word timings). When the server already has an identical file, nothing is sent.
+- **Reference media** with no transcript is downloaded from the platform's own storage through `asset.get_url` (checked against its SHA-256), its audio is extracted and transcribed, and the media file is deleted again.
+
+The studio runtime is bundled into `dist/` and finds the repository's `studio/` folder by walking up from the agent; `LOOMCAST_STUDIO_ROOT` overrides it.
+
+### Skills
+
+`skills.sync` checks each pulled skill against its checksum, writes it to a staging folder and renames it into place, so a failed sync keeps the installed version. `~/Loomcast/skills/manifest.json` records the synced versions and checksums. Producer steps load each skill from there when its files still match the manifest, and fall back to the studio's bundled `studio/skills/` otherwise.
+
+### Commands in storyboard sessions
+
+Bash is removed from every producer session except `content.storyboard`, where a command guard allows exactly two commands on paths inside the item folder:
+
+- `npx hyperframes lint <folder> [--json]`, run as the studio's pinned CLI with node, never through `npx`;
+- `ffprobe -v error [-show_format] [-show_streams] [-show_entries …] [-select_streams …] [-of …] <file>`.
+
+The guard refuses anything a shell would interpret (`; & | $ \` < > ( ) { } [ ] * ? ~ ! #`, quotes, backslashes and line breaks), resolves the path with `realpath` and requires it to stay inside the item folder, then replaces the command with absolute, quoted arguments and the telemetry variables (`HYPERFRAMES_NO_TELEMETRY=1 DO_NOT_TRACK=1 HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_NO_AUTO_INSTALL=1`). Everything else, including `hyperframes render`, is denied with a reason. The guard runs as a `PreToolUse` hook, which fires before the producer runtime's own permission rules, and again as the permission callback.
+
+### TTS provider key
+
+```bash
+pbpaste | pnpm agent secrets set voice-provider-key   # or type it at the hidden prompt
+pnpm agent secrets unset voice-provider-key
+```
+
+The key is stored in `~/.config/loomcast-agent/secrets.env` (mode 0600, in the 0700 state directory) and is never taken from the command line. Voice and transcription jobs read it from there first, then from the environment and the studio's `.env`. It goes to the TTS provider only: never into a payload, a result, an event, the outbox, the journal or a log line. `studio-agent status` only says whether it is set.
+
+### Production smoke test
+
+`scripts/smoke-production.ts` runs script → storyboard → voice → render for one item of the local stack with the real producer runtime, TTS provider and render. It needs `LOOMCAST_SMOKE=1`, `LOOMCAST_SMOKE_TOKEN` (an access token with `mcp:read` and `mcp:write`) and `LOOMCAST_SMOKE_ITEM_ID`; see the header of the script.
 
 ## Session-end hook
 

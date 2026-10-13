@@ -62,6 +62,10 @@ const optionalHandlers: readonly OptionalHandler[] = [
     "content.render",
     async () => (await import("./content-render")).createContentRenderHandler,
   ),
+  optionalHandler(
+    "skills.sync",
+    async () => (await import("./skills-sync")).createSkillsSyncHandler,
+  ),
 ];
 
 /** Builds the fixed allow-list of job handlers. Nothing else can run on this agent. */

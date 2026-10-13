@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 import {
+  type PulledSkill,
   SKILL_MANIFEST_PATH,
   SkillChecksumSchema,
   type SkillFile,
+  SkillFilesSchema,
   type SkillKind,
   SkillKindSchema,
   SkillManifestSchema,
@@ -165,4 +167,124 @@ async function loadSynced(
     source: "synced",
     files: files.filter((file) => file.path !== SKILL_MANIFEST_PATH),
   };
+}
+
+/** A pulled skill that cannot be installed. */
+export class SkillSyncError extends Error {
+  override readonly name = "SkillSyncError";
+}
+
+/** Prefixes of the temporary folders a sync creates next to the skills. */
+const STAGING_PREFIX = ".sync-";
+const RETIRED_PREFIX = ".old-";
+
+/** Removes staging folders a crashed sync left behind. */
+export async function cleanStaging(root: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith(STAGING_PREFIX) || name.startsWith(RETIRED_PREFIX))
+      .map((name) => rm(join(root, name), { recursive: true, force: true })),
+  );
+}
+
+/**
+ * Installs one pulled skill into `<root>/<name>/` atomically:
+ *
+ * 1. the checksum and the file set are checked against the contract;
+ * 2. the files are written to a staging folder next to the target;
+ * 3. the old folder (if any) is renamed aside, the staging folder renamed into place and the old
+ *    folder removed.
+ *
+ * A failure before step 3 leaves the installed version untouched. Returns false when the same
+ * checksum is already installed.
+ */
+export async function installSkill(
+  root: string,
+  skill: PulledSkill,
+  manifest: SyncManifest,
+): Promise<boolean> {
+  const files = SkillFilesSchema.safeParse(skill.files);
+  if (!files.success) {
+    throw new SkillSyncError(`Skill ${skill.name} has an invalid file set`);
+  }
+  if (skillChecksum(files.data) !== skill.checksum) {
+    throw new SkillSyncError(`Skill ${skill.name} does not match its checksum`);
+  }
+  const target = join(root, SkillNameSchema.parse(skill.name));
+  const installed = manifest.skills[skill.name];
+  if (installed?.checksum === skill.checksum && (await isDirectory(target))) {
+    return false;
+  }
+
+  await mkdir(root, { recursive: true });
+  const staging = await mkdtemp(join(root, `${STAGING_PREFIX}${skill.name}-`));
+  try {
+    for (const file of files.data) {
+      const path = join(staging, ...file.path.split("/"));
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, file.content, { encoding: "utf8", flag: "wx" });
+    }
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true });
+    throw new SkillSyncError(
+      `Skill ${skill.name} could not be written: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const retired = join(root, `${RETIRED_PREFIX}${skill.name}-${randomBytes(4).toString("hex")}`);
+  const hadTarget = await isDirectory(target);
+  if (hadTarget) {
+    await rename(target, retired);
+  }
+  try {
+    await rename(staging, target);
+  } catch (error) {
+    if (hadTarget) {
+      await rename(retired, target).catch(() => {});
+    }
+    await rm(staging, { recursive: true, force: true });
+    throw error;
+  }
+  await rm(retired, { recursive: true, force: true });
+  return true;
+}
+
+/** Records a skill in the manifest and writes it atomically. */
+export async function recordSynced(
+  root: string,
+  manifest: SyncManifest,
+  skill: PulledSkill,
+  now: Date,
+): Promise<SyncManifest> {
+  const next: SyncManifest = {
+    version: 1,
+    skills: {
+      ...manifest.skills,
+      [skill.name]: {
+        kind: skill.kind,
+        version: skill.version,
+        checksum: skill.checksum,
+        syncedAt: now.toISOString(),
+      },
+    },
+  };
+  const path = join(root, SYNC_MANIFEST_FILE);
+  const temporary = join(root, `.${SYNC_MANIFEST_FILE}.${randomBytes(4).toString("hex")}.tmp`);
+  await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await rename(temporary, path);
+  return next;
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
