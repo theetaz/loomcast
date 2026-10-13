@@ -24,10 +24,12 @@ import {
   versionQueryOptions,
 } from "./queries";
 import { ScriptSkeleton, ScriptTab } from "./ScriptTab";
+import { StoryboardTab } from "./StoryboardTab";
 import type { ItemSearch, ItemTab } from "./search";
 import type { ItemTabProps } from "./tab-props";
 import { useItemJob } from "./use-item-job";
 import { VersionTimeline } from "./VersionTimeline";
+import { VoiceTab } from "./VoiceTab";
 
 const TAB_LABELS: Record<ItemTab, string> = {
   script: "Script",
@@ -274,9 +276,9 @@ function ItemTabs({
         ) : null}
       </TabsContent>
       <TabsContent value="storyboard">
-        {null}
+        {tab === "storyboard" ? <StoryboardTab {...props} /> : null}
       </TabsContent>
-      <TabsContent value="voice">{null}</TabsContent>
+      <TabsContent value="voice">{tab === "voice" ? <VoiceTab {...props} /> : null}</TabsContent>
       <TabsContent value="video">{null}</TabsContent>
     </>
   );
