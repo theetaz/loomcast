@@ -6,6 +6,7 @@
 |---|---|---|
 | `api` | `ghcr.io/theetaz/loomcast:<tag>` | Serves the API, the bridge WebSocket (`/bridge/v1`), MCP (`/mcp`), the event stream (`/api/stream`) and the built web app on one port. Published on `127.0.0.1:${LOOMCAST_HTTP_PORT}` only; the host's reverse proxy terminates TLS in front of it. |
 | `postgres` | `postgres:17-alpine` | No published ports. Data in the `loomcast_pgdata` volume. |
+| `backup` | `ghcr.io/theetaz/loomcast-backup:<tag>` | Nightly `pg_dump` with local rotation and an optional encrypted copy to object storage. No published ports; writes only to `${LOOMCAST_BACKUP_DIR}`. See `docs/runbooks/backup-and-restore.md`. |
 
 The host runs other applications, so both services are memory-capped (api `640m` by default,
 postgres `512m`), CPU- and process-limited, and run as non-root users with a read-only root
@@ -23,6 +24,7 @@ only; secrets are left empty in them on purpose.
 | `/opt/loomcast/env/compose.env` | `env/compose.env.example` | Interpolation (`--env-file`): image tag, loopback port, memory caps, where the other files live |
 | `/opt/loomcast/env/api.env` | `env/api.env.example` | The api's settings (`env_file`) |
 | `/opt/loomcast/env/postgres.env` | `env/postgres.env.example` | The database user, name and password, read when the volume is first initialised |
+| `/opt/loomcast/env/backup.env` | `env/backup.env.example` | Backup schedule, rotation, object storage credentials for the backups bucket and the encryption recipient |
 
 Set them up once, as root:
 
