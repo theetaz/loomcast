@@ -2,9 +2,10 @@
 
 Loomcast serves its tools over the [Model Context Protocol](https://modelcontextprotocol.io) at
 `/mcp`, so any MCP client can work with projects and their knowledge base (brainstorms,
-reference videos, decisions and session summaries) with an access token, and the owner can invite
-users. The same endpoint serves producer sessions started by the studio agent, which use job
-tokens bound to one project.
+reference videos, decisions and session summaries), add video ideas, read and write content
+items, upload their media and publish producer skills with an access token, and the owner can
+invite users. The same endpoint serves producer sessions started by the studio agent, which use
+job tokens bound to one project.
 
 ## Endpoint
 
@@ -56,28 +57,33 @@ Authorization: Bearer <access token>
 ## Job tokens and project binding
 
 A producer session started by the studio agent never sees a user's access token. For each job
-that needs the knowledge base, the server mints a job token (`lc_job_…`) and sends it to the
-studio agent with the job; the session uses it as its bearer token on `/mcp`.
+that needs `/mcp`, the server mints a job token (`lc_job_…`) and sends it to the studio agent
+with the job; the session (or the studio agent itself) uses it as its bearer token on `/mcp`.
 
 - **Lifetime.** A job token is bound to one job and that job's project. It stops working when the
   job finishes (succeeds, fails or is cancelled), when the job goes back to the queue, when it is
   revoked, or when it expires, whichever comes first. A request with such a token gets `401`.
-- **Scopes.** Chat turns get `mcp:read` and `mcp:write`; reference analysis gets `mcp:read` only.
-  Job tokens never carry `mcp:admin`, and they are not listed under **Settings → Access tokens**.
+- **Scopes.** Each job type's registry entry decides: chat turns and production jobs (script,
+  storyboard, voice and render) get `mcp:read` and `mcp:write`; reference analysis and skill syncs
+  get `mcp:read` only. Job tokens never carry `mcp:admin`, and they are not listed under
+  **Settings → Access tokens**.
 - **Tools.** A job token may call only the tools marked "Job tokens: allowed" in the reference
-  below. Calling any other tool (`project.create`, `kb.save_session_summary`,
+  below. Calling any other tool (`project.create`, `kb.save_session_summary`, `skill.publish`,
   `admin.create_user`) fails with `forbidden`.
 - **Project binding.** Each tool's reference says how its input names a project:
   - "the input names the project": the project comes from `projectId`, `idOrSlug`, or the record
-    the input names (`kb.get` takes it from `entryId`). A job token naming any project but its
-    job's gets `forbidden`, and nothing is read or written. When an optional `projectId` is left
-    out (`kb.search`), the job's project is used.
+    the input names (`kb.get` takes it from `entryId`, `format.get_rules` from `seriesId`, the
+    `content.*` tools from `itemId`, `content.finalize_asset` and `asset.get_url` from
+    `assetId`). A job token naming any project but its job's gets `forbidden`, and nothing is read
+    or written. When an optional `projectId` is left out (`kb.search`), the job's project is used.
   - "the input names no project": the result only covers the job's project. `project.list`
-    returns just that project.
+    returns just that project. Skills are global, so `skill.pull` returns every skill to any
+    token.
 - **Rate limit.** 240 requests a minute per job token.
-- **Attribution.** Entries a job token writes are marked as written by a producer session
-  (`createdVia: "producer"`), belong to the user who started the job, and link to the job's
-  conversation when it has one. Audit rows name the token and the job.
+- **Attribution.** Entries and content items a job token creates are marked as written by a
+  producer session (`createdVia: "producer"`) and belong to the user who started the job;
+  knowledge-base entries also link to the job's conversation when it has one. Assets a job token
+  uploads record the job. Audit rows name the token and the job.
 
 ## Connecting a client
 
@@ -161,6 +167,76 @@ that show or log text do not spread it. Hand the link to the new user privately:
 and the server keeps only a hash of its secret. Responses from `/mcp` are sent with
 `Cache-Control: no-store`.
 
+## Production tools
+
+The `format.get_rules` and `content.*` tools let an MCP client or a producer session plan and
+write videos. They use the same services as the web app, so every change goes through the
+pipeline's state machine, is audited and appears live in open pages (`content.item.created`,
+`content.item.updated`, `content.version.created`, `asset.updated`).
+
+- **`format.get_rules`** returns the current rules of a series' format: tone, reading level, hook
+  style, length, voice, visual style, topics, cadence and caption rules, with the format version
+  they come from.
+- **`content.create_idea`** adds an item in the `idea` state to a project, optionally in one of its
+  series (which must be in the same project and not archived). The result is the item id.
+- **`content.get`** returns the item, one version and the format the item is produced with. The
+  version is the current one unless `versionId` names another version of the item; it carries its
+  number (`versionNo`), `script`, `storyboard`, `voiceAssetId`, `renderAssetId`, `posterAssetId`
+  and caption. `format` is the series' current format version and rules, or null for an item
+  without a series.
+- **`content.submit_for_review`** saves a new version with a script, a storyboard or both (and
+  optionally a caption and notes). Everything left out is copied from the current version, except
+  that a new script clears the storyboard (unless one is given too), the voice and the render, and
+  a new storyboard clears the render. The item moves to the stage the version's artifacts reach
+  (`script`, `storyboard`, …). With `baseVersionId`, a version that is no longer current is
+  refused with `conflict` instead of overwritten. Tokens never approve: only a person can, and a
+  token cannot change an approved item or one in review without new artifacts
+  (`invalid_transition`).
+
+### Uploading media
+
+Media bytes never pass through `/mcp`. A client uploads a file in three steps:
+
+1. **`content.upload_asset`** with the item, the kind (`voice`, `render`, `poster`, `frame`, …),
+   the file name, MIME type, size and SHA-256. The result is the asset and an `upload` with a
+   presigned URL and headers. When the project already holds the same file as a ready asset of
+   that kind, `upload` is null and the file needs neither an upload nor a finalize.
+2. `PUT` the bytes to `upload.url` with exactly `upload.headers` before `upload.expiresAt`. The
+   headers include the checksum the store verifies.
+3. **`content.finalize_asset`** with the asset id, the media probe and, for a voice take, its word
+   timings (`alignment`). The server checks the stored size and SHA-256: a match makes the asset
+   `ready`, a mismatch makes it `failed` and deletes the object (start a new upload then). When
+   nothing has been stored yet the call fails with `upload_missing`: `PUT` the bytes, then
+   finalize again. Finalizing a ready asset returns it unchanged.
+
+**`asset.get_url`** returns a download URL valid for an hour and the asset's details: its kind,
+status, item, project, size, SHA-256, duration, probe and, for a voice take, the alignment. An
+asset that is not ready fails with `not_ready`.
+
+## Skill tools
+
+Skills are versioned packs of text files (instructions, recipes and their templates) that
+producer sessions load. They are global, not tied to a project, and the studio agent keeps a copy
+of the latest version of each in its workspace.
+
+- **`skill.publish`** stores `files` as the next version of the skill `name` (version 1 for a new
+  skill). Paths are relative to the skill's directory and may not leave it: no `..`, no leading
+  `/`, no empty segments, and no two paths that differ only in case. A skill holds at most 200
+  files and 1 MiB of text. A `skill.json` (`name`, `kind`, `description`) is optional, but when
+  present it must name the same skill and kind. A skill keeps its kind: publishing it with another
+  one fails with `conflict`.
+- **Checksums.** A version's checksum is the SHA-256 of the UTF-8 bytes of every `path`, a NUL
+  character and its `content`, sorted by path and joined with NUL. Publishing files with the
+  checksum of the current version creates nothing and returns that version with `created: false`;
+  publishing the files of an earlier version makes that version current again. A new current
+  version is announced to the web app (`skill.published`) and queues a `skills.sync` job so studio
+  agents pull it.
+- **`skill.pull`** returns every skill at its current version, or one skill (optionally at a
+  `version`), with its files and checksum. Job tokens may pull; they may not publish.
+- **Seeding.** The skills bundled with the studio can be published from the command line:
+  `pnpm --filter @loomcast/api run skills:seed -- ../../studio/skills` publishes every directory
+  with a `skill.json` (recipes under `recipes/` included) as the owner, skipping unchanged ones.
+
 ## Results and errors
 
 A successful call returns the tool's output as `structuredContent`, matching the output schema
@@ -174,9 +250,13 @@ A failed call returns `isError: true` with one text item of the form `<code>: <m
 |---|---|
 | `forbidden` | The token lacks the tool's scope, the tool does not accept job tokens, a job token named another project, or a non-owner called an owner-only tool |
 | `not_found` | The project, entry or other record does not exist |
-| `conflict` | The request clashes with existing data, for example a slug or reference already saved, or an archived project |
+| `conflict` | The request clashes with existing data, for example a slug or reference already saved, an archived project, a stale `baseVersionId` or a skill published with another kind |
 | `validation_failed` | The arguments are well formed but not acceptable, for example a `supersedes` id that is not a decision of the project; the fields at fault follow in brackets |
 | `project_unresolved` | `kb.save_session_summary` got neither a `projectId` nor a `cwd` inside a project folder |
+| `invalid_transition` | The pipeline's state machine refuses the change, for example a token editing an approved item |
+| `upload_missing` | `content.finalize_asset` found no stored file: `PUT` the bytes to the upload URL, then finalize again |
+| `not_ready` | `asset.get_url` was asked for an asset that is still uploading or failed verification |
+| `storage_unavailable` | The server has no object storage configured (development only) |
 | `internal` | Something failed on the server; details are in the server log |
 
 Arguments that do not match the input schema are rejected before the tool runs, with an
@@ -190,8 +270,9 @@ Errors outside a tool call are plain HTTP statuses: `401` (token), `403` (foreig
 Every tool call is written to the audit log as `mcp.tool.called`, with the token as the actor,
 the tool name, the client address, the outcome (`ok`, `denied` or `error`, with the error code),
 the project the call was about and, for a job token, the job (`jobId`). Arguments and results are
-not logged. Changes made by a tool, such as `project.created`, `kb.entry.create` or
-`user.invited`, are audited as well, naming the token.
+not logged. Changes made by a tool, such as `project.created`, `kb.entry.create`,
+`content.version.created`, `asset.finalized`, `skill.published` or `user.invited`, are audited as
+well, naming the token.
 
 ## Tool reference
 
@@ -223,6 +304,326 @@ Invite a user. Returns a one-time link where the user sets a password, and when 
 | `userId` | string (uuid) | yes |  |
 | `setPasswordUrl` | string (uri) | yes |  |
 | `expiresAt` | string (date-time) | yes |  |
+
+### `asset.get_url`
+
+Get a short-lived download URL for a ready asset, with its details.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `disposition` | "inline" \| "attachment" | no |  |
+| `assetId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `url` | string (uri) | yes |  |
+| `expiresAt` | string (date-time) | yes |  |
+| `asset` | object | yes |  |
+| `asset.id` | string (uuid) | yes |  |
+| `asset.projectId` | string (uuid) | yes |  |
+| `asset.itemId` | string (uuid) \| null | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
+| `asset.filename` | string | yes |  |
+| `asset.mime` | string | yes |  |
+| `asset.bytes` | integer | yes | at least 0 |
+| `asset.sha256` | string | yes |  |
+| `asset.width` | integer \| null | yes | at least -9007199254740991 |
+| `asset.height` | integer \| null | yes | at least -9007199254740991 |
+| `asset.durationMs` | integer \| null | yes | at least -9007199254740991 |
+| `asset.probe` | object \| null | yes |  |
+| `asset.createdAt` | string (date-time) | yes |  |
+| `asset.finalizedAt` | string (date-time) \| null | yes |  |
+| `asset.alignment` | object \| null | yes |  |
+
+### `content.create_idea`
+
+Add a video idea (title and pitch) to a project, optionally in a series. It starts in the idea state.
+
+- **Scope:** `mcp:write`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `projectId` | string (uuid) | yes |  |
+| `seriesId` | string (uuid) | no |  |
+| `title` | string | yes | 1 to 200 characters |
+| `pitch` | string | yes | at most 2000 characters |
+| `topic` | string | no | 1 to 200 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+
+### `content.finalize_asset`
+
+Finish an upload: the server checks the size and SHA-256 and stores the media probe (and a voice take's word timings).
+
+- **Scope:** `mcp:write`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `probe` | object | no |  |
+| `probe.durationMs` | integer | no | at least 0 |
+| `probe.width` | integer | no | at least 1; at most 16384 |
+| `probe.height` | integer | no | at least 1; at most 16384 |
+| `probe.fps` | number | no | at least 0; at most 1000 |
+| `probe.videoCodec` | string | no | at most 64 characters |
+| `probe.audioCodec` | string | no | at most 64 characters |
+| `probe.bitRate` | integer | no | at least 0 |
+| `probe.sampleRate` | integer | no | at least 0 |
+| `probe.channels` | integer | no | at least 0; at most 64 |
+| `probe.formatName` | string | no | at most 128 characters |
+| `alignment` | object | no |  |
+| `alignment.words` | object[] | yes | at most 5000 items |
+| `alignment.words[].text` | string | yes | 1 to 100 characters |
+| `alignment.words[].startMs` | integer | yes | at least 0; at most 600000 |
+| `alignment.words[].endMs` | integer | yes | at least 0; at most 600000 |
+| `assetId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `asset` | object | yes |  |
+| `asset.id` | string (uuid) | yes |  |
+| `asset.projectId` | string (uuid) | yes |  |
+| `asset.itemId` | string (uuid) \| null | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
+| `asset.filename` | string | yes |  |
+| `asset.mime` | string | yes |  |
+| `asset.bytes` | integer | yes | at least 0 |
+| `asset.sha256` | string | yes |  |
+| `asset.width` | integer \| null | yes | at least -9007199254740991 |
+| `asset.height` | integer \| null | yes | at least -9007199254740991 |
+| `asset.durationMs` | integer \| null | yes | at least -9007199254740991 |
+| `asset.probe` | object \| null | yes |  |
+| `asset.createdAt` | string (date-time) | yes |  |
+| `asset.finalizedAt` | string (date-time) \| null | yes |  |
+
+### `content.get`
+
+Get a content item with one version (the current one by default), its script and storyboard, and its format rules.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `versionId` | string (uuid) | no |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `item` | object | yes |  |
+| `item.id` | string (uuid) | yes |  |
+| `item.projectId` | string (uuid) | yes |  |
+| `item.seriesId` | string (uuid) \| null | yes |  |
+| `item.title` | string | yes |  |
+| `item.pitch` | string \| null | yes |  |
+| `item.topic` | string \| null | yes |  |
+| `item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `item.currentVersionId` | string (uuid) | yes |  |
+| `item.versionNo` | integer | yes | at least 1 |
+| `item.durationMs` | integer \| null | yes | at least 0 |
+| `item.posterAssetId` | string (uuid) \| null | yes |  |
+| `item.targetAt` | string (date-time) \| null | yes |  |
+| `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
+| `item.lastError` | object \| null | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdBy` | string (uuid) \| null | yes |  |
+| `item.createdAt` | string (date-time) | yes |  |
+| `item.updatedAt` | string (date-time) | yes |  |
+| `item.archivedAt` | string (date-time) \| null | yes |  |
+| `version` | object | yes |  |
+| `version.id` | string (uuid) | yes |  |
+| `version.itemId` | string (uuid) | yes |  |
+| `version.versionNo` | integer | yes | at least 1 |
+| `version.stage` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `version.parentVersionId` | string (uuid) \| null | yes |  |
+| `version.formatVersionId` | string (uuid) \| null | yes |  |
+| `version.hasScript` | boolean | yes |  |
+| `version.hasStoryboard` | boolean | yes |  |
+| `version.voiceAssetId` | string (uuid) \| null | yes |  |
+| `version.renderAssetId` | string (uuid) \| null | yes |  |
+| `version.posterAssetId` | string (uuid) \| null | yes |  |
+| `version.notes` | string \| null | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdByUser` | string (uuid) \| null | yes |  |
+| `version.jobId` | string (uuid) \| null | yes |  |
+| `version.createdAt` | string (date-time) | yes |  |
+| `version.script` | object \| null | yes |  |
+| `version.storyboard` | object \| null | yes |  |
+| `version.caption` | string \| null | yes |  |
+| `format` | object \| null | yes |  |
+
+### `content.submit_for_review`
+
+Save a new version of an item with a script, a storyboard or both. The item moves to the stage its artifacts reach; only a person can approve it.
+
+- **Scope:** `mcp:write`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `baseVersionId` | string (uuid) | no |  |
+| `script` | object | no |  |
+| `script.title` | string | yes | 1 to 200 characters |
+| `script.hook` | string | yes | at most 500 characters |
+| `script.segments` | object[] | yes | at least 1 items; at most 60 items |
+| `script.segments[].id` | string | yes | matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$` |
+| `script.segments[].text` | string | yes | at most 1000 characters |
+| `script.segments[].startMs` | integer | no | at least 0; at most 600000 |
+| `script.segments[].endMs` | integer | no | at least 0; at most 600000 |
+| `script.segments[].onScreenText` | string | no | at most 280 characters |
+| `script.cta` | string | yes | at most 300 characters |
+| `script.caption` | string | yes | at most 2200 characters |
+| `script.hashtags` | string[] | yes | at most 30 items |
+| `script.estimatedDurationMs` | integer | yes | at least 1; at most 600000 |
+| `storyboard` | object | no |  |
+| `storyboard.styleId` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `storyboard.fps` | 30 | yes |  |
+| `storyboard.aspect` | "9:16" | yes |  |
+| `storyboard.frames` | object[] | yes | at least 1 items; at most 80 items |
+| `storyboard.frames[].id` | string | yes | matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$` |
+| `storyboard.frames[].segmentId` | string | yes | matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$` |
+| `storyboard.frames[].startMs` | integer | yes | at least 0; at most 600000 |
+| `storyboard.frames[].endMs` | integer | yes | at least 0; at most 600000 |
+| `storyboard.frames[].cardId` | string | yes | matches `^[a-z0-9][a-z0-9._-]{0,119}$` |
+| `storyboard.frames[].slots` | object | yes |  |
+| `storyboard.frames[].notes` | string | no | at most 1000 characters |
+| `caption` | string | no | at most 2200 characters |
+| `notes` | string | no | at most 4000 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `versionId` | string (uuid) | yes |  |
+| `versionNo` | integer | yes | at least 1 |
+| `state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+
+### `content.upload_asset`
+
+Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when an identical file is already stored.
+
+- **Scope:** `mcp:write`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `filename` | string | yes | 1 to 255 characters |
+| `mime` | "video/mp4" \| "video/quicktime" \| "audio/mpeg" \| "audio/wav" \| "audio/x-wav" \| "audio/mp4" \| "audio/x-m4a" \| "image/jpeg" \| "image/png" \| "image/webp" \| "text/plain" | yes |  |
+| `bytes` | integer | yes | at least 1 |
+| `sha256` | string | yes | matches `^[a-f0-9]{64}$` |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `asset` | object | yes |  |
+| `asset.id` | string (uuid) | yes |  |
+| `asset.projectId` | string (uuid) | yes |  |
+| `asset.itemId` | string (uuid) \| null | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
+| `asset.filename` | string | yes |  |
+| `asset.mime` | string | yes |  |
+| `asset.bytes` | integer | yes | at least 0 |
+| `asset.sha256` | string | yes |  |
+| `asset.width` | integer \| null | yes | at least -9007199254740991 |
+| `asset.height` | integer \| null | yes | at least -9007199254740991 |
+| `asset.durationMs` | integer \| null | yes | at least -9007199254740991 |
+| `asset.probe` | object \| null | yes |  |
+| `asset.createdAt` | string (date-time) | yes |  |
+| `asset.finalizedAt` | string (date-time) \| null | yes |  |
+| `upload` | object \| null | yes |  |
+
+### `format.get_rules`
+
+Get the current format rules of a series: tone, reading level, hook style, length, voice, visual style, topics, cadence and caption rules.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `seriesId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `formatId` | string (uuid) | yes |  |
+| `name` | string | yes | 1 to 120 characters |
+| `formatVersionId` | string (uuid) | yes |  |
+| `version` | integer | yes | at least 1 |
+| `rules` | object | yes |  |
+| `rules.tone` | string | yes | at most 200 characters |
+| `rules.readingLevel` | object | yes |  |
+| `rules.readingLevel.grade` | integer | yes | at least 3; at most 16 |
+| `rules.hookStyle` | "question" \| "bold_claim" \| "statistic" \| "story" \| "contrarian" \| "demo" | yes |  |
+| `rules.hookNotes` | string | no | at most 1000 characters |
+| `rules.lengthSec` | object | yes |  |
+| `rules.lengthSec.min` | integer | yes | at least 5; at most 180 |
+| `rules.lengthSec.max` | integer | yes | at least 5; at most 180 |
+| `rules.voiceId` | string | no | 1 to 100 characters |
+| `rules.voiceSpeed` | number | no | at least 0.7; at most 1.3 |
+| `rules.visualTemplate` | object | yes |  |
+| `rules.visualTemplate.styleId` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `rules.visualTemplate.templateId` | string | no | matches `^[a-z0-9][a-z0-9._-]{0,119}$` |
+| `rules.visualTemplate.captions` | object | yes |  |
+| `rules.visualTemplate.captions.enabled` | boolean | yes |  |
+| `rules.visualTemplate.captions.style` | "word" \| "line" | yes |  |
+| `rules.topicPool` | string[] | yes | at most 500 items |
+| `rules.avoid` | string[] | yes | at most 200 items |
+| `rules.cadence` | object | yes |  |
+| `rules.cadence.days` | ("mon" \| "tue" \| "wed" \| "thu" \| "fri" \| "sat" \| "sun")[] | yes | at most 7 items |
+| `rules.cadence.slots` | string[] | yes | at most 12 items |
+| `rules.cadence.tz` | string | yes |  |
+| `rules.cadence.leadTimeHours` | integer | yes | at least 1; at most 336 |
+| `rules.publishMode` | "auto" \| "approval" | yes |  |
+| `rules.caption` | object | yes |  |
+| `rules.caption.hashtags` | string[] | yes | at most 30 items |
+| `rules.caption.cta` | string | no | at most 300 characters |
+| `rules.recipe` | object | no |  |
+| `rules.recipe.name` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `rules.recipe.version` | integer | no | at least 1 |
 
 ### `kb.add_decision`
 
@@ -494,5 +895,61 @@ List projects, optionally filtered by status.
 | `projects[].createdAt` | string (date-time) | yes |  |
 | `projects[].updatedAt` | string (date-time) | yes |  |
 | `projects[].archivedAt` | string (date-time) \| null | yes |  |
+
+### `skill.publish`
+
+Publish a skill or recipe as a new version. Publishing identical files returns the latest version.
+
+- **Scope:** `mcp:write`
+- **Job tokens:** not allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `kind` | "skill" \| "recipe" | yes |  |
+| `files` | object[] | yes | at least 1 items; at most 200 items |
+| `files[].path` | string | yes |  |
+| `files[].content` | string | yes |  |
+| `changelog` | string | no | at most 2000 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `version` | integer | yes | at least 1 |
+| `checksum` | string | yes | matches `^[a-f0-9]{64}$` |
+| `created` | boolean | yes |  |
+
+### `skill.pull`
+
+Download published skills with their files: every skill at its latest version, or one skill.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | no | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `version` | integer | no | at least 1 |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `skills` | object[] | yes |  |
+| `skills[].name` | string | yes | matches `^[a-z0-9][a-z0-9-]{0,63}$` |
+| `skills[].kind` | "skill" \| "recipe" | yes |  |
+| `skills[].version` | integer | yes | at least 1 |
+| `skills[].checksum` | string | yes | matches `^[a-f0-9]{64}$` |
+| `skills[].files` | object[] | yes |  |
+| `skills[].files[].path` | string | yes |  |
+| `skills[].files[].content` | string | yes |  |
 
 <!-- tool-reference:end -->
