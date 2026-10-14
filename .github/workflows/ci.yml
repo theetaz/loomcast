@@ -1,9 +1,18 @@
 name: ci
 
+# Runs once per change, on `main` after the merge, and gates the release (`release.yml` waits for
+# it). Pull requests are not built here: `pnpm -r lint && pnpm -r test` runs on the workstation
+# before every pull request (AGENTS.md, CONTRIBUTING.md), and `commits.yml` checks the messages.
+# Changes to Markdown alone build nothing, except `docs/mcp.md`, which a test checks against the
+# tool registry.
 on:
-  pull_request:
   push:
     branches: [main]
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "docs/mcp.md"
+  workflow_dispatch:
   # Weekly, so an advisory published after the last change still fails a run. Only the audit
   # job runs on the schedule.
   schedule:
@@ -11,6 +20,12 @@ on:
 
 permissions:
   contents: read
+
+# A newer push to `main` replaces a run still going: its commit carries the older changes, and its
+# release ships them.
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   # Fails on a high or critical advisory in a production dependency. A reviewed exception goes in

@@ -107,6 +107,12 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 git status --porcelain   # nothing unintended staged
 ```
 
+These checks are the gate for a pull request: GitHub Actions does not build pull requests. It
+checks commit messages and titles (`commits.yml`) and lints workflows and infra scripts when they
+change (`infra-lint.yml`). The full build (`ci.yml`) runs once on `main` after the merge and gates
+the release. Run the end-to-end smoke (`pnpm test:e2e`) as well when a change touches the user
+flows; `e2e.yml` only runs when started by hand.
+
 ## 6. Local stack
 
 Local services run from `docker-compose.yml` (Compose project `loomcast`).

@@ -217,8 +217,9 @@ dropped by a later run after six hours.
 - Set `LOOMCAST_E2E_LOG_LEVEL=info` to see the API's log.
 - Failures leave a trace and a screenshot in `tests/e2e/test-results/`; open a trace with
   `pnpm --filter @loomcast/e2e exec playwright show-trace <path>/trace.zip`.
-- In CI, `.github/workflows/e2e.yml` starts SeaweedFS, runs the smoke on pull requests with
-  `LOOMCAST_E2E_S3=required` and uploads the report.
+- The smoke runs on the workstation. `.github/workflows/e2e.yml` is manual only (Actions tab, "Run
+  workflow"): it starts SeaweedFS, runs the smoke with `LOOMCAST_E2E_S3=required` and uploads the
+  report.
 
 ## M1 acceptance runbook
 
