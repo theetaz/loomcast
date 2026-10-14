@@ -201,7 +201,9 @@ describe("command palette", () => {
 
     press("k", { metaKey: true });
     await user.keyboard("members");
-    expect(await within(palette()).findByText(/No results for/)).toBeInTheDocument();
+    // The guide's Settings page still matches; the Members section does not.
+    expect(await within(palette()).findByRole("option", { name: /^Settings/ })).toBeInTheDocument();
+    expect(within(palette()).queryByRole("option", { name: /^Members/ })).not.toBeInTheDocument();
   });
 
   it("runs actions: new project and the theme", async () => {

@@ -64,6 +64,7 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 
 | Document | Contents |
 |---|---|
+| [User guide](docs/guide/README.md) | How to use Loomcast, set up the studio agent and troubleshoot, with screenshots; also shown in the web app under **Guide** |
 | [Architecture](docs/architecture.md) | Components, decisions, data model, live events and the security model |
 | [Local development](docs/local-development.md) | Setup, ports, admin CLI, pairing a studio agent, MCP clients, production on the workstation, tests, scheduling and dry-run publishing, the M1 to M4 acceptance runbooks and troubleshooting |
 | [Production pipeline](docs/pipeline.md) | Series and formats, pipeline states, actions and job types, autopilot, versions, reviews, timing after the voice, and skills |

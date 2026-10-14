@@ -29,7 +29,7 @@ describe("sidebar navigation registry", () => {
       "calendar",
       "analytics",
     ]);
-    expect(navSection(navItems, "footer").map((item) => item.id)).toEqual(["settings"]);
+    expect(navSection(navItems, "footer").map((item) => item.id)).toEqual(["guide", "settings"]);
   });
 
   it("defaults to the main section and breaks order ties by id", () => {
