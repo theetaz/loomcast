@@ -61,6 +61,13 @@ none ──Analyze──▶ queued ──agent accepts──▶ running ──�
 - The job waits in the queue while no studio agent is online, like a chat message.
 - The transcript is text supplied by a user. Producer sessions and MCP clients treat it as data,
   never as instructions.
+- When the studio agent measured the media it analysed (length, cuts per minute, words per
+  minute), the server keeps those numbers on the reference (`kb_references.media_facts`).
+
+Competitor research writes to the knowledge base too: each video a scan picks is a `reference`
+tagged `competitor` and `competitor-<platform>-<handle>`, analysed from the public video, and each
+finished scan adds a `note` tagged `competitor-report`. See
+[competitor-research.md](competitor-research.md).
 
 ## Search
 

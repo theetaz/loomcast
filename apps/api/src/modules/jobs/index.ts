@@ -8,6 +8,7 @@ export { createDispatcher, type Dispatcher, type DispatchTarget } from "./dispat
 export {
   createJobHooks,
   createKbAnalyzeReferenceHooks,
+  createKbCompetitorReportHooks,
   createProducerChatHooks,
   type JobHandlerDeps,
   subscribeJobStatusHooks,

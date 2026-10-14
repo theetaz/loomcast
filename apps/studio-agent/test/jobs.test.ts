@@ -31,6 +31,7 @@ describe("job handlers", () => {
       "content.voice",
       "content.write_script",
       "kb.analyze_reference",
+      "kb.competitor_report",
       "producer.chat",
       "skills.sync",
       "system.ping",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { MetaAppConfig, PlatformsConfig } from "../../env";
 import { createGraphClient, type GraphClient, type GraphClientOptions } from "./client";
+import { MetaGraphError } from "./errors";
 import { parseGraph } from "./parse";
 import { appAccessToken } from "./proof";
 
@@ -280,4 +281,213 @@ export async function getMetaApp(
     signal: input.signal,
   });
   return parseGraph(AppSchema, response, "the app record");
+}
+
+// Business Discovery: another Instagram professional account's public profile and media, read
+// through `GET /<ig-user-id>?fields=business_discovery.username(<handle>){...}` with the token of
+// one of the app's own Instagram accounts. Only business and creator accounts answer.
+
+/** Posts asked for per Business Discovery page. */
+export const BUSINESS_DISCOVERY_PAGE_SIZE = 50;
+
+/** Subcode of "the user was not found or is not a business or creator account". */
+export const BUSINESS_DISCOVERY_NOT_FOUND_SUBCODE = 2_207_013;
+
+const BUSINESS_DISCOVERY_MEDIA_FIELDS = [
+  "id",
+  "media_type",
+  "media_product_type",
+  "caption",
+  "like_count",
+  "comments_count",
+  "view_count",
+  "timestamp",
+  "permalink",
+] as const;
+
+const countSchema = z.number().int().min(0).nullable().optional();
+
+const DiscoveredMediaSchema = z.object({
+  id: z.string().min(1),
+  media_type: z.string().optional(),
+  media_product_type: z.string().optional(),
+  caption: z.string().optional(),
+  like_count: countSchema,
+  comments_count: countSchema,
+  view_count: countSchema,
+  timestamp: z.string().optional(),
+  permalink: z.string().optional(),
+});
+
+const BusinessDiscoveryResponseSchema = z.object({
+  business_discovery: z.object({
+    username: z.string().optional(),
+    name: z.string().optional(),
+    followers_count: countSchema,
+    media_count: countSchema,
+    media: z
+      .object({
+        data: z.array(z.unknown()).default([]),
+        paging: z
+          .object({
+            cursors: z.object({ after: z.string().optional() }).optional(),
+            next: z.string().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+  }),
+});
+
+/** One post of a discovered account, as far as competitor research reads it. */
+export interface DiscoveredMedia {
+  id: string;
+  mediaType: string | null;
+  mediaProductType: string | null;
+  caption: string | null;
+  likeCount: number | null;
+  commentsCount: number | null;
+  /** Null when the API did not report views for the post (or refused the field). */
+  viewCount: number | null;
+  timestamp: string | null;
+  permalink: string | null;
+}
+
+export interface BusinessDiscoveryResult {
+  username: string | null;
+  name: string | null;
+  followersCount: number | null;
+  mediaCount: number | null;
+  /** The most recent posts, newest first, at most `maxPosts`. */
+  media: DiscoveredMedia[];
+  /** False when the API refused `view_count` and the posts were read without it. */
+  viewCounts: boolean;
+}
+
+/** The `fields` parameter of one Business Discovery page. `handle` must be a checked handle. */
+export function businessDiscoveryFields(
+  handle: string,
+  options: { after?: string | undefined; viewCount: boolean; limit?: number },
+): string {
+  const fields = BUSINESS_DISCOVERY_MEDIA_FIELDS.filter(
+    (field) => options.viewCount || field !== "view_count",
+  ).join(",");
+  const limit = options.limit ?? BUSINESS_DISCOVERY_PAGE_SIZE;
+  const after = options.after === undefined ? "" : `.after(${options.after})`;
+  return (
+    `business_discovery.username(${handle})` +
+    `{username,name,followers_count,media_count,media.limit(${limit})${after}{${fields}}}`
+  );
+}
+
+/** A cursor goes into the `fields` expression, so only the characters cursors use pass. */
+const CURSOR_RE = /^[A-Za-z0-9_=-]{1,500}$/;
+
+/** Whether a failed call refused a field (`view_count`) rather than the account or the token. */
+function refusedViewCount(error: unknown): boolean {
+  return (
+    error instanceof MetaGraphError &&
+    error.fields.code === 100 &&
+    error.fields.subcode !== BUSINESS_DISCOVERY_NOT_FOUND_SUBCODE
+  );
+}
+
+function mediaOf(entry: unknown): DiscoveredMedia | null {
+  const parsed = DiscoveredMediaSchema.safeParse(entry);
+  if (!parsed.success) {
+    return null;
+  }
+  const media = parsed.data;
+  return {
+    id: media.id,
+    mediaType: media.media_type ?? null,
+    mediaProductType: media.media_product_type ?? null,
+    caption: media.caption ?? null,
+    likeCount: media.like_count ?? null,
+    commentsCount: media.comments_count ?? null,
+    viewCount: media.view_count ?? null,
+    timestamp: media.timestamp ?? null,
+    permalink: media.permalink ?? null,
+  };
+}
+
+/**
+ * Reads the profile and up to `maxPosts` recent posts of the professional account `handle`, in
+ * pages of at most `BUSINESS_DISCOVERY_PAGE_SIZE`, with the token of the app's Instagram account
+ * `igUserId`. `handle` must already match `COMPETITOR_HANDLE_RE`: it is part of the `fields`
+ * expression. When the API refuses `view_count`, the page is asked for again without it and the
+ * remaining pages leave it out. Throws `MetaGraphError`; an unknown or personal account has the
+ * subcode `BUSINESS_DISCOVERY_NOT_FOUND_SUBCODE`.
+ */
+export async function businessDiscovery(
+  client: GraphClient,
+  input: {
+    igUserId: string;
+    handle: string;
+    accessToken: string;
+    maxPosts: number;
+    signal?: AbortSignal;
+  },
+): Promise<BusinessDiscoveryResult> {
+  const result: BusinessDiscoveryResult = {
+    username: null,
+    name: null,
+    followersCount: null,
+    mediaCount: null,
+    media: [],
+    viewCounts: true,
+  };
+  const seen = new Set<string>();
+  let after: string | undefined;
+  // A page may come back shorter than asked; two extra pages allow for that, and no more, so a
+  // cursor that never ends cannot loop.
+  const maxSteps = Math.ceil(input.maxPosts / BUSINESS_DISCOVERY_PAGE_SIZE) + 2;
+  const page = () =>
+    client.request({
+      path: `/${encodeURIComponent(input.igUserId)}`,
+      query: {
+        fields: businessDiscoveryFields(input.handle, {
+          after,
+          viewCount: result.viewCounts,
+          limit: Math.min(BUSINESS_DISCOVERY_PAGE_SIZE, input.maxPosts - result.media.length),
+        }),
+      },
+      accessToken: input.accessToken,
+      signal: input.signal,
+    });
+  for (let step = 0; step < maxSteps && result.media.length < input.maxPosts; step += 1) {
+    let response: Awaited<ReturnType<typeof page>>;
+    try {
+      response = await page();
+    } catch (error) {
+      if (!result.viewCounts || !refusedViewCount(error)) {
+        throw error;
+      }
+      result.viewCounts = false;
+      response = await page();
+    }
+    const account = parseGraph(
+      BusinessDiscoveryResponseSchema,
+      response,
+      "the account lookup",
+    ).business_discovery;
+    if (step === 0) {
+      result.username = account.username ?? null;
+      result.name = account.name ?? null;
+      result.followersCount = account.followers_count ?? null;
+      result.mediaCount = account.media_count ?? null;
+    }
+    for (const entry of account.media?.data ?? []) {
+      const media = mediaOf(entry);
+      if (media !== null && !seen.has(media.id) && result.media.length < input.maxPosts) {
+        seen.add(media.id);
+        result.media.push(media);
+      }
+    }
+    after = account.media?.paging?.cursors?.after;
+    if (after === undefined || !CURSOR_RE.test(after)) {
+      break;
+    }
+  }
+  return result;
 }

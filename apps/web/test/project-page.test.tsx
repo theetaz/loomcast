@@ -22,6 +22,7 @@ describe("project tab registry", () => {
       ["series", "Series", "/projects/$projectId/series"],
       ["chat", "Chat", "/projects/$projectId/chat"],
       ["knowledge", "Knowledge", "/projects/$projectId/kb"],
+      ["competitors", "Competitors", "/projects/$projectId/competitors"],
     ]);
   });
 
@@ -31,6 +32,7 @@ describe("project tab registry", () => {
     expect(active("/projects/demo/")).toBe("overview");
     expect(active("/projects/demo/chat")).toBe("chat");
     expect(active("/projects/demo/kb/new")).toBe("knowledge");
+    expect(active("/projects/demo/competitors/abc/scans/def")).toBe("competitors");
     expect(active("/projects/demo/kbx")).toBe("overview");
     expect(active("/projects/other")).toBeUndefined();
   });
@@ -46,7 +48,7 @@ describe("project page", () => {
       within(tabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Overview", "Content", "Series", "Chat", "Knowledge"]);
+    ).toEqual(["Overview", "Content", "Series", "Chat", "Knowledge", "Competitors"]);
     expect(within(tabs).getByRole("tab", { name: "Overview" })).toHaveAttribute(
       "aria-selected",
       "true",

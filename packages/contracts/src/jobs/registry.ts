@@ -2,8 +2,19 @@ import { z } from "zod";
 import { KB_LIKED_REASON_MAX_LENGTH, ReferenceUrlSchema, TranscriptSchema } from "../api/kb";
 import { REVIEW_COMMENT_MAX_LENGTH } from "../api/reviews";
 import { IdSchema, MAX_ASSISTANT_TEXT_LENGTH, MessageTextSchema } from "../common";
-import { JOB_TYPES, type JobType, type McpTokenScope, ReferencePlatformSchema } from "../enums";
+import {
+  CompetitorPlatformSchema,
+  JOB_TYPES,
+  type JobType,
+  type McpTokenScope,
+  ReferencePlatformSchema,
+} from "../enums";
 import { MAX_ANALYSIS_SUMMARY_LENGTH, ReferenceAnalysisSchema } from "../kb/analysis";
+import {
+  COMPETITOR_REPORT_LIMITS,
+  CompetitorInsightsSchema,
+  CompetitorVideoMetricsSchema,
+} from "../kb/competitor";
 import {
   MAX_TIMELINE_MS,
   ScriptSchema,
@@ -17,6 +28,7 @@ import {
   VoiceIdSchema,
 } from "../pipeline/format-rules";
 import { SkillNameSchema, SkillVersionNumberSchema } from "../pipeline/skills";
+import { COMPETITOR_HANDLE_RE, isPublicVideoUrl } from "../util/competitor-url";
 import type { ConcurrencyClass } from "./concurrency";
 import type { JobEventKind } from "./durable-events";
 
@@ -99,10 +111,13 @@ export const ProducerChatResultSchema = z.object({
 export type ProducerChatResult = z.infer<typeof ProducerChatResultSchema>;
 
 /**
- * Analyses a saved reference from its transcript, or from media the user uploaded
- * (`mediaAssetId`, a `reference_media` asset), which the agent transcribes first. At least one of
- * them is required. The transcript is untrusted text supplied by the user; the reference URL is
- * never fetched. The server stores the result on the reference.
+ * Analyses a saved reference from one source, in this order: its transcript, media the user
+ * uploaded (`mediaAssetId`, a `reference_media` asset), or the public video at `url`
+ * (`fetchPublicVideo`, competitor research only). The agent transcribes media first. The
+ * transcript is untrusted text supplied by the user. The reference URL is fetched only with
+ * `fetchPublicVideo`, only by the agent's downloader (never by a producer session), and only when
+ * it is a public video link of the platform (`isPublicVideoUrl`). The server stores the result on
+ * the reference.
  */
 export const KbAnalyzeReferencePayloadSchema = z
   .object({
@@ -112,22 +127,92 @@ export const KbAnalyzeReferencePayloadSchema = z
     platform: ReferencePlatformSchema,
     transcript: TranscriptSchema.optional(),
     mediaAssetId: IdSchema.optional(),
+    fetchPublicVideo: z.literal(true).optional(),
     likedReason: z.string().max(KB_LIKED_REASON_MAX_LENGTH).optional(),
   })
-  .refine((payload) => payload.transcript !== undefined || payload.mediaAssetId !== undefined, {
-    message: "Provide a transcript or uploaded media",
-    path: ["transcript"],
-  });
+  .refine(
+    (payload) =>
+      payload.transcript !== undefined ||
+      payload.mediaAssetId !== undefined ||
+      payload.fetchPublicVideo === true,
+    { message: "Provide a transcript, uploaded media or a public video", path: ["transcript"] },
+  )
+  .refine(
+    (payload) =>
+      payload.fetchPublicVideo !== true ||
+      ((payload.platform === "instagram" ||
+        payload.platform === "facebook" ||
+        payload.platform === "threads") &&
+        isPublicVideoUrl(payload.url, payload.platform)),
+    { message: "Only a public video link of the platform can be fetched", path: ["url"] },
+  );
 export type KbAnalyzeReferencePayload = z.infer<typeof KbAnalyzeReferencePayloadSchema>;
 
-/** `transcript` is returned when the agent transcribed uploaded media. */
+/** What the agent measured on downloaded or uploaded media, not what a session guessed. */
+export const ReferenceMediaFactsSchema = z.object({
+  durationMs: z.number().int().min(0).max(MAX_TIMELINE_MS),
+  /** Shot changes per minute from the scene detector. */
+  cutsPerMinute: z.number().min(0).max(600).nullable(),
+  /** Spoken words per minute of the transcript over the duration. */
+  wordsPerMinute: z.number().min(0).max(1_000).nullable(),
+  /** Still frames the session looked at. */
+  framesSeen: z.number().int().min(0).max(20),
+});
+export type ReferenceMediaFacts = z.infer<typeof ReferenceMediaFactsSchema>;
+
+/**
+ * `transcript` is returned when the agent transcribed media; `media` when it measured it. A public
+ * video without speech is analysed from its frames alone and returns no transcript.
+ */
 export const KbAnalyzeReferenceResultSchema = z.object({
   analysis: ReferenceAnalysisSchema,
   /** A short markdown summary for the reference card. */
   summaryMd: z.string().trim().min(1).max(MAX_ANALYSIS_SUMMARY_LENGTH),
   transcript: TranscriptSchema.optional(),
+  media: ReferenceMediaFactsSchema.optional(),
 });
 export type KbAnalyzeReferenceResult = z.infer<typeof KbAnalyzeReferenceResultSchema>;
+
+/** One analysed video in a `kb.competitor_report` payload. */
+export const CompetitorReportVideoSchema = z.object({
+  rank: z.number().int().min(1),
+  entryId: IdSchema,
+  url: ReferenceUrlSchema,
+  caption: z.string().max(COMPETITOR_REPORT_LIMITS.caption).nullable(),
+  metrics: CompetitorVideoMetricsSchema,
+  durationMs: z.number().int().min(0).max(MAX_TIMELINE_MS).nullable(),
+  analysis: ReferenceAnalysisSchema,
+  summaryMd: z.string().max(MAX_ANALYSIS_SUMMARY_LENGTH),
+});
+export type CompetitorReportVideo = z.infer<typeof CompetitorReportVideoSchema>;
+
+/**
+ * Writes one competitor report from the analyses of a scan's videos. Captions, transcripts and
+ * analyses come from the competitor and are untrusted; the session is read-only. The server stores
+ * the result as a `note` entry and links it to the scan.
+ */
+export const KbCompetitorReportPayloadSchema = z.object({
+  projectId: IdSchema,
+  scanId: IdSchema,
+  competitor: z.object({
+    platform: CompetitorPlatformSchema,
+    handle: z.string().regex(COMPETITOR_HANDLE_RE),
+    displayName: z.string().max(300).nullable(),
+    followersCount: z.number().int().min(0).nullable(),
+    mediaCount: z.number().int().min(0).nullable(),
+  }),
+  /** The analysed videos, most popular first. */
+  videos: z.array(CompetitorReportVideoSchema).min(1).max(20),
+  /** Videos that were picked but could not be analysed. */
+  failedVideos: z.number().int().min(0).max(20),
+});
+export type KbCompetitorReportPayload = z.infer<typeof KbCompetitorReportPayloadSchema>;
+
+export const KbCompetitorReportResultSchema = z.object({
+  insights: CompetitorInsightsSchema,
+  reportMd: z.string().trim().min(1).max(COMPETITOR_REPORT_LIMITS.reportMd),
+});
+export type KbCompetitorReportResult = z.infer<typeof KbCompetitorReportResultSchema>;
 
 /**
  * The format a production job runs with: the format version (null for an item without a series)
@@ -285,6 +370,15 @@ export const jobRegistry = {
   "kb.analyze_reference": {
     payload: KbAnalyzeReferencePayloadSchema,
     result: KbAnalyzeReferenceResultSchema,
+    durableEventKinds: ["status", "session", "tool.activity", "usage", "log"],
+    timeoutMs: 15 * 60_000,
+    retry: { maxAttempts: 2, onLeaseExpiry: "requeue" },
+    concurrencyClass: "producer",
+    mcpAccess: "read",
+  },
+  "kb.competitor_report": {
+    payload: KbCompetitorReportPayloadSchema,
+    result: KbCompetitorReportResultSchema,
     durableEventKinds: ["status", "session", "tool.activity", "usage", "log"],
     timeoutMs: 15 * 60_000,
     retry: { maxAttempts: 2, onLeaseExpiry: "requeue" },

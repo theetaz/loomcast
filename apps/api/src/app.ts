@@ -30,6 +30,7 @@ import { register as registerBridge } from "./modules/bridge";
 import { register as registerCadence } from "./modules/cadence";
 import { register as registerCalendar } from "./modules/calendar";
 import { register as registerChannels } from "./modules/channels";
+import { register as registerCompetitors } from "./modules/competitors";
 import { register as registerContent } from "./modules/content";
 import { register as registerConversations } from "./modules/conversations";
 import { register as registerDevices } from "./modules/devices";
@@ -312,6 +313,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerProjects(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerKb(app, moduleDeps);
+  registerCompetitors(app, moduleDeps);
   registerAssets(app, moduleDeps);
   registerFormats(app, moduleDeps);
   registerSeries(app, moduleDeps);

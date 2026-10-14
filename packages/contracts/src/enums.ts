@@ -41,6 +41,7 @@ export const JOB_TYPES = [
   "system.ping",
   "producer.chat",
   "kb.analyze_reference",
+  "kb.competitor_report",
   "content.write_script",
   "content.storyboard",
   "content.revise",
@@ -108,6 +109,48 @@ export const REFERENCE_PLATFORMS = [
 ] as const;
 export const ReferencePlatformSchema = z.enum(REFERENCE_PLATFORMS);
 export type ReferencePlatform = (typeof REFERENCE_PLATFORMS)[number];
+
+/**
+ * Platforms a competitor can be followed on. Instagram professional accounts are discovered through
+ * the official Business Discovery API; Facebook Pages and Threads profiles take pasted video links.
+ */
+export const COMPETITOR_PLATFORMS = ["instagram", "facebook", "threads"] as const;
+export const CompetitorPlatformSchema = z.enum(COMPETITOR_PLATFORMS);
+export type CompetitorPlatform = (typeof COMPETITOR_PLATFORMS)[number];
+
+/**
+ * A competitor scan:
+ * - `analyzing`: each picked video has a `kb.analyze_reference` job on its way;
+ * - `reporting`: the analyses are in and `kb.competitor_report` is writing the report;
+ * - `done`: the report is in the knowledge base and every video was analysed;
+ * - `partial`: the report is in, but some videos could not be analysed;
+ * - `failed`: no video could be analysed, or the report failed;
+ * - `cancelled`: a user stopped it.
+ */
+export const COMPETITOR_SCAN_STATUSES = [
+  "analyzing",
+  "reporting",
+  "done",
+  "partial",
+  "failed",
+  "cancelled",
+] as const;
+export const CompetitorScanStatusSchema = z.enum(COMPETITOR_SCAN_STATUSES);
+export type CompetitorScanStatus = (typeof COMPETITOR_SCAN_STATUSES)[number];
+
+/** Scans that still have work on its way. */
+export const ACTIVE_COMPETITOR_SCAN_STATUSES = [
+  "analyzing",
+  "reporting",
+] as const satisfies readonly CompetitorScanStatus[];
+
+/**
+ * Where a scan's videos came from: the official API ranked by views (`official_api`), or links the
+ * user pasted (`links`).
+ */
+export const COMPETITOR_SCAN_SOURCES = ["official_api", "links"] as const;
+export const CompetitorScanSourceSchema = z.enum(COMPETITOR_SCAN_SOURCES);
+export type CompetitorScanSource = (typeof COMPETITOR_SCAN_SOURCES)[number];
 
 /** Progress of a reference's `kb.analyze_reference` job, as stored on the reference. */
 export const REFERENCE_ANALYSIS_STATUSES = ["none", "queued", "running", "done", "failed"] as const;

@@ -39,6 +39,13 @@ import {
 } from "./channels";
 import { CursorPageQuerySchema, cursorPageSchema, listSchema } from "./common";
 import {
+  CompetitorScanSchema,
+  CompetitorSchema,
+  CreateCompetitorRequestSchema,
+  CreateCompetitorScanRequestSchema,
+  UpdateCompetitorRequestSchema,
+} from "./competitors";
+import {
   ContentActionRequestSchema,
   ContentItemDetailSchema,
   ContentItemSchema,
@@ -359,6 +366,87 @@ export const routes = {
     auth: "session",
     params: IdParamsSchema,
     response: JobSummarySchema,
+    status: 200,
+  }),
+
+  "competitors.list": route({
+    method: "GET",
+    path: "/api/projects/:projectId/competitors",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    response: listSchema(CompetitorSchema),
+    status: 200,
+  }),
+  /** `409 conflict` (`reason: "duplicate"`) when the project already follows the profile. */
+  "competitors.create": route({
+    method: "POST",
+    path: "/api/projects/:projectId/competitors",
+    auth: "session",
+    params: ProjectIdParamsSchema,
+    body: CreateCompetitorRequestSchema,
+    response: CompetitorSchema,
+    status: 201,
+  }),
+  "competitors.get": route({
+    method: "GET",
+    path: "/api/competitors/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: CompetitorSchema,
+    status: 200,
+  }),
+  "competitors.update": route({
+    method: "PATCH",
+    path: "/api/competitors/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateCompetitorRequestSchema,
+    response: CompetitorSchema,
+    status: 200,
+  }),
+  /** Stops following the competitor. Its analysed references and reports stay in the knowledge base. */
+  "competitors.delete": route({
+    method: "DELETE",
+    path: "/api/competitors/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: null,
+    status: 204,
+  }),
+  /** The competitor's scans, newest first. */
+  "competitors.scans": route({
+    method: "GET",
+    path: "/api/competitors/:id/scans",
+    auth: "session",
+    params: IdParamsSchema,
+    response: listSchema(CompetitorScanSchema),
+    status: 200,
+  }),
+  /** See `CreateCompetitorScanRequestSchema` for the errors. */
+  "competitors.scan": route({
+    method: "POST",
+    path: "/api/competitors/:id/scans",
+    auth: "session",
+    params: IdParamsSchema,
+    body: CreateCompetitorScanRequestSchema,
+    response: CompetitorScanSchema,
+    status: 201,
+  }),
+  "competitorScans.get": route({
+    method: "GET",
+    path: "/api/competitor-scans/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: CompetitorScanSchema,
+    status: 200,
+  }),
+  /** Cancels the scan's queued and running jobs. */
+  "competitorScans.cancel": route({
+    method: "POST",
+    path: "/api/competitor-scans/:id/cancel",
+    auth: "session",
+    params: IdParamsSchema,
+    response: CompetitorScanSchema,
     status: 200,
   }),
 
