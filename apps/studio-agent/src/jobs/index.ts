@@ -43,6 +43,10 @@ const optionalHandlers: readonly OptionalHandler[] = [
     async () => (await import("./kb-analyze-reference")).createKbAnalyzeReferenceHandler,
   ),
   optionalHandler(
+    "kb.competitor_report",
+    async () => (await import("./kb-competitor-report")).createKbCompetitorReportHandler,
+  ),
+  optionalHandler(
     "content.write_script",
     async () => (await import("./content-write-script")).createContentWriteScriptHandler,
   ),

@@ -194,6 +194,7 @@ describe("Bash in producer sessions", () => {
     for (const jobType of [
       "producer.chat",
       "kb.analyze_reference",
+      "kb.competitor_report",
       "content.write_script",
       "content.revise",
     ] as const) {
