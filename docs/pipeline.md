@@ -51,7 +51,9 @@ Allowed moves:
 - **Production** (`idea` to `render`, and `review`): any actor may add a version; the item moves to
   the version's stage. A version taken out of review (for example a regenerated voice) returns the
   item to that stage until it is rendered again.
-- **Review**: only a person decides. Approve needs a render. Request changes moves the item to
+- **Review**: only a person decides, in the web app or, for the owner, with the `content.review`
+  MCP tool, which records the decision as the owner's ([MCP server](mcp.md)). Tokens and devices
+  never get the move themselves. Approve needs a render. Request changes moves the item to
   `script`; Reject archives it. When every planned post of an item entering review publishes in
   the `auto` mode, the system approves it instead (see
   [approval rules](scheduling-and-publishing.md#approval-rules)).

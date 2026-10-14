@@ -37,7 +37,7 @@ While a job runs, a banner on the video page says what is happening ("Waiting fo
 
 ### Approval is always a person's decision
 
-The producer session can also hand in a finished render itself. Through the MCP tool for submitting content, it uploads the video and its poster and submits them as a new version, and the video goes straight to **In review**. This never approves anything. Access tokens and the producer session cannot approve; only a signed-in person can.
+The producer session can also hand in a finished render itself. Through the MCP tool for submitting content, it uploads the video and its poster and submits them as a new version, and the video goes straight to **In review**. This never approves anything. The producer session and ordinary access tokens cannot approve; only a person can: in the web app, or the owner from an MCP client with an access token that has the admin permission (the `content.review` tool, which also lets the owner schedule posts). See [MCP server](../mcp.md#owner-review-and-publishing-tools).
 
 The one exception is a series whose format is set to **Publish automatically** and whose channels do not require approval: there the system approves a video when it enters review. See [Approval rules](publishing.md#approval-rules).
 
