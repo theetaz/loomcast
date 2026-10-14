@@ -9,10 +9,13 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { audit } from "../../../lib/audit";
 import type { EventBus } from "../../../lib/bus";
 import { afterCommit, type Transaction, transaction } from "../../../lib/db";
+import { advanceScansOfJob } from "../../competitors/progress";
 import { type EntryRow, entryColumns, toKbEntry } from "../../kb/mappers";
 import { referenceSearchText } from "../../kb/references";
 import { bumpedUpdatedAt, lockEntry } from "../../kb/service";
 import type { JobTypeHooks } from "../hooks";
+import { createJobsService } from "../service";
+import { isTerminalStatus } from "../transitions";
 
 /**
  * How a job status moves the reference's `analysis_status`, and from which statuses. Success is
@@ -35,10 +38,15 @@ const STATUS_MOVES: Partial<
  * - succeeded: the result is validated again, then `analysis`, `analyzed_at` and the entry's
  *   `search_extra` are written and `kb.entry.updated` is published. A result that fails the schema
  *   marks the analysis `failed`. The summary becomes the entry body when the body is empty, and a
- *   transcript the studio agent made from uploaded media is kept when the reference has none.
+ *   transcript the studio agent made from uploaded media is kept when the reference has none, and
+ *   the media facts it measured (`media`) are stored on the reference.
+ *
+ * Once the job has ended (succeeded, failed or cancelled), every competitor scan waiting for it
+ * is advanced (`advanceScansOfJob`): the last analysis of a scan queues its report.
  */
 export function createKbAnalyzeReferenceHooks(deps: { db: Database; bus: EventBus }): JobTypeHooks {
   const { db, bus } = deps;
+  const jobsService = createJobsService({ db, bus });
 
   function publishUpdated(tx: Transaction, row: EntryRow): void {
     const entry = toKbEntry(row);
@@ -77,13 +85,19 @@ export function createKbAnalyzeReferenceHooks(deps: { db: Database; bus: EventBu
         await markFailed(tx, entry, job.id);
         return;
       }
-      const { analysis, summaryMd } = parsed.data;
+      const { analysis, summaryMd, media } = parsed.data;
       // Media analysis returns the transcript it made; a pasted transcript is never replaced.
       const transcript = reference.transcript ?? parsed.data.transcript ?? null;
 
       const [updatedReference] = await tx
         .update(kbReferences)
-        .set({ analysis, analysisStatus: "done", analyzedAt: sql`now()`, transcript })
+        .set({
+          analysis,
+          analysisStatus: "done",
+          analyzedAt: sql`now()`,
+          transcript,
+          ...(media === undefined ? {} : { mediaFacts: media }),
+        })
         .where(eq(kbReferences.entryId, entry.id))
         .returning();
       const [row] = await tx
@@ -110,33 +124,41 @@ export function createKbAnalyzeReferenceHooks(deps: { db: Database; bus: EventBu
     },
 
     async onStatusChanged(job) {
-      const move = STATUS_MOVES[job.status];
-      if (move === undefined) {
-        return;
+      await followStatus(job.id, job.status);
+      if (isTerminalStatus(job.status)) {
+        await advanceScansOfJob(db, jobsService, job.id);
       }
-      await transaction(db, async (tx) => {
-        const [moved] = await tx
-          .update(kbReferences)
-          .set({ analysisStatus: move.to })
-          .where(
-            and(
-              eq(kbReferences.analysisJobId, job.id),
-              inArray(kbReferences.analysisStatus, [...move.from]),
-            ),
-          )
-          .returning({ entryId: kbReferences.entryId });
-        if (moved === undefined) {
-          return;
-        }
-        const [entry] = await tx
-          .select(entryColumns)
-          .from(kbEntries)
-          .where(eq(kbEntries.id, moved.entryId))
-          .limit(1);
-        if (entry !== undefined && entry.deletedAt === null) {
-          publishUpdated(tx, entry);
-        }
-      });
     },
   };
+
+  /** Moves the analysis status of the reference whose analysis job is `jobId`. */
+  async function followStatus(jobId: string, status: JobStatus): Promise<void> {
+    const move = STATUS_MOVES[status];
+    if (move === undefined) {
+      return;
+    }
+    await transaction(db, async (tx) => {
+      const [moved] = await tx
+        .update(kbReferences)
+        .set({ analysisStatus: move.to })
+        .where(
+          and(
+            eq(kbReferences.analysisJobId, jobId),
+            inArray(kbReferences.analysisStatus, [...move.from]),
+          ),
+        )
+        .returning({ entryId: kbReferences.entryId });
+      if (moved === undefined) {
+        return;
+      }
+      const [entry] = await tx
+        .select(entryColumns)
+        .from(kbEntries)
+        .where(eq(kbEntries.id, moved.entryId))
+        .limit(1);
+      if (entry !== undefined && entry.deletedAt === null) {
+        publishUpdated(tx, entry);
+      }
+    });
+  }
 }

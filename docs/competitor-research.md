@@ -44,7 +44,36 @@ numbers and the analysis, never the video.
 
 Only one scan of a competitor is active at a time (`409 scan_in_progress`). Cancelling a scan
 cancels its queued and running jobs and marks it `cancelled`; finished analyses stay on their
-references.
+references. Deleting a competitor cancels its active scan the same way; its references and
+reports stay in the knowledge base.
+
+## API server
+
+The `competitors` module (`apps/api/src/modules/competitors/`) serves the routes of
+`packages/contracts/src/api/routes.ts` (`competitors.*`, `competitorScans.*`), all with a session.
+
+- **Errors.** A link that is not a profile is `400 validation_failed` (path `url`); a duplicate is
+  `409 conflict` with `reason: "duplicate"`, and a project at the limit `reason: "limit"`. Pasted
+  links that are not public videos of the competitor's platform are `422 invalid_link`, with one
+  `{ path: "links.<n>" }` per bad link. Besides `links_required`, `no_instagram_channel` and
+  `not_professional_account`, a scan can be refused with `422 no_videos` (the account has no
+  recent video), `502 platform_error` (the Graph API refused the lookup for another reason) and
+  `503 not_configured` (no Meta app on the server).
+- **Discovery.** `businessDiscovery` (`lib/meta-graph/meta.ts`) goes through the Graph client
+  (timeouts, retries, `appsecret_proof`), follows the media cursor, and asks again without
+  `view_count` when the API refuses that field; the ranking then falls back to likes plus
+  comments. The handle is checked against `COMPETITOR_HANDLE_RE` before it enters the `fields`
+  expression, and so is the cursor's alphabet.
+- **Starting.** The videos are picked before the transaction (the Graph API call), then one
+  transaction stores the account numbers, the scan, a reference per video (the knowledge base's
+  `ensureReference`: an existing reference of the URL is reused and gains the competitor tags)
+  and its analysis job. A reference whose analysis is already queued or running keeps that job.
+  A scan of pasted links stores the number of links as its `topN`.
+- **Progress.** The `kb.analyze_reference` hook advances every `analyzing` scan that waits for a
+  job once the job has ended. Each step locks the scan row and re-reads its status, so analyses
+  that end together queue one report (`competitor-report:<scanId>`). A video counts as analysed
+  when its reference's analysis is `done`. The `kb.competitor_report` hook validates the result
+  again before writing the note.
 
 ## Studio agent: fetching a public video
 

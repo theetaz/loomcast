@@ -3,9 +3,11 @@ import type { EventBus, Unsubscribe } from "../../../lib/bus";
 import { createProductionJobHooks } from "../../production/hooks";
 import type { JobHooks } from "../hooks";
 import { createKbAnalyzeReferenceHooks } from "./kb-analyze-reference";
+import { createKbCompetitorReportHooks } from "./kb-competitor-report";
 import { createProducerChatHooks } from "./producer-chat";
 
 export { createKbAnalyzeReferenceHooks } from "./kb-analyze-reference";
+export { COMPETITOR_REPORT_TAG, createKbCompetitorReportHooks } from "./kb-competitor-report";
 export { createProducerChatHooks } from "./producer-chat";
 
 export interface JobHandlerDeps {
@@ -21,6 +23,7 @@ export function createJobHooks(deps: JobHandlerDeps): JobHooks {
   return {
     "producer.chat": createProducerChatHooks(deps),
     "kb.analyze_reference": createKbAnalyzeReferenceHooks(deps),
+    "kb.competitor_report": createKbCompetitorReportHooks(deps),
     // content.write_script, content.storyboard, content.voice, content.render, content.revise
     ...createProductionJobHooks(deps),
     // skills.sync has no server-side side effects: the studio agent only pulls published skills.
