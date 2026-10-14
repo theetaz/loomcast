@@ -21,6 +21,7 @@ export {
   type AnalyzeResult,
   analysisKey,
   createKbService,
+  type EnsuredReference,
   type KbActor,
   type KbSearchOptions,
   type KbService,

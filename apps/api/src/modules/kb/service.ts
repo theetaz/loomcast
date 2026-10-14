@@ -6,6 +6,7 @@ import {
   IdSchema,
   type JobStatus,
   type JsonObject,
+  KB_MAX_TAGS,
   KB_TITLE_MAX_LENGTH,
   type KbCreatedVia,
   type KbEntry,
@@ -52,11 +53,12 @@ import { normalizeTags } from "./tags";
 
 /**
  * Who writes to the knowledge base. A web user acts as themselves; an MCP or job token acts for
- * its user, so `userId` becomes `created_by` and the token is kept in `created_by_token_id`.
+ * its user, so `userId` becomes `created_by` and the token is kept in `created_by_token_id`. A
+ * studio agent storing a job result (`device`) acts for the user who started the job.
  */
 export interface KbActor {
-  kind: "user" | "token";
-  /** The user id, or the token id for `token`. */
+  kind: "user" | "token" | "device";
+  /** The user id, the token id for `token`, or the device id for `device`. */
   id: string;
   /** The account the write belongs to. */
   userId: string;
@@ -180,6 +182,46 @@ export interface KbService {
    * is no such entry.
    */
   analyze(id: string, actor: KbActor): Promise<AnalyzeResult | null>;
+  /**
+   * Like `create`, on the caller's transaction, for server-side writers such as competitor
+   * research. The caller has checked the project (`requireActiveProject`).
+   */
+  createIn(
+    tx: Transaction,
+    projectId: string,
+    input: NewTextEntry | NewDecisionEntry,
+    actor: KbActor,
+  ): Promise<KbEntryDetail>;
+  /**
+   * The project's live reference for `input.url`, created when there is none, on the caller's
+   * transaction. An existing entry keeps its fields and gains the tags of `input` it lacks. 400
+   * for a URL that cannot be normalised. The caller has checked the project.
+   */
+  ensureReference(
+    tx: Transaction,
+    projectId: string,
+    input: NewReferenceEntry,
+    actor: KbActor,
+  ): Promise<EnsuredReference>;
+  /**
+   * Queues `kb.analyze_reference` with `fetchPublicVideo` for a reference, on the caller's
+   * transaction, and marks its analysis `queued`, as `analyze` does. A job of the reference that
+   * is still queued or running is returned instead of a new one. Null when the entry is not a
+   * live reference.
+   */
+  queuePublicVideoAnalysis(
+    tx: Transaction,
+    entryId: string,
+    idempotencyKey: string,
+    actor: KbActor,
+  ): Promise<JobRow | null>;
+}
+
+export interface EnsuredReference {
+  entry: EntryRow;
+  reference: KbReferenceRow;
+  /** False when the project already had a live reference for the URL. */
+  created: boolean;
 }
 
 export interface AnalyzeResult {
@@ -551,18 +593,46 @@ export function createKbService(deps: KbServiceDeps): KbService {
     return toKbEntryDetail(row, null);
   }
 
-  async function createReference(
+  function normalizedReferenceUrl(url: string): ReturnType<typeof normalizeReferenceUrl> {
+    try {
+      return normalizeReferenceUrl(url);
+    } catch {
+      throw validationFailed([{ path: "url", message: "Enter an http or https link" }]);
+    }
+  }
+
+  /** The live entry of the project with `dedupeKey`, locked for update, or null. */
+  async function lockDedupedEntry(
+    tx: Transaction,
+    projectId: string,
+    dedupeKey: string,
+  ): Promise<EntryRow | null> {
+    const [row] = await tx
+      .select(entryColumns)
+      .from(kbEntries)
+      .where(
+        and(
+          eq(kbEntries.projectId, projectId),
+          eq(kbEntries.dedupeKey, dedupeKey),
+          isNull(kbEntries.deletedAt),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    return row ?? null;
+  }
+
+  /**
+   * Inserts a reference entry and its `kb_references` row. Null, inserting nothing, when the
+   * project already has a live reference for the normalised URL.
+   */
+  async function insertReference(
     tx: Transaction,
     projectId: string,
     input: NewReferenceEntry,
     actor: KbActor,
-  ): Promise<KbEntryDetail> {
-    let normalized: ReturnType<typeof normalizeReferenceUrl>;
-    try {
-      normalized = normalizeReferenceUrl(input.url);
-    } catch {
-      throw validationFailed([{ path: "url", message: "Enter an http or https link" }]);
-    }
+  ): Promise<{ row: EntryRow; reference: KbReferenceRow } | null> {
+    const normalized = normalizedReferenceUrl(input.url);
     const platform = input.platform ?? normalized.platform;
     const author = optionalText(input.author);
     const likedReason = optionalText(input.likedReason);
@@ -590,21 +660,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
       actor,
     );
     if (row === null) {
-      const [existing] = await tx
-        .select({ id: kbEntries.id })
-        .from(kbEntries)
-        .where(
-          and(
-            eq(kbEntries.projectId, projectId),
-            eq(kbEntries.dedupeKey, dedupeKey),
-            isNull(kbEntries.deletedAt),
-          ),
-        )
-        .limit(1);
-      throw conflict("This reference is already saved in the project.", {
-        reason: "duplicate",
-        entryId: existing?.id ?? null,
-      });
+      return null;
     }
     const [reference] = await tx
       .insert(kbReferences)
@@ -624,7 +680,74 @@ export function createKbService(deps: KbServiceDeps): KbService {
     if (reference === undefined) {
       throw new Error("reference was not inserted");
     }
-    return toKbEntryDetail(row, reference);
+    return { row, reference };
+  }
+
+  async function createReference(
+    tx: Transaction,
+    projectId: string,
+    input: NewReferenceEntry,
+    actor: KbActor,
+  ): Promise<KbEntryDetail> {
+    const inserted = await insertReference(tx, projectId, input, actor);
+    if (inserted === null) {
+      const dedupeKey = referenceDedupeKey(normalizedReferenceUrl(input.url).url);
+      const [existing] = await tx
+        .select({ id: kbEntries.id })
+        .from(kbEntries)
+        .where(
+          and(
+            eq(kbEntries.projectId, projectId),
+            eq(kbEntries.dedupeKey, dedupeKey),
+            isNull(kbEntries.deletedAt),
+          ),
+        )
+        .limit(1);
+      throw conflict("This reference is already saved in the project.", {
+        reason: "duplicate",
+        entryId: existing?.id ?? null,
+      });
+    }
+    return toKbEntryDetail(inserted.row, inserted.reference);
+  }
+
+  async function ensureReference(
+    tx: Transaction,
+    projectId: string,
+    input: NewReferenceEntry,
+    actor: KbActor,
+  ): Promise<EnsuredReference> {
+    const inserted = await insertReference(tx, projectId, input, actor);
+    if (inserted !== null) {
+      return { entry: inserted.row, reference: inserted.reference, created: true };
+    }
+    const dedupeKey = referenceDedupeKey(normalizedReferenceUrl(input.url).url);
+    const existing = await lockDedupedEntry(tx, projectId, dedupeKey);
+    const reference = existing === null ? null : await loadReference(tx, existing.id);
+    if (existing === null || reference === null) {
+      throw new Error("deduplicated reference vanished inside its transaction");
+    }
+    const tags = normalizeTags([...existing.tags, ...(input.tags ?? [])]);
+    if (tags.length === existing.tags.length || tags.length > KB_MAX_TAGS) {
+      return { entry: existing, reference, created: false };
+    }
+    const [row] = await tx
+      .update(kbEntries)
+      .set({ tags, updatedAt: bumpedUpdatedAt })
+      .where(eq(kbEntries.id, existing.id))
+      .returning(entryColumns);
+    if (row === undefined) {
+      throw new Error("reference vanished inside its transaction");
+    }
+    await audit(tx, {
+      ...auditActor(actor),
+      action: "kb.entry.update",
+      targetType: "kb_entry",
+      targetId: row.id,
+      data: { projectId, fields: ["tags"] },
+    });
+    publishUpdated(tx, row);
+    return { entry: row, reference, created: false };
   }
 
   async function get(id: string, executor: Executor = db): Promise<KbEntryDetail | null> {
@@ -643,6 +766,68 @@ export function createKbService(deps: KbServiceDeps): KbService {
   }
 
   return {
+    createIn(tx, projectId, input, actor) {
+      return input.kind === "decision"
+        ? createDecision(tx, projectId, input, actor)
+        : createText(tx, projectId, input, actor);
+    },
+
+    ensureReference,
+
+    async queuePublicVideoAnalysis(tx, entryId, idempotencyKey, actor) {
+      const entry = await lockEntry(tx, entryId);
+      if (entry === null || entry.kind !== "reference") {
+        return null;
+      }
+      const [reference] = await tx
+        .select()
+        .from(kbReferences)
+        .where(eq(kbReferences.entryId, entry.id))
+        .limit(1)
+        .for("update");
+      if (reference === undefined) {
+        return null;
+      }
+      const current =
+        reference.analysisJobId === null ? null : await jobs.get(reference.analysisJobId, tx);
+      if (current !== null && ACTIVE_JOB_STATUSES.has(current.status)) {
+        return current;
+      }
+      const { job } = await jobs.enqueue(tx, {
+        type: "kb.analyze_reference",
+        payload: {
+          projectId: entry.projectId,
+          entryId: entry.id,
+          url: reference.url,
+          platform: reference.platform,
+          fetchPublicVideo: true,
+          ...(reference.likedReason === null ? {} : { likedReason: reference.likedReason }),
+        },
+        projectId: entry.projectId,
+        conversationId: null,
+        idempotencyKey,
+        createdBy: actor.userId,
+      });
+      if (job.id !== reference.analysisJobId) {
+        await tx
+          .update(kbReferences)
+          .set({
+            analysisJobId: job.id,
+            analysisStatus: job.status === "running" ? "running" : "queued",
+          })
+          .where(eq(kbReferences.entryId, entry.id));
+        await audit(tx, {
+          ...auditActor(actor),
+          action: "kb.reference.analyze",
+          targetType: "kb_entry",
+          targetId: entry.id,
+          data: { projectId: entry.projectId, jobId: job.id },
+        });
+        publishUpdated(tx, entry);
+      }
+      return job;
+    },
+
     create(projectId, input, actor) {
       return transaction(db, async (tx) => {
         await requireActiveProject(tx, projectId);
