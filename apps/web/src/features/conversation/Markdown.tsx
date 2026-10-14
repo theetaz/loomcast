@@ -81,7 +81,8 @@ function CodeBlock({ children }: ComponentProps<"pre">) {
   );
 }
 
-const components: Components = {
+/** The markdown elements in the Loomcast style; other renderers override single elements. */
+export const markdownComponents: Components = {
   pre: CodeBlock,
   code: ({ className, children }) => (
     <code
@@ -164,7 +165,7 @@ const components: Components = {
   ),
 };
 
-const plugins = [remarkGfm];
+export const markdownPlugins = [remarkGfm];
 
 /**
  * Assistant text as GitHub-flavoured markdown. Raw HTML is never rendered:
@@ -180,7 +181,11 @@ export const Markdown = memo(function Markdown({
 }) {
   return (
     <div className={cn("min-w-0 break-words text-body text-foreground", className)}>
-      <ReactMarkdown remarkPlugins={plugins} components={components} skipHtml={false}>
+      <ReactMarkdown
+        remarkPlugins={markdownPlugins}
+        components={markdownComponents}
+        skipHtml={false}
+      >
         {text}
       </ReactMarkdown>
     </div>

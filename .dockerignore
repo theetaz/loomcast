@@ -15,6 +15,9 @@
 !apps/web
 !packages
 
+# The in-app guide's pages and screenshots, bundled into the web app
+!docs/guide
+
 # Manifests of workspace projects the image does not build, so the workspace matches the lockfile
 !apps/studio-agent/package.json
 !studio/package.json
@@ -35,6 +38,7 @@
 **/*.test.ts
 **/*.test.tsx
 **/*.md
+!docs/guide/*.md
 **/.DS_Store
 **/*.log
 **/.env
