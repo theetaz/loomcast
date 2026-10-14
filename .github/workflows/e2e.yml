@@ -1,22 +1,16 @@
 name: e2e
 
+# Manual only. The end-to-end smoke is slow and needs a browser, Postgres and object storage, so it
+# runs on the workstation (`pnpm test:e2e`, see docs/local-development.md) before a release that
+# touches the user flows. Start it here from the Actions tab when a clean-room run is wanted.
 on:
-  pull_request:
-    paths:
-      - "apps/**"
-      - "packages/**"
-      - "tests/**"
-      - "infra/seaweedfs/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".github/workflows/e2e.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: e2e-${{ github.event.pull_request.number }}
+  group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

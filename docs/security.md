@@ -113,7 +113,7 @@ All limits are in-memory token buckets per api process (there is one), reset on 
     the suite until it gets one), plus the probes and the failed-credential limit;
   - disabling a user revokes the devices they paired and closes their bridge connections.
 - **Dependency advisories:** the `audit` job in `.github/workflows/ci.yml` runs
-  `pnpm audit --prod --audit-level high` on pull requests, pushes to `main` and weekly.
+  `pnpm audit --prod --audit-level high` on pushes to `main` and weekly.
 
 ### Dependency advisories
 
