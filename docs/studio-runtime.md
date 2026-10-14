@@ -31,7 +31,24 @@ files of their own item (see the [studio agent README](../apps/studio-agent/READ
   `HYPERFRAMES_BROWSER_PATH` when it is set, and otherwise a Chrome headless shell already in the
   CLI's cache (`~/.cache/hyperframes/chrome/`). It never downloads a browser; installing one is a
   deliberate step (see the [M3 acceptance runbook](runbooks/m3-acceptance.md)).
-- **The TTS provider key**, for voice jobs and for transcribing uploaded reference media (below).
+- **The TTS provider key**, for voice jobs and for transcribing reference media (below).
+- **yt-dlp**, only for [competitor research](competitor-research.md) (for example
+  `brew install yt-dlp`). The agent runs `yt-dlp` from the `PATH`, or the binary named by
+  `ytDlpPath` in `~/.config/loomcast-agent/config.json`. Without it, competitor videos fail with
+  `downloader_missing` and everything else keeps working.
+
+## Competitor videos on the Mac
+
+A `kb.analyze_reference` job with `fetchPublicVideo` downloads one public video into
+`~/Loomcast/projects/<projectId>/references/<entryId>/media-<jobId>/` (mode 0700). `yt-dlp` runs
+without a shell, config files, cookies or post-processing hooks, with only `PATH`, `HOME`, `LANG`
+and the proxy variables in its environment, and is stopped after 5 minutes. ffprobe checks the
+file (one file, at most 300 MB and 10 minutes, with a video stream); ffmpeg counts the cuts and
+takes six frames, 540 px wide, into `frames/`. The audio is transcribed with the TTS provider key.
+
+The analysis session may open the frames with `Read`; it never sees the link. When the job ends,
+whatever the outcome, the `media-<jobId>/` folder with the video and the frames is deleted. Only
+`references/<entryId>/transcript.txt` stays (none for a video without speech).
 
 ## Telemetry off
 
@@ -134,6 +151,8 @@ media in place of voice takes and renders.
 | Symptom | Cause and fix |
 |---|---|
 | A voice job fails with `voice_provider_key_missing` | Set the key with `pnpm agent secrets set voice-provider-key` and check `pnpm agent status` |
+| A competitor video fails with `downloader_missing` | Install yt-dlp (`brew install yt-dlp`), or set `ytDlpPath` in the agent config to its absolute path, and restart the agent |
+| A competitor video fails with `download_failed` | The platform refused the download (a private or removed video, a login wall or a rate limit). The message has `yt-dlp`'s reason; retryable network errors are retried once |
 | A voice job fails with `voice_provider_failed` | The TTS provider refused the request: a wrong key, an unknown voice ID or no credits. The message says which; 429 and 5xx answers were already retried |
 | A render fails with `render_tools_missing` | ffmpeg, ffprobe, the pinned HyperFrames CLI, GSAP or the render browser is missing. Run `hyperframes doctor` and `hyperframes browser path` as above, and `pnpm install` |
 | A render fails with `frame_too_long`, `frame_too_short` or `beyond_voice` | The storyboard does not fit its cards or the voice after re-timing. Request changes (or revise the storyboard) and render again |

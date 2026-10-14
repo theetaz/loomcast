@@ -39,6 +39,11 @@ export const AgentConfigSchema = z.object({
   token: DeviceTokenSecretSchema,
   workspaceRoot: z.string().min(1),
   concurrency: CreditsSchema,
+  /**
+   * The `yt-dlp` binary that downloads public competitor videos: an absolute path, or a name
+   * looked up on `PATH`. Defaults to `yt-dlp`.
+   */
+  ytDlpPath: z.string().min(1).max(1_000).optional(),
 });
 export type AgentConfig = z.output<typeof AgentConfigSchema>;
 

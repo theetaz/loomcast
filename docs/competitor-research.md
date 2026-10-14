@@ -54,13 +54,14 @@ references.
    `invalid_payload`. The producer session never sees or fetches the link.
 2. **Download** with `yt-dlp`, spawned directly (no shell), with a fixed argument list:
    `--ignore-config --no-playlist --no-cache-dir --no-mtime --no-write-info-json
-   --no-write-thumbnail --no-write-subs --max-filesize 300M --match-filter "duration <= 600"
+   --no-write-thumbnail --no-write-subs --max-filesize 300M --match-filter "duration <=? 600"
    --format "best[ext=mp4][height<=1920]/best[height<=1920]/best" --output <dir>/video.%(ext)s
-   -- <url>`. No cookies or browser profiles are passed: only public videos are fetched, so the
-   owner's accounts are never at risk. The child gets a minimal environment (`PATH`, `HOME`, `LANG`
-   and proxy variables), a 5-minute limit and the job's abort signal. The `yt-dlp` path comes from
-   the agent config (`ytDlpPath`, default `yt-dlp` on `PATH`); a missing binary fails with
-   `downloader_missing`, not retryable.
+   -- <url>`. The `<=?` lets a video without a reported duration through (Instagram reports
+   none); step 3 checks the length of the file either way. No cookies or browser profiles are
+   passed: only public videos are fetched, so the owner's accounts are never at risk. The child
+   gets a minimal environment (`PATH`, `HOME`, `LANG` and proxy variables), a 5-minute limit and
+   the job's abort signal. The `yt-dlp` path comes from the agent config (`ytDlpPath`, default
+   `yt-dlp` on `PATH`); a missing binary fails with `downloader_missing`, not retryable.
 3. **Verify** with `ffprobe`: at most 300 MB and 10 minutes, with a video stream.
 4. **Measure.** The duration, the cuts per minute from ffmpeg's scene detector
    (`select='gt(scene,0.3)'`), and six evenly spaced frames scaled to 540 px wide as JPEG.

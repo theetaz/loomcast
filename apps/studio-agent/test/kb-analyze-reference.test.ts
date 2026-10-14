@@ -1,20 +1,36 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type JobEventKind, parseJobResult } from "@loomcast/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMcpCredentials, type JobContext, type McpCredentials } from "../src/handlers";
+import {
+  createMcpCredentials,
+  type JobContext,
+  JobFailure,
+  type McpCredentials,
+} from "../src/handlers";
 import {
   analyzeReferenceHandler,
   extractJsonBlock,
+  type ReferenceMediaDeps,
   readAnalysisReply,
 } from "../src/jobs/kb-analyze-reference";
 import { silentLogger } from "../src/logger";
 import { ANALYSIS_BRIEF, TRANSCRIPT_TAG } from "../src/producer/prompts/analyze-reference";
 import type { ProducerRunInput, ProducerRunResult, ProducerRuntime } from "../src/producer/runtime";
 import { SdkProducerRuntime } from "../src/producer/sdk-runtime";
+import type { PublicVideoTools, VideoProbe } from "../src/research/public-video";
 import { ids, testJobToken } from "./helpers";
 import { assistantText, fakeQuery, initMessage, SESSION_ID, successResult } from "./producer-fakes";
 import {
@@ -380,6 +396,288 @@ describe("kb.analyze_reference with uploaded media", () => {
     expect(result.transcript).toBeUndefined();
     expect(platform.calls).toEqual([]);
     expect(studio.transcribed).toEqual([]);
+  });
+});
+
+describe("kb.analyze_reference with a public video", () => {
+  const PUBLIC_URL = "https://www.instagram.com/reel/Ded7fL-DkFd/";
+
+  interface FakeTools extends PublicVideoTools {
+    readonly downloads: { url: string; dir: string }[];
+    readonly framesSeenDuringSession: boolean[];
+  }
+
+  /** Tools that write small stand-in files and report the given measurements. */
+  function fakeTools(
+    options: {
+      probe?: Partial<VideoProbe>;
+      cuts?: number | Error;
+      download?: Error;
+      frames?: number;
+    } = {},
+  ): FakeTools {
+    const downloads: { url: string; dir: string }[] = [];
+    return {
+      downloads,
+      framesSeenDuringSession: [],
+      async download({ url, dir }) {
+        downloads.push({ url, dir });
+        if (options.download !== undefined) {
+          throw options.download;
+        }
+        const path = join(dir, "video.mp4");
+        writeFileSync(path, "public video bytes");
+        return path;
+      },
+      async probe() {
+        return {
+          durationMs: 30_000,
+          sizeBytes: 100,
+          hasVideo: true,
+          hasAudio: true,
+          ...options.probe,
+        };
+      },
+      async countCuts() {
+        if (options.cuts instanceof Error) {
+          throw options.cuts;
+        }
+        return options.cuts ?? 6;
+      },
+      async extractFrames({ dir }) {
+        mkdirSync(dir, { recursive: true });
+        return Array.from({ length: options.frames ?? 6 }, (_, index) => {
+          const path = join(dir, `frame-${index + 1}.jpg`);
+          writeFileSync(path, "jpg");
+          return path;
+        });
+      },
+    };
+  }
+
+  function fetchSetup(options: { voiceKey?: string | null } = {}) {
+    const studio = fakeStudio(tempDir());
+    studio.transcript = "Batteries lie. Check the cycle count in the battery report today.";
+    const media: ReferenceMediaDeps = {
+      connect: async () => {
+        throw new Error("a public video never reaches the platform's storage");
+      },
+      studio: async () => studio,
+      voiceKey: async () =>
+        options.voiceKey === null ? undefined : (options.voiceKey ?? generatedKey()),
+    };
+    return { studio, media };
+  }
+
+  function fetchContext(payload: Record<string, unknown> = {}) {
+    return analysisContext({
+      url: PUBLIC_URL,
+      transcript: undefined,
+      fetchPublicVideo: true,
+      ...payload,
+    });
+  }
+
+  function jobDir(): string {
+    return join(workspaceDir(), "references", entryId, `media-${ids.job}`);
+  }
+
+  it("downloads, measures and transcribes the video, then analyses it with its frames", async () => {
+    const { studio, media } = fetchSetup();
+    const tools = fakeTools();
+    const framesExisted: boolean[] = [];
+    const runtime = fakeRuntime((input) => {
+      const paths = [...input.prompt.matchAll(/: (\/\S+frame-\d\.jpg)/g)].map((m) => m[1] ?? "");
+      framesExisted.push(paths.length === 6 && paths.every((path) => existsSync(path)));
+      return reply(validReply());
+    });
+    const { ctx, events } = fetchContext();
+
+    const result = await analyzeReferenceHandler({
+      runtime,
+      workspaceRoot: root,
+      media,
+      publicVideo: tools,
+    })(ctx);
+
+    expect(parseJobResult("kb.analyze_reference", result).success).toBe(true);
+    expect(result.media).toEqual({
+      durationMs: 30_000,
+      cutsPerMinute: 12,
+      wordsPerMinute: 22,
+      framesSeen: 6,
+    });
+    expect(result.transcript).toBe(studio.transcript);
+    expect(tools.downloads).toEqual([{ url: PUBLIC_URL, dir: jobDir() }]);
+    expect(studio.transcribed[0]?.inputPath).toBe(join(jobDir(), "video.mp4"));
+    expect(framesExisted).toEqual([true]);
+    // Only the transcript stays; the video and the frames are gone.
+    expect(existsSync(jobDir())).toBe(false);
+    const referenceDir = join(workspaceDir(), "references", entryId);
+    expect(readdirSync(referenceDir)).toEqual(["transcript.txt"]);
+    expect(readFileSync(join(referenceDir, "transcript.txt"), "utf8")).toBe(studio.transcript);
+
+    const prompt = runtime.inputs[0]?.prompt ?? "";
+    expect(prompt).toContain("Duration: 30.0 s");
+    expect(prompt).toContain("Cuts per minute: 12");
+    expect(prompt).toContain("Words per minute: 22");
+    expect(prompt).toContain(`<${TRANSCRIPT_TAG}>\n${studio.transcript}\n</${TRANSCRIPT_TAG}>`);
+    expect(prompt).toContain(join(jobDir(), "frames", "frame-6.jpg"));
+    expect(prompt).not.toContain(PUBLIC_URL);
+    expect(prompt).not.toContain("instagram.com");
+    expect(runtime.inputs[0]?.jobType).toBe("kb.analyze_reference");
+    expect(events.map((event) => (event.data as { state?: string }).state)).toEqual(
+      expect.arrayContaining(["starting", "downloading", "measuring", "transcribing"]),
+    );
+  });
+
+  it("analyses a video without speech from its frames", async () => {
+    const { studio, media } = fetchSetup();
+    studio.transcript = "   ";
+    const runtime = fakeRuntime(() => reply(validReply()));
+
+    const result = await analyzeReferenceHandler({
+      runtime,
+      workspaceRoot: root,
+      media,
+      publicVideo: fakeTools(),
+    })(fetchContext().ctx);
+
+    expect(parseJobResult("kb.analyze_reference", result).success).toBe(true);
+    expect(result.transcript).toBeUndefined();
+    expect(result.media).toMatchObject({ wordsPerMinute: 0, framesSeen: 6 });
+    const prompt = runtime.inputs[0]?.prompt ?? "";
+    expect(prompt).toContain("no speech");
+    expect(prompt).not.toContain(`<${TRANSCRIPT_TAG}>`);
+    expect(existsSync(join(workspaceDir(), "references", entryId, "transcript.txt"))).toBe(false);
+    expect(existsSync(jobDir())).toBe(false);
+  });
+
+  it("skips transcription for a video without audio, and a failed scene count", async () => {
+    const { studio, media } = fetchSetup();
+    const runtime = fakeRuntime(() => reply(validReply()));
+    const result = await analyzeReferenceHandler({
+      runtime,
+      workspaceRoot: root,
+      media,
+      publicVideo: fakeTools({ probe: { hasAudio: false }, cuts: new Error("filter failed") }),
+    })(fetchContext().ctx);
+    expect(studio.transcribed).toEqual([]);
+    expect(result.media).toMatchObject({ cutsPerMinute: null, wordsPerMinute: 0 });
+    expect(runtime.inputs[0]?.prompt).toContain("Cuts per minute: not measured");
+  });
+
+  it("refuses a link that is not a public video before downloading", async () => {
+    const { media } = fetchSetup();
+    const tools = fakeTools();
+    const runtime = fakeRuntime(() => reply(validReply()));
+    for (const url of [
+      "https://www.instagram.com/nasa/",
+      "https://www.youtube.com/shorts/abc",
+      "http://www.instagram.com/reel/abc/",
+    ]) {
+      await expect(
+        analyzeReferenceHandler({ runtime, workspaceRoot: root, media, publicVideo: tools })(
+          fetchContext({ url }).ctx,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_payload" });
+    }
+    expect(tools.downloads).toEqual([]);
+    expect(runtime.inputs).toHaveLength(0);
+  });
+
+  it("fails as downloader_missing and leaves no job directory", async () => {
+    const { media } = fetchSetup();
+    const tools = fakeTools({
+      download: new JobFailure("downloader_missing", "install yt-dlp", false),
+    });
+    const runtime = fakeRuntime(() => reply(validReply()));
+    await expect(
+      analyzeReferenceHandler({ runtime, workspaceRoot: root, media, publicVideo: tools })(
+        fetchContext().ctx,
+      ),
+    ).rejects.toMatchObject({ code: "downloader_missing", retryable: false });
+    expect(tools.downloads).toHaveLength(1);
+    expect(existsSync(jobDir())).toBe(false);
+    expect(runtime.inputs).toHaveLength(0);
+
+    await expect(
+      analyzeReferenceHandler({ runtime, workspaceRoot: root, media })(fetchContext().ctx),
+    ).rejects.toMatchObject({ code: "downloader_missing" });
+  });
+
+  it("needs the TTS provider key before downloading", async () => {
+    const { media } = fetchSetup({ voiceKey: null });
+    const tools = fakeTools();
+    await expect(
+      analyzeReferenceHandler({
+        runtime: fakeRuntime(() => reply(validReply())),
+        workspaceRoot: root,
+        media,
+        publicVideo: tools,
+      })(fetchContext().ctx),
+    ).rejects.toMatchObject({ code: "voice_provider_key_missing" });
+    expect(tools.downloads).toEqual([]);
+  });
+
+  it("deletes the video and frames when the analysis fails", async () => {
+    const { media } = fetchSetup();
+    const tools = fakeTools();
+    const failing = fakeRuntime(() => {
+      expect(existsSync(join(jobDir(), "video.mp4"))).toBe(true);
+      throw new JobFailure("producer_failed", "the session crashed", true);
+    });
+    await expect(
+      analyzeReferenceHandler({ runtime: failing, workspaceRoot: root, media, publicVideo: tools })(
+        fetchContext().ctx,
+      ),
+    ).rejects.toMatchObject({ code: "producer_failed" });
+    expect(existsSync(jobDir())).toBe(false);
+
+    await expect(
+      analyzeReferenceHandler({
+        runtime: fakeRuntime(() => reply(invalidReply)),
+        workspaceRoot: root,
+        media,
+        publicVideo: tools,
+      })(fetchContext().ctx),
+    ).rejects.toMatchObject({ code: "analysis_invalid" });
+    expect(existsSync(jobDir())).toBe(false);
+  });
+
+  it("rejects a video over the limits after probing it", async () => {
+    const { media } = fetchSetup();
+    const runtime = fakeRuntime(() => reply(validReply()));
+    for (const [probe, code] of [
+      [{ durationMs: 600_001 }, "video_too_long"],
+      [{ sizeBytes: 301 * 1024 * 1024 }, "video_too_large"],
+      [{ hasVideo: false }, "video_invalid"],
+    ] as const) {
+      await expect(
+        analyzeReferenceHandler({
+          runtime,
+          workspaceRoot: root,
+          media,
+          publicVideo: fakeTools({ probe }),
+        })(fetchContext().ctx),
+      ).rejects.toMatchObject({ code });
+      expect(existsSync(jobDir())).toBe(false);
+    }
+    expect(runtime.inputs).toHaveLength(0);
+  });
+
+  it("prefers the transcript, then uploaded media, over fetching", async () => {
+    const { media } = fetchSetup();
+    const tools = fakeTools();
+    const runtime = fakeRuntime(() => reply(validReply()));
+    const result = await analyzeReferenceHandler({
+      runtime,
+      workspaceRoot: root,
+      media,
+      publicVideo: tools,
+    })(fetchContext({ transcript: "A transcript the user pasted." }).ctx);
+    expect(result.media).toBeUndefined();
+    expect(tools.downloads).toEqual([]);
   });
 });
 

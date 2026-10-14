@@ -37,7 +37,8 @@ export class PairingError extends Error {
 
 /**
  * Exchanges a pairing code for a device token (`POST /api/bridge/pair`) and stores the result in
- * the config file. The workspace root and concurrency of an earlier pairing are kept.
+ * the config file. The workspace root, concurrency and `yt-dlp` path of an earlier pairing are
+ * kept.
  */
 export async function pairDevice(options: PairOptions, paths: AgentPaths): Promise<AgentConfig> {
   const serverUrl = normalizeServerUrl(options.server);
@@ -85,6 +86,7 @@ export async function pairDevice(options: PairOptions, paths: AgentPaths): Promi
     token: pair.data.token,
     workspaceRoot: previous?.workspaceRoot ?? defaultWorkspaceRoot(),
     concurrency: previous?.concurrency ?? DEFAULT_CONCURRENCY,
+    ...(previous?.ytDlpPath === undefined ? {} : { ytDlpPath: previous.ytDlpPath }),
   };
   saveConfig(paths, config);
   return config;
