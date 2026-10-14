@@ -157,6 +157,11 @@ describe("pipeline tools", () => {
     expect(input.safeParse({ itemId: ids.item, script }).success).toBe(true);
     expect(input.safeParse({ itemId: ids.item, storyboard, notes: "Tighter." }).success).toBe(true);
     expect(input.safeParse({ itemId: ids.item, notes: "Only notes." }).success).toBe(false);
+    expect(
+      input.safeParse({ itemId: ids.item, renderAssetId: ids.version, posterAssetId: ids.item })
+        .success,
+    ).toBe(true);
+    expect(input.safeParse({ itemId: ids.item, posterAssetId: ids.version }).success).toBe(false);
     expect(input.shape).not.toHaveProperty("state");
     expect(output.parse({ versionId: ids.version, versionNo: 2, state: "script" })).toEqual({
       versionId: ids.version,
