@@ -246,7 +246,7 @@ export const pipelineTools = {
     jobTokens: "allow",
     projectBinding: "input",
     description:
-      "Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review; only a person can approve it.",
+      "Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review. Only the owner can approve it, in the web app or with content.review.",
     input: ContentSubmitForReviewInputSchema,
     output: ContentSubmitForReviewOutputSchema,
   },

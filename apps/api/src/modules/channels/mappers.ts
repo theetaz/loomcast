@@ -1,6 +1,7 @@
 import { type Channel, channelPicturePath } from "@loomcast/contracts";
 import { type ChannelRow, channels } from "@loomcast/db";
-import { sql } from "drizzle-orm";
+import { asc, sql } from "drizzle-orm";
+import type { Executor } from "../../lib/db";
 import { pictureVersion } from "../../lib/pictures";
 import { type LiveGateSettings, livePublishingBlocker } from "../publisher/gates";
 
@@ -35,6 +36,18 @@ export type ChannelView = Omit<
   ChannelRow,
   "secretCiphertext" | "secretNonce" | "keyVersion" | "meta" | "createdBy"
 > & { connected: boolean; picture: string | null };
+
+/** Every channel as the API shows it, by platform, name and age. */
+export async function listChannels(
+  executor: Executor,
+  settings: LiveGateSettings,
+): Promise<Channel[]> {
+  const rows = await executor
+    .select(channelColumns)
+    .from(channels)
+    .orderBy(asc(channels.platform), asc(channels.displayName), asc(channels.createdAt));
+  return rows.map((row) => toChannel(row, settings));
+}
 
 /**
  * A channel as the API shows it, with the reason it cannot go live under the server's `settings`

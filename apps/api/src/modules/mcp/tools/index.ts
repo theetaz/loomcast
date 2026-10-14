@@ -1,15 +1,19 @@
 import type { ModuleDeps } from "../../../deps";
 import { createPasswordTokensService } from "../../auth/password-tokens";
 import { createUsersService } from "../../auth/users";
+import { calendarServiceFor } from "../../calendar";
+import { listChannels } from "../../channels/mappers";
 import { contentServiceFor } from "../../content";
 import { formatsServiceFor } from "../../formats";
 import { createProjectsService } from "../../projects/service";
+import { reviewsServiceFor } from "../../reviews";
 import { seriesServiceFor } from "../../series";
 import { skillsServiceFor } from "../../skills";
 import { createAdminTools } from "./admin";
 import { createAssetTools } from "./assets";
 import { createCalendarTools } from "./calendar";
 import { createKbTools } from "./kb";
+import { createOwnerTools } from "./owner";
 import { createPipelineTools } from "./pipeline";
 import { createProjectTools } from "./projects";
 import type { ToolDefinition } from "./registry";
@@ -19,6 +23,7 @@ export { type AdminToolsDeps, createAdminTools } from "./admin";
 export { type AssetToolsDeps, createAssetTools } from "./assets";
 export { type CalendarToolsDeps, createCalendarTools } from "./calendar";
 export { createKbTools, type KbToolsDeps, kbEntryUrl, projectIdFromCwd } from "./kb";
+export { createOwnerTools, type OwnerToolsDeps } from "./owner";
 export { createPipelineTools, type PipelineToolsDeps, tokenActor } from "./pipeline";
 export { createProjectTools, type ProjectToolsDeps, projectUrl } from "./projects";
 export {
@@ -57,5 +62,11 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
     ...createAssetTools({ assets: deps.assets, content }),
     ...createSkillTools({ skills: skillsServiceFor(deps) }),
     ...createCalendarTools({ db, series: seriesServiceFor(deps) }),
+    ...createOwnerTools({
+      content,
+      reviews: reviewsServiceFor(deps),
+      calendar: calendarServiceFor(deps),
+      listChannels: () => listChannels(db, config),
+    }),
   ];
 }

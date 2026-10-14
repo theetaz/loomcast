@@ -9,6 +9,7 @@ import {
   MCP_PROJECT_BINDINGS,
   MCP_TOKEN_SCOPES,
   mcpTools,
+  ownerTools,
   pipelineTools,
   projectTools,
 } from "../src";
@@ -17,10 +18,12 @@ import {
   analysis,
   asset,
   at,
+  channel,
   contentItem,
   fakeSecret,
   ids,
   kbEntry,
+  post,
   script,
   storyboard,
   version,
@@ -30,9 +33,14 @@ const tools = Object.entries(mcpTools);
 
 describe("mcp tool contracts", () => {
   it("collects every tool once", () => {
-    const names = [projectTools, kbTools, adminTools, pipelineTools, calendarTools].flatMap(
-      (group) => Object.keys(group),
-    );
+    const names = [
+      projectTools,
+      kbTools,
+      adminTools,
+      pipelineTools,
+      calendarTools,
+      ownerTools,
+    ].flatMap((group) => Object.keys(group));
 
     expect(new Set(names).size).toBe(names.length);
     expect(Object.keys(mcpTools).sort()).toEqual(names.sort());
@@ -370,5 +378,70 @@ describe("admin tools", () => {
     });
     expect(output.parse({ ...created, password: fakeSecret("password") })).toEqual(created);
     expect(output.safeParse({ ...created, setPasswordUrl: "set-password" }).success).toBe(false);
+  });
+});
+
+describe("owner tools", () => {
+  it("need mcp:admin and are never open to job tokens", () => {
+    for (const tool of Object.values(ownerTools)) {
+      expect([tool.name, tool.scope, tool.jobTokens]).toEqual([tool.name, "mcp:admin", "deny"]);
+      expect(tool.description.startsWith("Owner only.")).toBe(true);
+    }
+  });
+
+  it("decides a review with the REST rules", () => {
+    const { input, output } = ownerTools["content.review"];
+    const base = { itemId: ids.item, versionId: ids.version };
+    const decided = {
+      reviewId: ids.post,
+      itemId: ids.item,
+      decision: "approve",
+      state: "approved",
+    };
+
+    expect(input.safeParse({ ...base, decision: "approve" }).success).toBe(true);
+    expect(input.safeParse({ ...base, decision: "request_changes" }).success).toBe(false);
+    expect(
+      input.safeParse({ ...base, decision: "request_changes", comment: "Shorter hook." }).success,
+    ).toBe(true);
+    expect(input.safeParse({ ...base, decision: "approve", enqueueRevision: false }).success).toBe(
+      false,
+    );
+    expect(input.safeParse({ versionId: ids.version, decision: "approve" }).success).toBe(false);
+    expect(output.parse(decided)).toEqual(decided);
+  });
+
+  it("lists channels without credentials", () => {
+    const { output } = ownerTools["channel.list"];
+    expect(output.parse({ channels: [{ ...channel, secret: fakeSecret("token") }] })).toEqual({
+      channels: [channel],
+    });
+  });
+
+  it("lists, schedules, moves and cancels posts", () => {
+    const range = { from: "2026-10-12T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z" };
+    const list = ownerTools["calendar.list_posts"].input;
+    const schedule = ownerTools["calendar.schedule_post"].input;
+    const reschedule = ownerTools["calendar.reschedule_post"].input;
+    const cancel = ownerTools["calendar.cancel_post"].input;
+
+    expect(list.safeParse({ ...range, channelIds: [ids.channel] }).success).toBe(true);
+    expect(list.safeParse({ ...range, channelIds: [ids.channel, ids.channel] }).success).toBe(
+      false,
+    );
+    expect(list.safeParse({ ...range, to: "2027-01-01T00:00:00.000Z" }).success).toBe(false);
+    expect(ownerTools["calendar.list_posts"].output.parse({ posts: [post], slots: [] })).toEqual({
+      posts: [post],
+      slots: [],
+    });
+    expect(
+      schedule.safeParse({ itemId: ids.item, channelId: ids.channel, scheduledAt: at }).success,
+    ).toBe(true);
+    expect(
+      reschedule.safeParse({ postId: ids.post, scheduledAt: at, expectedUpdatedAt: at }).success,
+    ).toBe(true);
+    expect(reschedule.safeParse({ postId: ids.post, scheduledAt: at }).success).toBe(false);
+    expect(cancel.safeParse({ postId: ids.post }).success).toBe(true);
+    expect(ownerTools["calendar.cancel_post"].output.parse({ post })).toEqual({ post });
   });
 });

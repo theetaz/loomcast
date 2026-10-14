@@ -19,11 +19,11 @@ import { fetchPicture, pictureResponse } from "../../lib/pictures";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
 import { isLivePlatformAvailable } from "../publisher/adapters";
-import { channelColumns, toChannel } from "./mappers";
+import { channelColumns, listChannels, toChannel } from "./mappers";
 import { ensureChannelSweeps, registerRefreshTask } from "./tasks";
 import { registerVerifyTask } from "./verify";
 
-export { type ChannelView, channelColumns, toChannel } from "./mappers";
+export { type ChannelView, channelColumns, listChannels, toChannel } from "./mappers";
 export { channelSweepDedupeKey, ensureChannelSweeps } from "./tasks";
 
 /** Dedupe key of the replanning a change of a series' channels asks for. */
@@ -75,12 +75,9 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["channels.list"].path, async (c) => {
     currentUser(c);
-    const rows = await db
-      .select(channelColumns)
-      .from(channels)
-      .orderBy(asc(channels.platform), asc(channels.displayName), asc(channels.createdAt));
+    const items = await listChannels(db, deps.config);
     c.header("Cache-Control", "no-store");
-    return c.json({ items: rows.map((row) => toChannel(row, deps.config)) }, 200);
+    return c.json({ items }, 200);
   });
 
   router.post(routes["channels.create"].path, async (c) => {
