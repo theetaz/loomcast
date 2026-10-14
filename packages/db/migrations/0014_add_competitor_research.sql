@@ -50,6 +50,7 @@ CREATE TABLE "competitors" (
 	CONSTRAINT "competitors_platform_ck" CHECK ("competitors"."platform" in ('instagram', 'facebook', 'threads'))
 );
 --> statement-breakpoint
+ALTER TABLE "kb_references" ADD COLUMN "media_facts" jsonb;--> statement-breakpoint
 ALTER TABLE "competitor_scan_videos" ADD CONSTRAINT "competitor_scan_videos_scan_id_competitor_scans_id_fk" FOREIGN KEY ("scan_id") REFERENCES "public"."competitor_scans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "competitor_scan_videos" ADD CONSTRAINT "competitor_scan_videos_entry_id_kb_entries_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."kb_entries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "competitor_scan_videos" ADD CONSTRAINT "competitor_scan_videos_analysis_job_id_jobs_id_fk" FOREIGN KEY ("analysis_job_id") REFERENCES "public"."jobs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint

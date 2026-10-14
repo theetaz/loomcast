@@ -1,5 +1,5 @@
 {
-  "id": "cc57befb-3d20-4d68-8c65-36128e3266bb",
+  "id": "beb2e049-5774-4e35-af4f-ca4749eb5670",
   "prevId": "2a2e2424-bdea-43e7-8606-51c0be2aa4a1",
   "version": "7",
   "dialect": "postgresql",
@@ -3876,6 +3876,12 @@
         "analyzed_at": {
           "name": "analyzed_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "media_facts": {
+          "name": "media_facts",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

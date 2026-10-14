@@ -3,6 +3,7 @@ import {
   REFERENCE_ANALYSIS_STATUSES,
   type ReferenceAnalysis,
   type ReferenceAnalysisStatus,
+  type ReferenceMediaFacts,
 } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import { check, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
@@ -118,6 +119,8 @@ export const kbReferences = pgTable(
       .default("none"),
     analysisJobId: uuid("analysis_job_id").references(() => jobs.id, { onDelete: "set null" }),
     analyzedAt: timestamptz("analyzed_at"),
+    /** What the studio agent measured on the media it analysed (length, cuts, words per minute). */
+    mediaFacts: jsonb("media_facts").$type<ReferenceMediaFacts>(),
     /** Uploaded `reference_media` the analysis can transcribe instead of a pasted transcript. */
     mediaAssetId: uuid("media_asset_id").references(() => assets.id, { onDelete: "set null" }),
     createdAt: createdAt(),
