@@ -4,6 +4,7 @@ export * from "./auth";
 export * from "./calendar";
 export * from "./channels";
 export * from "./common";
+export * from "./competitors";
 export * from "./content";
 export * from "./conversations";
 export * from "./devices";

@@ -63,6 +63,7 @@ describe("job registry", () => {
       "system.ping": "none",
       "producer.chat": "read_write",
       "kb.analyze_reference": "read",
+      "kb.competitor_report": "read",
       "content.write_script": "read_write",
       "content.storyboard": "read_write",
       "content.revise": "read_write",

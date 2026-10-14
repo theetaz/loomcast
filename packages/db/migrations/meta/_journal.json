@@ -99,6 +99,13 @@
       "when": 1791885194773,
       "tag": "0013_scope_asset_dedupe_to_items",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791968137093,
+      "tag": "0014_add_competitor_research",
+      "breakpoints": true
     }
   ]
 }
