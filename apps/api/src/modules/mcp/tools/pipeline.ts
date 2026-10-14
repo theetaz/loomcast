@@ -112,24 +112,36 @@ export function createPipelineTools(deps: PipelineToolsDeps): ToolDefinition[] {
       const item = await boundItem(input.itemId, ctx);
       const result = await transaction(db, async (tx) => {
         await requireActiveProject(tx, item.projectId);
+        const actor = tokenActor(ctx.caller);
         // The state is the stage the new artifacts reach; tokens are never allowed to approve.
-        return content.createVersion(
+        const written = await content.createVersion(
           tx,
           item.id,
           {
             ...(input.script === undefined ? {} : { script: input.script }),
             ...(input.storyboard === undefined ? {} : { storyboard: input.storyboard }),
+            ...(input.voiceAssetId === undefined ? {} : { voiceAssetId: input.voiceAssetId }),
+            ...(input.renderAssetId === undefined ? {} : { renderAssetId: input.renderAssetId }),
+            ...(input.posterAssetId === undefined ? {} : { posterAssetId: input.posterAssetId }),
             ...(input.caption === undefined ? {} : { caption: input.caption }),
             ...(input.notes === undefined ? {} : { notes: input.notes }),
           },
-          tokenActor(ctx.caller),
+          actor,
           input.baseVersionId === undefined ? {} : { baseVersionId: input.baseVersionId },
         );
+        // A finished render goes on to review, as a render job's result does.
+        if (input.renderAssetId !== undefined && written.item.state === "render") {
+          const submitted = await content.transition(tx, item.id, "review", actor, {
+            via: "submit",
+          });
+          return { version: written.version, state: submitted.state };
+        }
+        return { version: written.version, state: written.item.state };
       });
       return {
         versionId: result.version.id,
         versionNo: result.version.versionNo,
-        state: result.item.state,
+        state: result.state,
       };
     },
     summary: ({ versionId, versionNo, state }) =>

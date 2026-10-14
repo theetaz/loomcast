@@ -29,6 +29,7 @@ import { connectClient, issueJobToken, issueToken } from "./mcp-support";
 import {
   type InsertedItem,
   type ItemSpec,
+  insertAsset,
   insertItem,
   type PipelineHarness,
   script,
@@ -343,6 +344,76 @@ describe("pipeline tools", () => {
         state: "storyboard",
       });
       expect((await itemRow(inserted.itemId))?.state).toBe("storyboard");
+    });
+
+    it("submits a finished render and its poster for review", async () => {
+      const inserted = await item({ projectId: projectA, state: "voice", level: "voice" });
+      const renderAssetId = await insertAsset(testDb.db, {
+        projectId: projectA,
+        itemId: inserted.itemId,
+        kind: "render",
+        durationMs: 60_500,
+      });
+      const posterAssetId = await insertAsset(testDb.db, {
+        projectId: projectA,
+        itemId: inserted.itemId,
+        kind: "poster",
+      });
+      const result = await call(writer, "content.submit_for_review", {
+        itemId: inserted.itemId,
+        baseVersionId: inserted.versionId,
+        renderAssetId,
+        posterAssetId,
+        caption: "Why is the sky blue?",
+      });
+      expectOk(result);
+      const output = ContentSubmitForReviewOutputSchema.parse(result.structuredContent);
+      expect(output.state).toBe("review");
+      const [version] = await testDb.db
+        .select()
+        .from(contentVersions)
+        .where(eq(contentVersions.id, output.versionId));
+      expect(version).toMatchObject({
+        renderAssetId,
+        posterAssetId,
+        voiceAssetId: inserted.voiceAssetId,
+        caption: "Why is the sky blue?",
+      });
+      expect((await itemRow(inserted.itemId))?.state).toBe("review");
+    });
+
+    it("refuses media that are not a ready asset of the right kind on the item", async () => {
+      const inserted = await item({ projectId: projectA, state: "voice", level: "voice" });
+      const poster = await insertAsset(testDb.db, {
+        projectId: projectA,
+        itemId: inserted.itemId,
+        kind: "poster",
+      });
+      const pending = await insertAsset(testDb.db, {
+        projectId: projectA,
+        itemId: inserted.itemId,
+        kind: "render",
+        status: "pending",
+      });
+      const elsewhere = await item({ projectId: projectA });
+      const foreign = await insertAsset(testDb.db, {
+        projectId: projectA,
+        itemId: elsewhere.itemId,
+        kind: "render",
+      });
+      for (const renderAssetId of [poster, pending, foreign]) {
+        expectError(
+          await call(writer, "content.submit_for_review", {
+            itemId: inserted.itemId,
+            renderAssetId,
+          }),
+          "validation_failed",
+        );
+      }
+      expect(await itemRow(inserted.itemId)).toMatchObject({
+        state: "voice",
+        currentVersionId: inserted.versionId,
+      });
     });
 
     it("refuses a stale base version", async () => {

@@ -80,9 +80,11 @@ export const ContentGetOutputSchema = z.object({
 export type ContentGetOutput = z.infer<typeof ContentGetOutputSchema>;
 
 /**
- * Writes a new version with a script, a storyboard or both. The item's state becomes the version's
- * stage (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is
- * refused instead of overwritten.
+ * Writes a new version with a script, a storyboard, finished media or a mix. The item's state
+ * becomes the version's stage (`stageForArtifacts`); a token never approves. A version that reaches
+ * `render` goes on to `review`. The media are ready assets of the item (`content.upload_asset`), so
+ * a video finished in the studio can be submitted as it is. A poster comes with a render. With
+ * `baseVersionId`, a stale base is refused instead of overwritten.
  */
 export const ContentSubmitForReviewInputSchema = z
   .object({
@@ -90,11 +92,23 @@ export const ContentSubmitForReviewInputSchema = z
     baseVersionId: IdSchema.optional(),
     script: ScriptSchema.optional(),
     storyboard: StoryboardSchema.optional(),
+    voiceAssetId: IdSchema.optional(),
+    renderAssetId: IdSchema.optional(),
+    posterAssetId: IdSchema.optional(),
     caption: z.string().trim().max(CAPTION_MAX_LENGTH).optional(),
     notes: VersionNotesSchema.optional(),
   })
-  .refine((input) => input.script !== undefined || input.storyboard !== undefined, {
-    message: "Submit a script, a storyboard or both",
+  .refine(
+    (input) =>
+      input.script !== undefined ||
+      input.storyboard !== undefined ||
+      input.voiceAssetId !== undefined ||
+      input.renderAssetId !== undefined,
+    { message: "Submit a script, a storyboard, a voice take or a render" },
+  )
+  .refine((input) => input.posterAssetId === undefined || input.renderAssetId !== undefined, {
+    message: "A poster comes with its render",
+    path: ["posterAssetId"],
   });
 export type ContentSubmitForReviewInput = z.infer<typeof ContentSubmitForReviewInputSchema>;
 
@@ -232,7 +246,7 @@ export const pipelineTools = {
     jobTokens: "allow",
     projectBinding: "input",
     description:
-      "Save a new version of an item with a script, a storyboard or both. The item moves to the stage its artifacts reach; only a person can approve it.",
+      "Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review; only a person can approve it.",
     input: ContentSubmitForReviewInputSchema,
     output: ContentSubmitForReviewOutputSchema,
   },

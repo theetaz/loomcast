@@ -184,11 +184,14 @@ pipeline's state machine, is audited and appears live in open pages (`content.it
   number (`versionNo`), `script`, `storyboard`, `voiceAssetId`, `renderAssetId`, `posterAssetId`
   and caption. `format` is the series' current format version and rules, or null for an item
   without a series.
-- **`content.submit_for_review`** saves a new version with a script, a storyboard or both (and
-  optionally a caption and notes). Everything left out is copied from the current version, except
-  that a new script clears the storyboard (unless one is given too), the voice and the render, and
-  a new storyboard clears the render. The item moves to the stage the version's artifacts reach
-  (`script`, `storyboard`, …). With `baseVersionId`, a version that is no longer current is
+- **`content.submit_for_review`** saves a new version with a script, a storyboard, a voice take, a
+  finished render with its poster, or a mix (and optionally a caption and notes). Media are ready
+  assets of the item, uploaded first (see "Uploading media"), so a video finished in the studio
+  can be submitted as it is. Everything left out is copied from the current version, except that a
+  new script clears the storyboard (unless one is given too), the voice and the render, and a new
+  storyboard or voice take clears the render unless one is given too. The item moves to the stage
+  the version's artifacts reach (`script`, `storyboard`, …); a version that reaches `render` goes
+  on to `review`. With `baseVersionId`, a version that is no longer current is
   refused with `conflict` instead of overwritten. Tokens never approve: only a person can, and a
   token cannot change an approved item or one in review without new artifacts
   (`invalid_transition`).
@@ -531,7 +534,7 @@ Get a content item with one version (the current one by default), its script and
 
 ### `content.submit_for_review`
 
-Save a new version of an item with a script, a storyboard or both. The item moves to the stage its artifacts reach; only a person can approve it.
+Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review; only a person can approve it.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
@@ -568,6 +571,9 @@ Save a new version of an item with a script, a storyboard or both. The item move
 | `storyboard.frames[].cardId` | string | yes | matches `^[a-z0-9][a-z0-9._-]{0,119}$` |
 | `storyboard.frames[].slots` | object | yes |  |
 | `storyboard.frames[].notes` | string | no | at most 1000 characters |
+| `voiceAssetId` | string (uuid) | no |  |
+| `renderAssetId` | string (uuid) | no |  |
+| `posterAssetId` | string (uuid) | no |  |
 | `caption` | string | no | at most 2200 characters |
 | `notes` | string | no | at most 4000 characters |
 
