@@ -2,6 +2,7 @@ import { setupWorker } from "msw/browser";
 import { setOAuthNavigator } from "@/features/channels/connect/navigation";
 import { seedAnalyticsDemo } from "./analytics";
 import { seedCalendarDemo } from "./calendar";
+import { seedCompetitorDemo } from "./competitors";
 import { demoContent } from "./content";
 import { seedItemDemo } from "./content-item";
 import { demoConversations, resumeQueuedJobs } from "./conversations";
@@ -49,6 +50,7 @@ export async function startMockApi() {
   seedCalendarDemo(db, now);
   seedAnalyticsDemo(db, now);
   seedSchedulerDemo(db, now);
+  seedCompetitorDemo(db, now);
 
   window.loomcastMock = {
     setStudioOnline(online) {

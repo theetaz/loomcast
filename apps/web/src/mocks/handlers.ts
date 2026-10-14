@@ -16,6 +16,7 @@ import { createAnalyticsHandlers } from "./analytics";
 import { createApprovalHandlers } from "./approvals";
 import { createCalendarHandlers } from "./calendar";
 import { createChannelHandlers } from "./channels";
+import { createCompetitorHandlers } from "./competitors";
 import { createContentHandlers } from "./content";
 import { createContentItemHandlers } from "./content-item";
 import { createConversationHandlers } from "./conversations";
@@ -219,6 +220,7 @@ export function createHandlers(db: MockDb) {
     ...createApprovalHandlers(db),
     ...createSchedulerHandlers(db),
     ...createOAuthHandlers(db),
+    ...createCompetitorHandlers(db),
     // Last, so handlers added for the same routes elsewhere take precedence.
     ...createContentItemHandlers(db),
   ];

@@ -2,6 +2,8 @@ import {
   type AccessToken,
   type AssetDetail,
   type Channel,
+  type Competitor,
+  type CompetitorScan,
   type ContentItem,
   type ContentVersion,
   type Conversation,
@@ -96,6 +98,10 @@ export interface MockDb {
   oauthConnections?: MockOAuthConnection[];
   /** Scheduled tasks, as the scheduler admin routes list them. */
   tasks: ScheduledTask[];
+  /** Competitors every project follows. */
+  competitors: Competitor[];
+  /** Scans of every competitor, newest first. */
+  competitorScans: CompetitorScan[];
   /**
    * Answers posted messages like a studio agent would: dispatch, tool
    * activity, streamed text, the stored reply. Off in tests, which drive the
@@ -146,6 +152,8 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     posts: [],
     livePosts: [],
     tasks: [],
+    competitors: [],
+    competitorScans: [],
     ...seed,
     listeners: new Set(),
   };
