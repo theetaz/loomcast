@@ -225,6 +225,7 @@ describe("permission matrix per job type", () => {
     const matrix: Record<ProducerJobType, readonly string[]> = {
       "producer.chat": chatMcp,
       "kb.analyze_reference": analysisMcp,
+      "kb.competitor_report": analysisMcp,
       "content.write_script": productionMcp,
       "content.storyboard": productionMcp,
       "content.revise": productionMcp,
@@ -268,6 +269,7 @@ describe("permission matrix per job type", () => {
       "WebFetch",
     ]);
     expect(builtinToolsFor("kb.analyze_reference")).toEqual(["Read", "Glob", "Grep"]);
+    expect(builtinToolsFor("kb.competitor_report")).toEqual(["Read", "Glob", "Grep"]);
     expect(builtinToolsFor("content.write_script")).toEqual(["Read", "Glob", "Grep"]);
     expect(builtinToolsFor("content.revise")).toEqual(["Read", "Glob", "Grep"]);
     expect(builtinToolsFor("content.storyboard")).toEqual(["Read", "Glob", "Grep", "Bash"]);
@@ -310,6 +312,7 @@ describe("permission matrix per job type", () => {
 
   it("keeps production-step reads inside the workspace and denies their writes", async () => {
     for (const jobType of [
+      "kb.competitor_report",
       "content.write_script",
       "content.storyboard",
       "content.revise",

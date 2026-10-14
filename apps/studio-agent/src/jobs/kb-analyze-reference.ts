@@ -1,20 +1,26 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type AssetMimeType,
+  isPublicVideoUrl,
+  type JobType,
+  type KbAnalyzeReferencePayload,
   type KbAnalyzeReferenceResult,
   MAX_ANALYSIS_SUMMARY_LENGTH,
   MAX_TRANSCRIPT_LENGTH,
   parseJobPayload,
   type ReferenceAnalysis,
   ReferenceAnalysisSchema,
+  type ReferenceMediaFacts,
   TranscriptSchema,
 } from "@loomcast/contracts";
 import type { z } from "zod";
 import { type Handler, type JobContext, JobFailure } from "../handlers";
+import { ensurePrivateDir } from "../private-fs";
 import {
   ANALYSIS_BRIEF,
   analysisPrompt,
+  type MeasuredMedia,
   repairPrompt,
 } from "../producer/prompts/analyze-reference";
 import type { ProducerEvent, ProducerRunResult, ProducerRuntime } from "../producer/runtime";
@@ -22,6 +28,12 @@ import { ensureProjectWorkspace } from "../producer/workspace";
 import { type ProductionDeps, toJobFailure, withPlatform } from "../production/context";
 import { productionDeps } from "../production/deps";
 import { downloadFile } from "../production/upload";
+import {
+  createPublicVideoTools,
+  MAX_VIDEO_BYTES,
+  MAX_VIDEO_DURATION_MS,
+  type PublicVideoTools,
+} from "../research/public-video";
 import type { HandlerDeps } from "./index";
 
 /** What transcribing uploaded reference media needs. */
@@ -36,6 +48,8 @@ export interface AnalyzeReferenceOptions {
   readonly workspaceRoot: string;
   /** Without it, a reference with media but no transcript fails as `transcript_required`. */
   readonly media?: ReferenceMediaDeps;
+  /** Downloads and measures public videos; without it `fetchPublicVideo` fails. */
+  readonly publicVideo?: PublicVideoTools;
 }
 
 /** The `kb.analyze_reference` handler of a running agent. */
@@ -47,19 +61,32 @@ export function createKbAnalyzeReferenceHandler(
     runtime: production.runtime,
     workspaceRoot: deps.config.workspaceRoot,
     media: production,
+    publicVideo: createPublicVideoTools({ ytDlpPath: deps.config.ytDlpPath }),
   });
 }
 
+/** A transcript and the measured facts of a downloaded video, ready for the session. */
+interface FetchedVideo {
+  readonly transcript: string | undefined;
+  readonly media: MeasuredMedia;
+}
+
 /**
- * `kb.analyze_reference`: analyses a saved reference from its transcript in a new, read-only
- * producer session.
+ * `kb.analyze_reference`: analyses a saved reference in a new, read-only producer session, from
+ * the first source the payload has: its transcript, uploaded media, or the public video at its URL.
  *
  * - A payload without a transcript but with uploaded media (`mediaAssetId`) is transcribed first:
  *   the media is downloaded from the platform's own storage through `asset.get_url` (checked
  *   against its SHA-256), its audio is extracted and transcribed with the TTS provider's
  *   speech-to-text, and the media file is removed again. The result then carries the transcript.
+ * - A payload with only `fetchPublicVideo` has its link checked again with `isPublicVideoUrl`; the
+ *   video is downloaded with `yt-dlp` into `references/<entryId>/media-<jobId>/`, checked and
+ *   measured with ffprobe and ffmpeg (duration, cuts, six frames) and transcribed. The session gets
+ *   the measured facts and the frame paths, and the result carries them as `media`. A video without
+ *   speech is analysed without a transcript. The video and the frames are deleted afterwards,
+ *   whatever the outcome.
  * - The transcript is written to `<workspace>/references/<entryId>/transcript.txt` and sent inside
- *   an untrusted-data block. The reference URL is never fetched and never shown to the session.
+ *   an untrusted-data block. The session never sees the reference URL and cannot fetch anything.
  * - The first fenced JSON block of the reply is validated against `ReferenceAnalysis`. When it
  *   does not validate, one repair turn in the same session gets the problems; a second failure
  *   fails the job.
@@ -76,6 +103,16 @@ export function analyzeReferenceHandler(
     if (payload.projectId !== ctx.job.projectId) {
       throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
     }
+    const fetches =
+      payload.transcript === undefined &&
+      payload.mediaAssetId === undefined &&
+      payload.fetchPublicVideo === true;
+    if (fetches && !isFetchableLink(payload)) {
+      throw new JobFailure(
+        "invalid_payload",
+        "Only a public video link of the platform is fetched",
+      );
+    }
     if (payload.transcript === undefined && options.media === undefined) {
       throw new JobFailure(
         "transcript_required",
@@ -88,6 +125,51 @@ export function analyzeReferenceHandler(
     const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
     const referenceDir = join(workspace.dir, "references", payload.entryId);
     await mkdir(referenceDir, { recursive: true });
+    const transcriptPath = join(referenceDir, "transcript.txt");
+    const analyse = (transcript: string | undefined, media?: MeasuredMedia) =>
+      runAnalysis(ctx, options.runtime, workspace.dir, payload, {
+        transcript,
+        transcriptPath: transcript === undefined ? undefined : transcriptPath,
+        media,
+      });
+
+    if (fetches) {
+      const media = options.media;
+      const tools = options.publicVideo;
+      if (media === undefined || tools === undefined) {
+        throw new JobFailure(
+          "downloader_missing",
+          "This studio agent cannot download public videos; install yt-dlp",
+          false,
+        );
+      }
+      const apiKey = await requireVoiceKey(media);
+      const jobDir = join(referenceDir, `media-${ctx.job.id}`);
+      await rm(jobDir, { recursive: true, force: true });
+      ensurePrivateDir(jobDir);
+      try {
+        const fetched = await fetchAndMeasure(ctx, tools, media, apiKey, payload.url, jobDir);
+        if (fetched.transcript !== undefined) {
+          await writeFile(transcriptPath, fetched.transcript, "utf8");
+        }
+        const reply = await analyse(fetched.transcript, fetched.media);
+        const facts: ReferenceMediaFacts = {
+          durationMs: fetched.media.durationMs,
+          cutsPerMinute: fetched.media.cutsPerMinute,
+          wordsPerMinute: fetched.media.wordsPerMinute,
+          framesSeen: fetched.media.framePaths.length,
+        };
+        return {
+          ...reply,
+          ...(fetched.transcript === undefined ? {} : { transcript: fetched.transcript }),
+          media: facts,
+        };
+      } finally {
+        // The video and its frames never outlive the job; only transcript.txt stays.
+        await rm(jobDir, { recursive: true, force: true });
+      }
+    }
+
     let transcript = payload.transcript;
     let transcribed = false;
     if (transcript === undefined) {
@@ -106,56 +188,185 @@ export function analyzeReferenceHandler(
       }
       transcribed = true;
     }
-    const transcriptPath = join(referenceDir, "transcript.txt");
     await writeFile(transcriptPath, transcript, "utf8");
-
-    const events = new SessionEvents(ctx);
-    const run = (prompt: string, resumeId?: string): Promise<ProducerRunResult> =>
-      options.runtime.run({
-        prompt,
-        resumeId,
-        cwd: workspace.dir,
-        signal: ctx.signal,
-        jobType: "kb.analyze_reference",
-        mcp: ctx.credentials.mcp,
-        brief: ANALYSIS_BRIEF,
-        onEvent: (event) => events.emit(event),
-        // The reply is JSON for the server, not text for a conversation.
-        onDelta: () => {},
-      });
-
-    const first = await run(analysisPrompt({ payload, transcript, transcriptPath }));
-    let reply = readAnalysisReply(first.finalText);
-    let turns = first.numTurns;
-    if (!reply.ok) {
-      ctx.log.warn("analysis reply did not validate; asking for a repair", {
-        problems: reply.problems.length,
-      });
-      ctx.emit("status", {
-        state: "repairing",
-        message: truncate(`The analysis did not validate: ${reply.problems.join("; ")}`, 1_000),
-      });
-      const repaired = await run(repairPrompt(reply.problems), first.sessionId);
-      turns += repaired.numTurns;
-      reply = readAnalysisReply(repaired.finalText);
-      if (!reply.ok) {
-        throw new JobFailure(
-          "analysis_invalid",
-          truncate(
-            `The producer session did not return a valid analysis: ${reply.problems.join("; ")}`,
-            2_000,
-          ),
-          false,
-        );
-      }
-    }
-    ctx.log.info("reference analysis finished", { numTurns: turns, transcribed });
-    return {
-      analysis: reply.analysis,
-      summaryMd: reply.summaryMd,
-      ...(transcribed ? { transcript } : {}),
-    };
+    const reply = await analyse(transcript);
+    return { ...reply, ...(transcribed ? { transcript } : {}) };
   };
+}
+
+/** Whether the payload's link may be downloaded: a public video link of a competitor platform. */
+function isFetchableLink(payload: KbAnalyzeReferencePayload): boolean {
+  const { platform } = payload;
+  return (
+    (platform === "instagram" || platform === "facebook" || platform === "threads") &&
+    isPublicVideoUrl(payload.url, platform)
+  );
+}
+
+/** Runs the analysis session, with one repair turn, and returns the validated reply. */
+async function runAnalysis(
+  ctx: JobContext<"kb.analyze_reference">,
+  runtime: ProducerRuntime,
+  cwd: string,
+  payload: KbAnalyzeReferencePayload,
+  input: { transcript?: string; transcriptPath?: string; media?: MeasuredMedia },
+): Promise<{ analysis: ReferenceAnalysis; summaryMd: string }> {
+  const events = new SessionEvents(ctx);
+  const run = (prompt: string, resumeId?: string): Promise<ProducerRunResult> =>
+    runtime.run({
+      prompt,
+      resumeId,
+      cwd,
+      signal: ctx.signal,
+      jobType: "kb.analyze_reference",
+      mcp: ctx.credentials.mcp,
+      brief: ANALYSIS_BRIEF,
+      onEvent: (event) => events.emit(event),
+      // The reply is JSON for the server, not text for a conversation.
+      onDelta: () => {},
+    });
+
+  const first = await run(analysisPrompt({ payload, ...input }));
+  let reply = readAnalysisReply(first.finalText);
+  let turns = first.numTurns;
+  if (!reply.ok) {
+    ctx.log.warn("analysis reply did not validate; asking for a repair", {
+      problems: reply.problems.length,
+    });
+    ctx.emit("status", {
+      state: "repairing",
+      message: truncate(`The analysis did not validate: ${reply.problems.join("; ")}`, 1_000),
+    });
+    const repaired = await run(repairPrompt(reply.problems), first.sessionId);
+    turns += repaired.numTurns;
+    reply = readAnalysisReply(repaired.finalText);
+    if (!reply.ok) {
+      throw new JobFailure(
+        "analysis_invalid",
+        truncate(
+          `The producer session did not return a valid analysis: ${reply.problems.join("; ")}`,
+          2_000,
+        ),
+        false,
+      );
+    }
+  }
+  ctx.log.info("reference analysis finished", {
+    numTurns: turns,
+    transcript: input.transcript !== undefined,
+    frames: input.media?.framePaths.length ?? 0,
+  });
+  return { analysis: reply.analysis, summaryMd: reply.summaryMd };
+}
+
+/** The TTS provider key, or the same failure as any transcription without one. */
+async function requireVoiceKey(media: ReferenceMediaDeps): Promise<string> {
+  const apiKey = await media.voiceKey();
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new JobFailure(
+      "voice_provider_key_missing",
+      "No TTS provider key is set on this Mac to transcribe the media; run `studio-agent secrets set voice-provider-key`",
+      false,
+    );
+  }
+  return apiKey;
+}
+
+/**
+ * Downloads the public video into `jobDir`, checks it, measures it and transcribes it. The caller
+ * deletes `jobDir` afterwards.
+ */
+async function fetchAndMeasure(
+  ctx: JobContext<"kb.analyze_reference">,
+  tools: PublicVideoTools,
+  media: ReferenceMediaDeps,
+  apiKey: string,
+  url: string,
+  jobDir: string,
+): Promise<FetchedVideo> {
+  const { signal } = ctx;
+  ctx.emit("status", { state: "downloading" });
+  const videoPath = await tools.download({ url, dir: jobDir, signal });
+
+  ctx.emit("status", { state: "measuring" });
+  const probe = await tools.probe(videoPath, signal);
+  const sizeBytes = Math.max(probe.sizeBytes, (await stat(videoPath)).size);
+  if (sizeBytes > MAX_VIDEO_BYTES) {
+    throw new JobFailure("video_too_large", "The video is larger than 300 MB", false);
+  }
+  if (probe.durationMs > MAX_VIDEO_DURATION_MS) {
+    throw new JobFailure("video_too_long", "The video is longer than 10 minutes", false);
+  }
+  if (!probe.hasVideo || probe.durationMs === 0) {
+    throw new JobFailure("video_invalid", "The download is not a playable video", false);
+  }
+  const minutes = probe.durationMs / 60_000;
+  const cuts = await optionalMeasure(ctx, "scene detection", () =>
+    tools.countCuts(videoPath, signal),
+  );
+  const framePaths =
+    (await optionalMeasure(ctx, "frame extraction", () =>
+      tools.extractFrames({
+        path: videoPath,
+        dir: join(jobDir, "frames"),
+        durationMs: probe.durationMs,
+        signal,
+      }),
+    )) ?? [];
+
+  let transcript: string | undefined;
+  if (probe.hasAudio) {
+    ctx.emit("status", { state: "transcribing" });
+    try {
+      const studio = await media.studio();
+      const result = await studio.transcribeMedia({ apiKey, inputPath: videoPath, signal });
+      const parsed = TranscriptSchema.safeParse(cleanTranscript(result.text));
+      // A video without speech is analysed from its frames alone.
+      transcript = parsed.success ? parsed.data : undefined;
+    } catch (error) {
+      throw toJobFailure(error, "transcription_failed");
+    }
+  }
+  const words = transcript === undefined ? 0 : transcript.split(/\s+/).filter(Boolean).length;
+  return {
+    transcript,
+    media: {
+      durationMs: probe.durationMs,
+      cutsPerMinute: cuts === undefined ? null : perMinute(cuts, minutes, 600),
+      wordsPerMinute: perMinute(words, minutes, 1_000),
+      framePaths,
+    },
+  };
+}
+
+/**
+ * Runs a measurement whose failure only leaves a number out. An abort, or a missing tool, still
+ * fails the job.
+ */
+async function optionalMeasure<T>(
+  ctx: JobContext<"kb.analyze_reference">,
+  label: string,
+  measure: () => Promise<T>,
+): Promise<T | undefined> {
+  try {
+    return await measure();
+  } catch (error) {
+    if (
+      ctx.signal.aborted ||
+      (error instanceof JobFailure && error.code === "media_tools_missing")
+    ) {
+      throw error;
+    }
+    ctx.log.warn(`${label} failed; analysing without it`, {
+      error: error instanceof Error ? truncate(error.message, 300) : String(error),
+    });
+    return undefined;
+  }
+}
+
+/** `count` per minute, rounded to one decimal and capped at the contract's maximum. */
+function perMinute(count: number, minutes: number, max: number): number {
+  return Math.min(Math.round((count / minutes) * 10) / 10, max);
 }
 
 /** File extensions for reference media, so the transcriber knows audio from video. */
@@ -183,14 +394,7 @@ async function transcribeReferenceMedia(
   },
 ): Promise<string> {
   const { referenceDir } = target;
-  const apiKey = await media.voiceKey();
-  if (apiKey === undefined || apiKey.length === 0) {
-    throw new JobFailure(
-      "voice_provider_key_missing",
-      "No TTS provider key is set on this Mac to transcribe the media; run `studio-agent secrets set voice-provider-key`",
-      false,
-    );
-  }
+  const apiKey = await requireVoiceKey(media);
   const mediaPath = await withPlatform(ctx, media.connect, async (platform) => {
     const { url, asset } = await platform.getAssetUrl({ assetId: target.mediaAssetId });
     if (
@@ -247,12 +451,15 @@ export function cleanTranscript(text: string): string {
     .trim();
 }
 
-/** Records a session's durable events; the session id is reported once across both turns. */
-class SessionEvents {
-  readonly #ctx: JobContext<"kb.analyze_reference">;
+/**
+ * Records a read-only session's durable events; the session id is reported once across both
+ * turns, and the reply is not recorded as a conversation message.
+ */
+export class SessionEvents {
+  readonly #ctx: Pick<JobContext<JobType>, "emit">;
   #sessionId: string | undefined;
 
-  constructor(ctx: JobContext<"kb.analyze_reference">) {
+  constructor(ctx: Pick<JobContext<JobType>, "emit">) {
     this.#ctx = ctx;
   }
 
@@ -335,7 +542,8 @@ function summaryOf(rest: string, analysis: ReferenceAnalysis): string {
   return truncate(lines.join("\n"), MAX_ANALYSIS_SUMMARY_LENGTH);
 }
 
-function describeIssues(issues: readonly z.core.$ZodIssue[]): string[] {
+/** Schema problems as `path: message` lines, at most 20 of them. */
+export function describeIssues(issues: readonly z.core.$ZodIssue[]): string[] {
   const described = issues
     .slice(0, 20)
     .map((issue) => `${issue.path.join(".") || "(root)"}: ${truncate(issue.message, 200)}`);
@@ -345,6 +553,7 @@ function describeIssues(issues: readonly z.core.$ZodIssue[]): string[] {
   return described;
 }
 
-function truncate(text: string, max: number): string {
+/** Cuts `text` to `max` characters, ending with an ellipsis when cut. */
+export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }

@@ -13,6 +13,7 @@ export const MCP_SERVER_NAME = "loomcast";
 export const PRODUCER_JOB_TYPES = [
   "producer.chat",
   "kb.analyze_reference",
+  "kb.competitor_report",
   "content.write_script",
   "content.storyboard",
   "content.revise",
@@ -31,7 +32,8 @@ const PRODUCTION_READS = [
 /**
  * The platform MCP tools each job type may call. Every other MCP tool, and every other MCP
  * server, is denied. A reference analysis only reads: its transcript is untrusted, so the session
- * must not be able to write to the knowledge base. Production steps only read too: their result
+ * must not be able to write to the knowledge base, and neither may a competitor report, which
+ * reads a competitor's captions and analyses. Production steps only read too: their result
  * is returned to the studio agent, which hands it to the server, so a session never submits
  * versions or uploads assets itself.
  */
@@ -45,6 +47,7 @@ export const MCP_TOOL_ALLOW_LIST = {
     "project.get",
   ],
   "kb.analyze_reference": ["kb.search", "kb.get", "project.get"],
+  "kb.competitor_report": ["kb.search", "kb.get", "project.get"],
   "content.write_script": PRODUCTION_READS,
   "content.storyboard": PRODUCTION_READS,
   "content.revise": PRODUCTION_READS,

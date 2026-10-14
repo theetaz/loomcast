@@ -23,7 +23,8 @@ export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
 /**
  * The built-in tools of each job type's session. A reference analysis reads an untrusted
  * transcript, so its session can only read and search inside the project workspace: it can neither
- * write files nor reach the web, which leaves an injected instruction no way to send data out.
+ * write files nor reach the web, which leaves an injected instruction no way to send data out. A
+ * competitor report reads a competitor's captions and analyses, so it gets the same tools.
  * Production steps read knowledge-base entries, which are untrusted too, and return their work as
  * the reply, so they get the same read-only tools. A storyboard session may also run the two
  * allow-listed commands (lint and probe) on files of its item.
@@ -31,6 +32,7 @@ export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
 export const BUILTIN_TOOLS = {
   "producer.chat": ["Read", "Glob", "Grep", "Write", "Edit", "WebSearch", "WebFetch"],
   "kb.analyze_reference": ["Read", "Glob", "Grep"],
+  "kb.competitor_report": ["Read", "Glob", "Grep"],
   "content.write_script": ["Read", "Glob", "Grep"],
   "content.storyboard": ["Read", "Glob", "Grep", "Bash"],
   "content.revise": ["Read", "Glob", "Grep"],
@@ -39,6 +41,7 @@ export const BUILTIN_TOOLS = {
 const SESSION_LABELS: Record<ProducerJobType, string> = {
   "producer.chat": "Loomcast producer session",
   "kb.analyze_reference": "reference analysis session, which is read-only",
+  "kb.competitor_report": "competitor report session, which is read-only",
   "content.write_script": "script session, which is read-only",
   "content.storyboard": "storyboard session, which is read-only",
   "content.revise": "revision session, which is read-only",
@@ -47,6 +50,7 @@ const SESSION_LABELS: Record<ProducerJobType, string> = {
 /** Sessions whose reads and searches may not leave the project workspace. */
 const CONFINED_READ_JOBS: ReadonlySet<ProducerJobType> = new Set<ProducerJobType>([
   "kb.analyze_reference",
+  "kb.competitor_report",
   "content.write_script",
   "content.storyboard",
   "content.revise",
