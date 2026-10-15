@@ -37,6 +37,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
 | `src/mcp/pipeline-tools.ts` | `pipelineTools`: format, content, asset and skill tools |
 | `src/mcp/calendar-tools.ts` | `calendarTools`: `calendar.get_slots` |
+| `src/mcp/owner-tools.ts` | `ownerTools`: the owner's `content.review`, `channel.list` and `calendar.*` post tools |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
@@ -295,7 +296,7 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools`, `pipelineTools` and `calendarTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools`, `pipelineTools`, `calendarTools` and `ownerTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
 - `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
 - `projectBinding: "input"`: the input names one project, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
@@ -323,8 +324,15 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 | `skill.pull` | `mcp:read` | allow | none | `{name?, version?}` | `{skills: [{name, kind, version, checksum, files}]}` |
 | `skill.publish` | `mcp:write` | deny | none | `{name, kind, files, changelog?}` | `{name, version, checksum, created}` |
 | `calendar.get_slots` | `mcp:read` | allow | input | `{projectId?, seriesId?, channelId?, from, to}` (at most 62 days) | `{slots: [{at, seriesId, channelId, postId?}]}` |
+| `content.review` | `mcp:admin` | deny | input | `{itemId, versionId, decision, comment?, enqueueRevision?}` | `{reviewId, itemId, decision, state}` |
+| `channel.list` | `mcp:admin` | deny | none | `{}` | `{channels: Channel[]}` |
+| `calendar.list_posts` | `mcp:admin` | deny | input | `{from, to, projectId?, channelIds?}` (at most 62 days) | `{posts, slots}` |
+| `calendar.schedule_post` | `mcp:admin` | deny | input | `{itemId, channelId, scheduledAt}` | `{post}` |
+| `calendar.reschedule_post` | `mcp:admin` | deny | none | `{postId, scheduledAt, expectedUpdatedAt}` | `{post}` |
+| `calendar.cancel_post` | `mcp:admin` | deny | none | `{postId}` | `{post}` |
 
 - `content.submit_for_review` moves the item to the stage its artifacts reach (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is refused instead of overwritten.
+- The `ownerTools` act for the owner: the server checks that the token's user is the owner and records the move as that user's, so the transition table never lets a token approve or schedule.
 - `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
 - `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
 

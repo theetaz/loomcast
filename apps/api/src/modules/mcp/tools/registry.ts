@@ -56,6 +56,11 @@ interface ToolImplementationBase<C extends McpToolContract> {
   handler(input: ToolInput<C>, ctx: ToolContext): Promise<ToolResult<C>>;
   /** One short line for clients that only show text. Name the ids a follow-up call needs. */
   summary(output: ToolOutput<C>): string;
+  /**
+   * Fields added to the audit row of a successful call, such as the records it changed, so the
+   * row ties the token to them.
+   */
+  auditData?(output: ToolOutput<C>): JsonObject;
 }
 
 /**
@@ -116,12 +121,14 @@ export function defineTool<const C extends McpToolContract>(
       let result: CallToolResult;
       let outcome: "ok" | "denied" | "error";
       let code: string | undefined;
+      let extra: JsonObject | undefined;
 
       try {
         authorize(contract, caller);
         projectId = await bindProject(contract, implementation, input, caller);
         const raw = await implementation.handler(input, { caller, projectId, logger: log });
         const output = contract.output.parse(raw) as ToolOutput<C>;
+        extra = implementation.auditData?.(output);
         result = {
           content: [{ type: "text", text: implementation.summary(output) }],
           structuredContent: output as Record<string, unknown>,
@@ -139,9 +146,11 @@ export function defineTool<const C extends McpToolContract>(
 
       const durationMs = Math.round(performance.now() - started);
       log.info({ outcome, code, durationMs, tokenId: caller.token.id }, "mcp tool call");
-      await writeAudit(ctx, contract.name, { outcome, code, projectId }).catch((error: unknown) => {
-        log.error({ err: error }, "mcp tool call audit failed");
-      });
+      await writeAudit(ctx, contract.name, { outcome, code, projectId, extra }).catch(
+        (error: unknown) => {
+          log.error({ err: error }, "mcp tool call audit failed");
+        },
+      );
       return result;
     },
   };
@@ -222,9 +231,14 @@ function fieldIssues(error: HttpError): string {
 async function writeAudit(
   ctx: ToolCallContext,
   tool: string,
-  fields: { outcome: string; code: string | undefined; projectId: string | null },
+  fields: {
+    outcome: string;
+    code: string | undefined;
+    projectId: string | null;
+    extra: JsonObject | undefined;
+  },
 ): Promise<void> {
-  const data: JsonObject = { outcome: fields.outcome };
+  const data: JsonObject = { ...fields.extra, outcome: fields.outcome };
   if (fields.code !== undefined) {
     data.code = fields.code;
   }

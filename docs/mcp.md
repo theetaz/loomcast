@@ -4,8 +4,8 @@ Loomcast serves its tools over the [Model Context Protocol](https://modelcontext
 `/mcp`, so any MCP client can work with projects and their knowledge base (brainstorms,
 reference videos, decisions and session summaries), add video ideas, read and write content
 items, upload their media and publish producer skills with an access token, and the owner can
-invite users. The same endpoint serves producer sessions started by the studio agent, which use
-job tokens bound to one project.
+invite users, decide items in review and schedule posts. The same endpoint serves producer
+sessions started by the studio agent, which use job tokens bound to one project.
 
 ## Endpoint
 
@@ -45,7 +45,7 @@ Authorization: Bearer <access token>
   |---|---|
   | `mcp:read` | Reading tools such as `project.get`, `kb.search` and `kb.get` |
   | `mcp:write` | Tools that create or change data, such as `project.create` and `kb.save_brainstorm` |
-  | `mcp:admin` | Administration tools such as `admin.create_user`. Only the owner's tokens carry it |
+  | `mcp:admin` | Administration and owner tools such as `admin.create_user`, `content.review` and `calendar.schedule_post`. Only the owner's tokens carry it |
 
 - **Cookies are ignored.** A signed-in browser session does not authorize `/mcp`, and the REST
   API under `/api` never accepts access tokens.
@@ -192,9 +192,10 @@ pipeline's state machine, is audited and appears live in open pages (`content.it
   storyboard or voice take clears the render unless one is given too. The item moves to the stage
   the version's artifacts reach (`script`, `storyboard`, …); a version that reaches `render` goes
   on to `review`. With `baseVersionId`, a version that is no longer current is
-  refused with `conflict` instead of overwritten. Tokens never approve: only a person can, and a
-  token cannot change an approved item or one in review without new artifacts
-  (`invalid_transition`).
+  refused with `conflict` instead of overwritten. This tool never approves, whatever the token's
+  scopes: only a person decides, in the web app or, for the owner, with `content.review` (see
+  "Owner review and publishing tools"). A token cannot change an approved item or one in review
+  without new artifacts (`invalid_transition`).
 
 ### Uploading media
 
@@ -261,6 +262,38 @@ The cadence planner fills the slots of the next `CADENCE_HORIZON_DAYS` (14 by de
 and right after a series, its format or its channels change: one idea per slot (titled
 `<series> · <local date>`, with a topic from the format's pool) and a planned post on each channel.
 
+## Owner review and publishing tools
+
+These tools let the owner work the review queue and the calendar from an MCP client, with the
+same services and rules as the web app. They need the `mcp:admin` scope, the token's user must be
+the owner, and job tokens are always refused (`forbidden`), so a producer session can never
+approve or schedule its own work.
+
+- **`content.review`** decides an item in `review`: `approve` (the current version must have a
+  render) moves it to `approved`, `request_changes` (with a `comment`) moves it to `script` and
+  queues a revision unless `enqueueRevision` is false, and `reject` archives it. `versionId` must
+  be the item's current version (`conflict` otherwise). The result names the review, the decision
+  and the item's new state.
+- **`channel.list`** lists the channels posts can go to, with their platform, name, handle,
+  status, whether credentials are connected and whether they publish in dry-run. Credentials
+  never leave the server.
+- **`calendar.list_posts`** returns the posts scheduled in `[from, to)` (at most 62 days) and the
+  open cadence slots in it from now on, optionally for one `projectId` or some `channelIds`.
+- **`calendar.schedule_post`** schedules an approved item on a channel at least two minutes
+  ahead. The post publishes the item's current version and the item moves to `scheduled`; a
+  second open post of the same item on the same channel is a `conflict`.
+- **`calendar.reschedule_post`** moves a planned, queued, failed or missed post.
+  `expectedUpdatedAt` is the post's `updatedAt` as last read; a post changed since is a
+  `conflict`, and one that is publishing, published or cancelled is `post_not_editable`.
+- **`calendar.cancel_post`** cancels a post that has not started publishing. An item left without
+  a queued post goes back to `approved`.
+
+The decisions and moves are the owner's own: they are stored and audited as the owner's
+(`review.created`, `post.scheduled`, `post.rescheduled`, `post.cancelled` with the owner as a
+user), exactly as if made in the web app. The `mcp.tool.called` row of each call names the token
+and the records it changed (see "Auditing"). Ordinary `mcp:write` tokens still cannot approve or
+schedule anything.
+
 ## Results and errors
 
 A successful call returns the tool's output as `structuredContent`, matching the output schema
@@ -294,9 +327,12 @@ Errors outside a tool call are plain HTTP statuses: `401` (token), `403` (foreig
 Every tool call is written to the audit log as `mcp.tool.called`, with the token as the actor,
 the tool name, the client address, the outcome (`ok`, `denied` or `error`, with the error code),
 the project the call was about and, for a job token, the job (`jobId`). Arguments and results are
-not logged. Changes made by a tool, such as `project.created`, `kb.entry.create`,
-`content.version.created`, `asset.finalized`, `skill.published` or `user.invited`, are audited as
-well, naming the token.
+not logged, except that a successful owner tool call also records the ids it changed (`reviewId`,
+`itemId`, `decision` and `state` for `content.review`; `postId`, `itemId` and `channelId` for the
+post tools), which ties the owner's move to the token that made it. Changes made by a tool, such
+as `project.created`, `kb.entry.create`, `content.version.created`, `asset.finalized`,
+`skill.published` or `user.invited`, are audited as well, naming the token; the owner tools'
+changes are audited as the owner's.
 
 ## Tool reference
 
@@ -368,6 +404,48 @@ Get a short-lived download URL for a ready asset, with its details.
 | `asset.finalizedAt` | string (date-time) \| null | yes |  |
 | `asset.alignment` | object \| null | yes |  |
 
+### `calendar.cancel_post`
+
+Owner only. Cancel a post that has not started publishing. An item left without a queued post goes back to approved.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `postId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `post` | object | yes |  |
+| `post.id` | string (uuid) | yes |  |
+| `post.projectId` | string (uuid) | yes |  |
+| `post.itemId` | string (uuid) | yes |  |
+| `post.versionId` | string (uuid) \| null | yes |  |
+| `post.channelId` | string (uuid) | yes |  |
+| `post.seriesId` | string (uuid) \| null | yes |  |
+| `post.platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `post.scheduledAt` | string (date-time) | yes |  |
+| `post.status` | "planned" \| "queued" \| "publishing" \| "published" \| "failed" \| "cancelled" \| "missed" | yes |  |
+| `post.dryRun` | boolean | yes |  |
+| `post.publishMode` | "auto" \| "approval" | yes |  |
+| `post.externalId` | string \| null | yes |  |
+| `post.permalink` | string \| null | yes | at most 2048 characters |
+| `post.attempts` | integer | yes | at least 0 |
+| `post.lastError` | object \| null | yes |  |
+| `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.item` | object | yes |  |
+| `post.item.title` | string | yes |  |
+| `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.posterAssetId` | string (uuid) \| null | yes |  |
+| `post.createdAt` | string (date-time) | yes |  |
+| `post.updatedAt` | string (date-time) | yes |  |
+
 ### `calendar.get_slots`
 
 List the publishing slots of series' cadences between two times (at most 62 days), per channel, with the post that holds each slot if any.
@@ -395,6 +473,181 @@ List the publishing slots of series' cadences between two times (at most 62 days
 | `slots[].seriesId` | string (uuid) | yes |  |
 | `slots[].channelId` | string (uuid) | yes |  |
 | `slots[].postId` | string (uuid) | no |  |
+
+### `calendar.list_posts`
+
+Owner only. List the posts scheduled between two times (at most 62 days) and the open cadence slots from now on, optionally for one project or some channels. Each post carries the updatedAt that calendar.reschedule_post expects.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `from` | string (date-time) | yes |  |
+| `to` | string (date-time) | yes |  |
+| `projectId` | string (uuid) | no |  |
+| `channelIds` | string (uuid)[] | no | at least 1 items; at most 50 items |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `posts` | object[] | yes |  |
+| `posts[].id` | string (uuid) | yes |  |
+| `posts[].projectId` | string (uuid) | yes |  |
+| `posts[].itemId` | string (uuid) | yes |  |
+| `posts[].versionId` | string (uuid) \| null | yes |  |
+| `posts[].channelId` | string (uuid) | yes |  |
+| `posts[].seriesId` | string (uuid) \| null | yes |  |
+| `posts[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `posts[].scheduledAt` | string (date-time) | yes |  |
+| `posts[].status` | "planned" \| "queued" \| "publishing" \| "published" \| "failed" \| "cancelled" \| "missed" | yes |  |
+| `posts[].dryRun` | boolean | yes |  |
+| `posts[].publishMode` | "auto" \| "approval" | yes |  |
+| `posts[].externalId` | string \| null | yes |  |
+| `posts[].permalink` | string \| null | yes | at most 2048 characters |
+| `posts[].attempts` | integer | yes | at least 0 |
+| `posts[].lastError` | object \| null | yes |  |
+| `posts[].publishedAt` | string (date-time) \| null | yes |  |
+| `posts[].item` | object | yes |  |
+| `posts[].item.title` | string | yes |  |
+| `posts[].item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `posts[].item.posterAssetId` | string (uuid) \| null | yes |  |
+| `posts[].createdAt` | string (date-time) | yes |  |
+| `posts[].updatedAt` | string (date-time) | yes |  |
+| `slots` | object[] | yes |  |
+| `slots[].at` | string (date-time) | yes |  |
+| `slots[].seriesId` | string (uuid) | yes |  |
+| `slots[].channelId` | string (uuid) | yes |  |
+| `slots[].postId` | string (uuid) | no |  |
+
+### `calendar.reschedule_post`
+
+Owner only. Move a planned, queued, failed or missed post to a new time at least two minutes ahead. expectedUpdatedAt is the post's updatedAt as last read; a post changed since is a conflict.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `scheduledAt` | string (date-time) | yes |  |
+| `expectedUpdatedAt` | string (date-time) | yes |  |
+| `postId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `post` | object | yes |  |
+| `post.id` | string (uuid) | yes |  |
+| `post.projectId` | string (uuid) | yes |  |
+| `post.itemId` | string (uuid) | yes |  |
+| `post.versionId` | string (uuid) \| null | yes |  |
+| `post.channelId` | string (uuid) | yes |  |
+| `post.seriesId` | string (uuid) \| null | yes |  |
+| `post.platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `post.scheduledAt` | string (date-time) | yes |  |
+| `post.status` | "planned" \| "queued" \| "publishing" \| "published" \| "failed" \| "cancelled" \| "missed" | yes |  |
+| `post.dryRun` | boolean | yes |  |
+| `post.publishMode` | "auto" \| "approval" | yes |  |
+| `post.externalId` | string \| null | yes |  |
+| `post.permalink` | string \| null | yes | at most 2048 characters |
+| `post.attempts` | integer | yes | at least 0 |
+| `post.lastError` | object \| null | yes |  |
+| `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.item` | object | yes |  |
+| `post.item.title` | string | yes |  |
+| `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.posterAssetId` | string (uuid) \| null | yes |  |
+| `post.createdAt` | string (date-time) | yes |  |
+| `post.updatedAt` | string (date-time) | yes |  |
+
+### `calendar.schedule_post`
+
+Owner only. Schedule an approved item on a channel at a time at least two minutes ahead, as the owner. The post publishes its current version; an item already queued on that channel is a conflict.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `channelId` | string (uuid) | yes |  |
+| `scheduledAt` | string (date-time) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `post` | object | yes |  |
+| `post.id` | string (uuid) | yes |  |
+| `post.projectId` | string (uuid) | yes |  |
+| `post.itemId` | string (uuid) | yes |  |
+| `post.versionId` | string (uuid) \| null | yes |  |
+| `post.channelId` | string (uuid) | yes |  |
+| `post.seriesId` | string (uuid) \| null | yes |  |
+| `post.platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `post.scheduledAt` | string (date-time) | yes |  |
+| `post.status` | "planned" \| "queued" \| "publishing" \| "published" \| "failed" \| "cancelled" \| "missed" | yes |  |
+| `post.dryRun` | boolean | yes |  |
+| `post.publishMode` | "auto" \| "approval" | yes |  |
+| `post.externalId` | string \| null | yes |  |
+| `post.permalink` | string \| null | yes | at most 2048 characters |
+| `post.attempts` | integer | yes | at least 0 |
+| `post.lastError` | object \| null | yes |  |
+| `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.item` | object | yes |  |
+| `post.item.title` | string | yes |  |
+| `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.posterAssetId` | string (uuid) \| null | yes |  |
+| `post.createdAt` | string (date-time) | yes |  |
+| `post.updatedAt` | string (date-time) | yes |  |
+
+### `channel.list`
+
+Owner only. List the channels posts can be scheduled on, with their platform, name, handle, status, whether credentials are connected and whether they publish in dry-run.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+None.
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `channels` | object[] | yes |  |
+| `channels[].id` | string (uuid) | yes |  |
+| `channels[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `channels[].displayName` | string | yes |  |
+| `channels[].externalId` | string \| null | yes |  |
+| `channels[].username` | string \| null | yes |  |
+| `channels[].parentChannelId` | string (uuid) \| null | yes |  |
+| `channels[].pictureUrl` | string \| null | no | at most 512 characters |
+| `channels[].status` | "disconnected" \| "active" \| "needs_reauth" \| "disabled" | yes |  |
+| `channels[].dryRun` | boolean | yes |  |
+| `channels[].requiresApproval` | boolean | yes |  |
+| `channels[].connected` | boolean | yes |  |
+| `channels[].scopes` | string[] | yes |  |
+| `channels[].tokenExpiresAt` | string (date-time) \| null | yes |  |
+| `channels[].liveBlocker` | "not_connected" \| "not_active" \| "publishing_dry_run" \| "platform_unavailable" \| null | yes |  |
+| `channels[].lastVerifiedAt` | string (date-time) \| null | no |  |
+| `channels[].lastError` | object \| null | no |  |
+| `channels[].createdAt` | string (date-time) | yes |  |
+| `channels[].updatedAt` | string (date-time) | yes |  |
+| `channels[].disabledAt` | string (date-time) \| null | yes |  |
 
 ### `content.create_idea`
 
@@ -532,9 +785,36 @@ Get a content item with one version (the current one by default), its script and
 | `version.caption` | string \| null | yes |  |
 | `format` | object \| null | yes |  |
 
+### `content.review`
+
+Owner only. Decide an item in review as the owner: approve its current version (it must have a render), request changes (with a comment; a revision is queued unless enqueueRevision is false) or reject it. versionId must be the item's current version, from content.get.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `versionId` | string (uuid) | yes |  |
+| `decision` | "approve" \| "request_changes" \| "reject" | yes |  |
+| `comment` | string | no | at most 5000 characters |
+| `enqueueRevision` | boolean | no |  |
+| `itemId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `reviewId` | string (uuid) | yes |  |
+| `itemId` | string (uuid) | yes |  |
+| `decision` | "approve" \| "request_changes" \| "reject" | yes |  |
+| `state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+
 ### `content.submit_for_review`
 
-Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review; only a person can approve it.
+Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review. Only the owner can approve it, in the web app or with content.review.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
