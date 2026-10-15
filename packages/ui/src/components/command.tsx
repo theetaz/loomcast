@@ -1,3 +1,4 @@
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { Command as CommandPrimitive } from "cmdk";
 import { SearchIcon } from "lucide-react";
@@ -99,14 +100,12 @@ function CommandInput({
 
 function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
   return (
-    <CommandPrimitive.List
-      data-slot="command-list"
-      className={cn(
-        "min-h-0 flex-1 scroll-py-1.5 overflow-y-auto overflow-x-hidden overscroll-contain",
-        className,
-      )}
-      {...props}
-    />
+    <ScrollArea
+      className={cn("min-h-0 flex-1", className)}
+      viewportClassName="scroll-py-1.5 overscroll-contain"
+    >
+      <CommandPrimitive.List data-slot="command-list" {...props} />
+    </ScrollArea>
   );
 }
 

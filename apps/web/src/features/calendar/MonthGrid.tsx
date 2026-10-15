@@ -1,3 +1,4 @@
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useBoard } from "./board-context";
 import { DropCell } from "./DropCell";
@@ -17,7 +18,7 @@ export function MonthGrid({
   const { today, onShowDay } = useBoard();
 
   return (
-    <div className="overflow-x-auto">
+    <ScrollArea orientation="horizontal">
       <div className="grid min-w-[560px] grid-cols-7">
         {WEEKDAY_LABELS.map((weekday) => (
           <div
@@ -76,6 +77,6 @@ export function MonthGrid({
           );
         })}
       </div>
-    </div>
+    </ScrollArea>
   );
 }

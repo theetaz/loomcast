@@ -1,4 +1,5 @@
 import { Button } from "@loomcast/ui/components/button";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
@@ -106,15 +107,17 @@ export function CodeBlock({
         className,
       )}
     >
-      <pre
-        className={cn(
-          "min-w-0 flex-1 py-1 font-mono text-mono text-foreground",
-          overflow === "wrap" ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto",
-          codeClassName,
-        )}
-      >
-        <code>{children ?? value}</code>
-      </pre>
+      <ScrollArea orientation="horizontal" className="min-w-0 flex-1">
+        <pre
+          className={cn(
+            "py-1 font-mono text-mono text-foreground",
+            overflow === "wrap" && "whitespace-pre-wrap [overflow-wrap:anywhere]",
+            codeClassName,
+          )}
+        >
+          <code>{children ?? value}</code>
+        </pre>
+      </ScrollArea>
       <CopyButton value={value} label={copyLabel} />
     </div>
   );

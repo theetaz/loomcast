@@ -1,5 +1,6 @@
 import type { ContentItem, PipelineState } from "@loomcast/contracts";
 import { StatusPill, statusStyle } from "@loomcast/ui/components/StatusPill";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { Link } from "@tanstack/react-router";
 import { TriangleAlertIcon } from "lucide-react";
@@ -27,9 +28,11 @@ export function PipelineBoard({ items, states, seriesName, actions }: PipelineBo
 
   return (
     // Every card is a link, and a focused card scrolls into view, so the keyboard reaches all columns.
-    <section
+    <ScrollArea
+      role="region"
       aria-label="Pipeline board"
-      className="snap-x snap-mandatory scroll-px-3 overflow-x-auto sm:snap-none"
+      orientation="horizontal"
+      viewportClassName="snap-x snap-mandatory scroll-px-3 sm:snap-none"
     >
       <ol className="flex w-max gap-2.5 p-3">
         {columns.map((column) => (
@@ -65,7 +68,7 @@ export function PipelineBoard({ items, states, seriesName, actions }: PipelineBo
           </li>
         ))}
       </ol>
-    </section>
+    </ScrollArea>
   );
 }
 

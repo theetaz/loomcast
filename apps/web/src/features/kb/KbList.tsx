@@ -8,6 +8,7 @@ import {
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import { cn } from "@loomcast/ui/lib/cn";
 import {
@@ -116,20 +117,19 @@ export function KbList({
         className="gap-0"
       >
         <div className="flex h-11 items-center border-divider border-b px-2">
-          <TabsList
-            aria-label="Filter by kind"
-            className="max-w-full justify-start overflow-x-auto"
-          >
-            {KB_FILTERS.map((value) => {
-              const Icon = value === "all" ? null : KIND_META[value].icon;
-              return (
-                <TabsTrigger key={value} value={value} className="flex-none">
-                  {Icon ? <Icon aria-hidden="true" className="max-sm:hidden" /> : null}
-                  {filterLabel(value)}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
+          <ScrollArea orientation="horizontal" className="min-w-0 max-w-full">
+            <TabsList aria-label="Filter by kind" className="justify-start">
+              {KB_FILTERS.map((value) => {
+                const Icon = value === "all" ? null : KIND_META[value].icon;
+                return (
+                  <TabsTrigger key={value} value={value} className="flex-none">
+                    {Icon ? <Icon aria-hidden="true" className="max-sm:hidden" /> : null}
+                    {filterLabel(value)}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </ScrollArea>
         </div>
 
         <div className="flex flex-col gap-2 border-divider border-b px-3.5 py-2.5 sm:flex-row sm:items-center">
@@ -216,44 +216,46 @@ function TagFilter({
       : visible;
 
   return (
-    <fieldset className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto max-sm:-mx-3.5 max-sm:px-3.5 sm:flex-wrap">
-      <legend className="sr-only">Filter by tag</legend>
-      <TagIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-      {shown.map(({ tag, count }) => {
-        const active = tag === selected;
-        return (
-          <button
-            key={tag}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onSelect(active ? null : tag)}
-            className={cn(
-              "pressable inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "bg-accent-soft text-primary shadow-[0_0_0_1px_var(--ring)]"
-                : "bg-secondary text-text-2 shadow-[0_0_0_1px_var(--border)] hover:text-foreground",
-            )}
+    <ScrollArea orientation="horizontal" className="min-w-0 flex-1 max-sm:-mx-3.5">
+      <fieldset className="flex items-center gap-1.5 max-sm:px-3.5 sm:flex-wrap">
+        <legend className="sr-only">Filter by tag</legend>
+        <TagIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+        {shown.map(({ tag, count }) => {
+          const active = tag === selected;
+          return (
+            <button
+              key={tag}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(active ? null : tag)}
+              className={cn(
+                "pressable inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active
+                  ? "bg-accent-soft text-primary shadow-[0_0_0_1px_var(--ring)]"
+                  : "bg-secondary text-text-2 shadow-[0_0_0_1px_var(--border)] hover:text-foreground",
+              )}
+            >
+              #{tag}
+              {count > 0 ? (
+                <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>
+              ) : null}
+              {active ? <XIcon aria-hidden="true" className="size-3" /> : null}
+            </button>
+          );
+        })}
+        {tags.length > VISIBLE_TAGS ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shrink-0"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
           >
-            #{tag}
-            {count > 0 ? (
-              <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>
-            ) : null}
-            {active ? <XIcon aria-hidden="true" className="size-3" /> : null}
-          </button>
-        );
-      })}
-      {tags.length > VISIBLE_TAGS ? (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="shrink-0"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "Fewer tags" : `${tags.length - VISIBLE_TAGS} more`}
-        </Button>
-      ) : null}
-    </fieldset>
+            {expanded ? "Fewer tags" : `${tags.length - VISIBLE_TAGS} more`}
+          </Button>
+        ) : null}
+      </fieldset>
+    </ScrollArea>
   );
 }
 

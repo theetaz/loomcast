@@ -1,5 +1,6 @@
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Separator } from "@loomcast/ui/components/separator";
 import {
   Sheet,
@@ -372,17 +373,21 @@ function SidebarSeparator({ className, ...props }: React.ComponentProps<typeof S
   );
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({
+  className,
+  children,
+  ...props
+}: Omit<React.ComponentProps<typeof ScrollArea>, "orientation" | "viewportClassName">) {
   return (
-    <div
+    <ScrollArea
       data-slot="sidebar-content"
       data-sidebar="content"
-      className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-0 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
-        className,
-      )}
+      className={cn("min-h-0 flex-1", className)}
+      viewportClassName="group-data-[collapsible=icon]:overflow-hidden! [&>div]:flex! [&>div]:flex-col"
       {...props}
-    />
+    >
+      {children}
+    </ScrollArea>
   );
 }
 

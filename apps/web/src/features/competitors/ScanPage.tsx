@@ -1,5 +1,6 @@
 import type { CompetitorScan, CompetitorScanVideo, Project } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -255,7 +256,12 @@ const linkClass = cn(
 function VideosTable({ scan, projectParam }: { scan: CompetitorScan; projectParam: string }) {
   const videos = [...scan.videos].sort((a, b) => a.rank - b.rank);
   return (
-    <section aria-label="Videos" className="overflow-x-auto rounded-lg bg-card shadow-card">
+    <ScrollArea
+      role="region"
+      aria-label="Videos"
+      orientation="horizontal"
+      className="rounded-lg bg-card shadow-card"
+    >
       {videos.length === 0 ? (
         <EmptyState size="compact" icon={SearchXIcon} title="No videos in this scan" />
       ) : (
@@ -293,7 +299,7 @@ function VideosTable({ scan, projectParam }: { scan: CompetitorScan; projectPara
           </tbody>
         </table>
       )}
-    </section>
+    </ScrollArea>
   );
 }
 

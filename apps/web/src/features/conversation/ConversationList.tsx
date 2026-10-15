@@ -1,5 +1,6 @@
 import type { Conversation } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import {
   Select,
   SelectContent,
@@ -56,7 +57,7 @@ export function ConversationColumn({
         </Tooltip>
       </div>
       <nav aria-label="Conversations" className="relative min-h-0 flex-1">
-        <div className="absolute inset-0 overflow-y-auto p-1.5">
+        <ScrollArea className="absolute inset-0" viewportClassName="p-1.5">
           {loading ? (
             <div aria-hidden="true" className="flex flex-col gap-1">
               {[72, 56, 64].map((width) => (
@@ -99,7 +100,7 @@ export function ConversationColumn({
               })}
             </ul>
           )}
-        </div>
+        </ScrollArea>
       </nav>
     </div>
   );

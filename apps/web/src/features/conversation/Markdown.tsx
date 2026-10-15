@@ -1,4 +1,5 @@
 import { Button } from "@loomcast/ui/components/button";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import {
@@ -74,9 +75,11 @@ function CodeBlock({ children }: ComponentProps<"pre">) {
         </span>
         <CopyButton text={text} />
       </div>
-      <pre className="overflow-x-auto p-3 font-mono text-[12.5px] text-foreground leading-relaxed">
-        <code>{text}</code>
-      </pre>
+      <ScrollArea orientation="horizontal">
+        <pre className="p-3 font-mono text-[12.5px] text-foreground leading-relaxed">
+          <code>{text}</code>
+        </pre>
+      </ScrollArea>
     </div>
   );
 }
@@ -146,9 +149,12 @@ export const markdownComponents: Components = {
   ),
   hr: () => <hr className="my-4 border-divider" />,
   table: ({ children }) => (
-    <div className="my-3 overflow-x-auto rounded-md shadow-[0_0_0_1px_var(--border)] first:mt-0 last:mb-0">
+    <ScrollArea
+      orientation="horizontal"
+      className="my-3 rounded-md shadow-[0_0_0_1px_var(--border)] first:mt-0 last:mb-0"
+    >
       <table className="w-full border-collapse text-small">{children}</table>
-    </div>
+    </ScrollArea>
   ),
   th: ({ children, style }) => (
     <th
