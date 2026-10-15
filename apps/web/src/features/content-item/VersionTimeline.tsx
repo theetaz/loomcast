@@ -1,5 +1,6 @@
 import type { ContentVersionSummary, Review, VersionCreatedVia } from "@loomcast/contracts";
 import { StatusPill } from "@loomcast/ui/components/StatusPill";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import {
   AudioLinesIcon,
@@ -62,78 +63,83 @@ export function VersionTimeline({
         </h2>
         <span className="text-small text-muted-foreground">{versions.length}</span>
       </div>
-      <ol className="flex max-h-[360px] flex-col overflow-y-auto overscroll-contain py-1">
-        {versions.map((version) => {
-          const current = version.id === currentVersionId;
-          const shown = version.id === viewedVersionId;
-          const decisions = reviews.filter((review) => review.versionId === version.id);
-          const canCompare = !shown && version.hasScript && viewed?.hasScript === true;
-          return (
-            <li key={version.id} className="group/version relative">
-              <div
-                className={cn(
-                  "flex items-start gap-2.5 px-4 py-2",
-                  shown && "bg-accent-soft/60 dark:bg-accent-soft/30",
-                )}
-              >
-                <button
-                  type="button"
-                  aria-current={shown ? "true" : undefined}
-                  aria-label={`Show version ${version.versionNo}${current ? ", current" : ""}`}
-                  onClick={() => onView(version.id)}
-                  className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-sm text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+      <ScrollArea viewportClassName="max-h-[360px] overscroll-contain">
+        <ol className="flex flex-col py-1">
+          {versions.map((version) => {
+            const current = version.id === currentVersionId;
+            const shown = version.id === viewedVersionId;
+            const decisions = reviews.filter((review) => review.versionId === version.id);
+            const canCompare = !shown && version.hasScript && viewed?.hasScript === true;
+            return (
+              <li key={version.id} className="group/version relative">
+                <div
+                  className={cn(
+                    "flex items-start gap-2.5 px-4 py-2",
+                    shown && "bg-accent-soft/60 dark:bg-accent-soft/30",
+                  )}
                 >
-                  <span className="flex w-full items-center gap-2">
-                    <span className="font-medium font-mono text-mono text-foreground">
-                      v{version.versionNo}
-                    </span>
-                    <StatusPill kind="pipeline" status={version.stage} />
-                    {current ? (
-                      <span className="text-[11px] font-medium text-primary">Current</span>
-                    ) : null}
-                    <span className="ml-auto flex items-center gap-1 text-text-4">
-                      {artifactsOf(version).map(({ icon: Icon, label }) => (
-                        <Icon key={label} aria-label={label} className="size-3" />
-                      ))}
-                    </span>
-                  </span>
-                  <span className="text-small text-muted-foreground">
-                    {AUTHORS[version.createdVia]} ·{" "}
-                    <RelativeTime value={version.createdAt} format="relative" />
-                  </span>
-                  {version.notes ? (
-                    <span className="line-clamp-2 text-small text-text-2">{version.notes}</span>
-                  ) : null}
-                  {decisions.map((review) => (
-                    <span
-                      key={review.id}
-                      className={cn("text-small font-medium", DECISIONS[review.decision].className)}
-                    >
-                      {DECISIONS[review.decision].label}
-                      {review.comment ? (
-                        <span className="font-normal text-muted-foreground">
-                          : {review.comment}
-                        </span>
-                      ) : null}
-                    </span>
-                  ))}
-                </button>
-                {canCompare ? (
                   <button
                     type="button"
-                    onClick={() => onCompare(version.id)}
-                    aria-label={`Compare the script of version ${version.versionNo}`}
-                    title="Compare scripts"
-                    className="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-sm text-text-4 outline-none transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-current={shown ? "true" : undefined}
+                    aria-label={`Show version ${version.versionNo}${current ? ", current" : ""}`}
+                    onClick={() => onView(version.id)}
+                    className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-sm text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
                   >
-                    <GitCompareArrowsIcon aria-hidden="true" className="size-3.5" />
+                    <span className="flex w-full items-center gap-2">
+                      <span className="font-medium font-mono text-mono text-foreground">
+                        v{version.versionNo}
+                      </span>
+                      <StatusPill kind="pipeline" status={version.stage} />
+                      {current ? (
+                        <span className="text-[11px] font-medium text-primary">Current</span>
+                      ) : null}
+                      <span className="ml-auto flex items-center gap-1 text-text-4">
+                        {artifactsOf(version).map(({ icon: Icon, label }) => (
+                          <Icon key={label} aria-label={label} className="size-3" />
+                        ))}
+                      </span>
+                    </span>
+                    <span className="text-small text-muted-foreground">
+                      {AUTHORS[version.createdVia]} ·{" "}
+                      <RelativeTime value={version.createdAt} format="relative" />
+                    </span>
+                    {version.notes ? (
+                      <span className="line-clamp-2 text-small text-text-2">{version.notes}</span>
+                    ) : null}
+                    {decisions.map((review) => (
+                      <span
+                        key={review.id}
+                        className={cn(
+                          "text-small font-medium",
+                          DECISIONS[review.decision].className,
+                        )}
+                      >
+                        {DECISIONS[review.decision].label}
+                        {review.comment ? (
+                          <span className="font-normal text-muted-foreground">
+                            : {review.comment}
+                          </span>
+                        ) : null}
+                      </span>
+                    ))}
                   </button>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+                  {canCompare ? (
+                    <button
+                      type="button"
+                      onClick={() => onCompare(version.id)}
+                      aria-label={`Compare the script of version ${version.versionNo}`}
+                      title="Compare scripts"
+                      className="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-sm text-text-4 outline-none transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <GitCompareArrowsIcon aria-hidden="true" className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </ScrollArea>
     </section>
   );
 }

@@ -1,3 +1,4 @@
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import { cn } from "@loomcast/ui/lib/cn";
 import { ChartNoAxesColumnIcon, ChartSplineIcon, Rows3Icon } from "lucide-react";
@@ -209,7 +210,7 @@ export function ChartTable({
   rows: readonly { id: string; cells: readonly ReactNode[] }[];
 }) {
   return (
-    <div className="relative max-h-[360px] overflow-auto">
+    <ScrollArea orientation="both" viewportClassName="max-h-[360px]">
       <table className="w-full border-collapse text-control">
         <caption className="sr-only">{caption}</caption>
         <thead className="sticky top-0 bg-card">
@@ -252,6 +253,6 @@ export function ChartTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollArea>
   );
 }

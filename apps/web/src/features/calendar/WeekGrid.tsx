@@ -1,3 +1,4 @@
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import { useBoard } from "./board-context";
@@ -78,7 +79,11 @@ export function WeekGrid({
   }, [period.from, firstRow, ready, early]);
 
   return (
-    <div ref={scroller} className="max-h-[calc(100dvh-232px)] min-h-[420px] overflow-auto">
+    <ScrollArea
+      orientation="both"
+      viewportRef={scroller}
+      viewportClassName="max-h-[calc(100dvh-232px)] min-h-[420px]"
+    >
       <div className="grid min-w-[760px]" style={COLUMNS}>
         <div
           data-week-header
@@ -171,7 +176,7 @@ export function WeekGrid({
           );
         })}
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 

@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@loomcast/ui/components/dialog";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -141,42 +142,48 @@ function SlotPickerForm({
           description={`Approve a video of ${series?.name ?? "this series"} in review, then come back to this slot.`}
         />
       ) : (
-        <fieldset className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-          <legend className="sr-only">Approved videos</legend>
-          {choices.map((item) => {
-            const selected = item.id === itemId;
-            return (
-              <label
-                key={item.id}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-control transition-colors",
-                  "has-focus-visible:ring-2 has-focus-visible:ring-ring",
-                  selected ? "bg-accent-soft text-foreground" : "hover:bg-secondary",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="item"
-                  value={item.id}
-                  checked={selected}
-                  onChange={() => setItemId(item.id)}
-                  className="sr-only"
-                />
-                <span
-                  aria-hidden="true"
+        <ScrollArea viewportClassName="max-h-72">
+          <fieldset className="flex flex-col gap-1">
+            <legend className="sr-only">Approved videos</legend>
+            {choices.map((item) => {
+              const selected = item.id === itemId;
+              return (
+                <label
+                  key={item.id}
                   className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
-                    selected ? "border-primary bg-primary text-primary-foreground" : "border-input",
+                    "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-control transition-colors",
+                    "has-focus-visible:ring-2 has-focus-visible:ring-ring",
+                    selected ? "bg-accent-soft text-foreground" : "hover:bg-secondary",
                   )}
                 >
-                  {selected ? <CheckIcon className="size-3" /> : null}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                <span className="shrink-0 text-small text-muted-foreground">v{item.versionNo}</span>
-              </label>
-            );
-          })}
-        </fieldset>
+                  <input
+                    type="radio"
+                    name="item"
+                    value={item.id}
+                    checked={selected}
+                    onChange={() => setItemId(item.id)}
+                    className="sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                      selected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input",
+                    )}
+                  >
+                    {selected ? <CheckIcon className="size-3" /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  <span className="shrink-0 text-small text-muted-foreground">
+                    v{item.versionNo}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+        </ScrollArea>
       )}
 
       {failure ? (

@@ -1,5 +1,6 @@
 import type { Conversation, JobSummary, Message, Project } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownIcon, MessagesSquareIcon, SparklesIcon } from "lucide-react";
@@ -125,7 +126,7 @@ export function ConversationThread({
 
   // Scrolling -------------------------------------------------------------
 
-  const scrollRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const { pinned, scrollToBottom } = useStickToBottom(
     scrollRef,
@@ -253,14 +254,17 @@ export function ConversationThread({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="relative min-h-0 flex-1">
-        <section
-          ref={scrollRef}
+        <ScrollArea
+          role="region"
           aria-label="Messages"
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrolling region must be reachable from the keyboard.
-          tabIndex={0}
-          className="absolute inset-0 overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          className="absolute inset-0"
+          viewportRef={scrollRef}
+          // The scrolling region must be reachable from the keyboard.
+          viewportProps={{ tabIndex: 0 }}
+          // Stretch the content to the full height, so a short thread sits at the bottom.
+          viewportClassName="overscroll-contain [&>div]:flex! [&>div]:min-h-full [&>div]:flex-col"
         >
-          <div ref={contentRef} className="flex min-h-full flex-col">
+          <div ref={contentRef} className="flex flex-1 flex-col">
             {body ?? (
               <ol className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-4 py-5 md:px-6">
                 {timeline.map((item) => (
@@ -276,7 +280,7 @@ export function ConversationThread({
               </ol>
             )}
           </div>
-        </section>
+        </ScrollArea>
         <JumpToLatest visible={!pinned && !body} onClick={scrollToBottom} />
       </div>
       <div className="mx-auto w-full max-w-[760px] px-3 pb-3 md:px-5">

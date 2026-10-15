@@ -1,6 +1,7 @@
 import { type KbEntryDetail, TranscriptSchema } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDownIcon, ChevronUpIcon, FileTextIcon, PencilIcon, SearchIcon } from "lucide-react";
@@ -63,7 +64,7 @@ function TranscriptFind({ transcript }: { transcript: string }) {
   const parts = useMemo(() => findParts(transcript, deferredQuery), [transcript, deferredQuery]);
   const total = matchCount(parts);
   const active = total === 0 ? -1 : Math.min(current, total - 1);
-  const bodyRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Keep the current match in view; jumps, not scrolls, since stepping is a keyboard action.
   useEffect(() => {
@@ -134,32 +135,34 @@ function TranscriptFind({ transcript }: { transcript: string }) {
           <ChevronDownIcon aria-hidden="true" />
         </Button>
       </div>
-      <section
-        ref={bodyRef}
-        // A scrollable region must be reachable from the keyboard.
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need focus to scroll by keyboard.
-        tabIndex={0}
+      <ScrollArea
+        role="region"
         aria-label="Transcript text"
-        className="max-h-[560px] min-h-40 overflow-auto whitespace-pre-wrap break-words px-3.5 py-3 font-mono text-[12px] text-text-2 leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        viewportRef={bodyRef}
+        // A scrollable region must be reachable from the keyboard.
+        viewportProps={{ tabIndex: 0 }}
+        viewportClassName="max-h-[560px] min-h-40"
       >
-        {parts.map((part, index) =>
-          part.match === null ? (
-            <span key={index}>{part.text}</span>
-          ) : (
-            <mark
-              key={index}
-              data-match={part.match}
-              aria-current={part.match === active ? "true" : undefined}
-              className={cn(
-                MATCH_CLASS_NAME,
-                part.match === active && "bg-primary text-primary-foreground",
-              )}
-            >
-              {part.text}
-            </mark>
-          ),
-        )}
-      </section>
+        <div className="whitespace-pre-wrap break-words px-3.5 py-3 font-mono text-[12px] text-text-2 leading-relaxed">
+          {parts.map((part, index) =>
+            part.match === null ? (
+              <span key={index}>{part.text}</span>
+            ) : (
+              <mark
+                key={index}
+                data-match={part.match}
+                aria-current={part.match === active ? "true" : undefined}
+                className={cn(
+                  MATCH_CLASS_NAME,
+                  part.match === active && "bg-primary text-primary-foreground",
+                )}
+              >
+                {part.text}
+              </mark>
+            ),
+          )}
+        </div>
+      </ScrollArea>
     </>
   );
 }

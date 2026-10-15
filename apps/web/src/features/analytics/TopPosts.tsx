@@ -1,4 +1,5 @@
 import type { PostPerformance } from "@loomcast/contracts";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Link } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
 import { engagementRate, formatDay, formatFullCount, formatRate } from "./format";
@@ -25,7 +26,7 @@ export function PlatformLabel({ platform }: { platform: PostPerformance["platfor
 /** The most-viewed posts of the range, most first, with a link to the video and the post. */
 export function TopPostsTable({ posts }: { posts: readonly PostPerformance[] }) {
   return (
-    <div className="relative overflow-x-auto">
+    <ScrollArea orientation="horizontal">
       <table className="w-full min-w-[620px] border-collapse text-control">
         <caption className="sr-only">Top posts by views</caption>
         <thead>
@@ -102,6 +103,6 @@ export function TopPostsTable({ posts }: { posts: readonly PostPerformance[] }) 
           })}
         </tbody>
       </table>
-    </div>
+    </ScrollArea>
   );
 }

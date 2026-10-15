@@ -1,3 +1,4 @@
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import { useLocation, useMatch, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -32,14 +33,16 @@ export function ProjectTabs({
       }}
       className="min-h-0 flex-1 gap-4"
     >
-      <TabsList aria-label="Project sections" className="max-w-full justify-start overflow-x-auto">
-        {projectTabs.map((tab) => (
-          <TabsTrigger key={tab.id} value={tab.id}>
-            <tab.icon aria-hidden="true" />
-            {tab.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+      <ScrollArea orientation="horizontal" className="max-w-full shrink-0">
+        <TabsList aria-label="Project sections" className="justify-start">
+          {projectTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>
+              <tab.icon aria-hidden="true" />
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </ScrollArea>
       <TabsContent value={value} className="flex min-h-0 flex-col gap-5">
         {children}
       </TabsContent>
