@@ -11,6 +11,7 @@ import {
 } from "@loomcast/ui/components/dialog";
 import { Input } from "@loomcast/ui/components/input";
 import { Label } from "@loomcast/ui/components/label";
+import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import {
   Select,
   SelectContent,
@@ -218,7 +219,7 @@ function ClientForm({
       </div>
 
       {client ? null : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid items-start gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor={ids.project}>Project</Label>
             <Select
@@ -277,7 +278,7 @@ function ClientForm({
             Add a channel in Settings → Channels first.
           </p>
         ) : (
-          <div className="max-h-[320px] overflow-y-auto pr-0.5">
+          <ScrollArea viewportClassName="max-h-[320px] pr-3">
             <GrantsEditor
               channels={channelList}
               value={draft}
@@ -287,7 +288,7 @@ function ClientForm({
                 if (errors.grants) setErrors({ ...errors, grants: undefined });
               }}
             />
-          </div>
+          </ScrollArea>
         )}
         {errors.grants ? (
           <p id={ids.grants} className="text-small text-destructive">

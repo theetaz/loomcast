@@ -103,7 +103,7 @@ export function GrantsEditor({
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent align="end">
                       {LEVELS.map((option) => (
                         <SelectItem key={option} value={option}>
                           {levelLabel(option)}
