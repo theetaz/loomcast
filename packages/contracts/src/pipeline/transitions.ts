@@ -5,12 +5,14 @@ import {
   type ContentAction,
   PIPELINE_STATES,
   type PipelineState,
+  type PostFormat,
   PRODUCTION_STATES,
   type ProductionState,
   REVIEW_DECISIONS,
   type ReviewDecision,
   type UserRole,
 } from "../enums";
+import { isProducedFormat, isPublishable, type PostMediaEntry } from "../publishing/formats";
 
 // The pipeline state machine. `PIPELINE_TRANSITIONS` is the single source of truth: the API checks
 // every state change against it and the web app derives its buttons from it.
@@ -67,6 +69,10 @@ export interface VersionArtifacts {
   readonly hasStoryboard?: boolean;
   readonly voiceAssetId?: string | null;
   readonly renderAssetId?: string | null;
+  /** The post format; a version without one is a `reel`. */
+  readonly format?: PostFormat | null;
+  /** The photos and videos of an image, carousel or story post. */
+  readonly media?: readonly Pick<PostMediaEntry, "type">[] | null;
 }
 
 const EVERYONE = ["user", "device", "token", "system"] as const satisfies readonly ActorKind[];
@@ -114,6 +120,8 @@ function buildTransitions(): PipelineTransition[] {
   for (const to of ["script", "storyboard", "voice"] as const) {
     rows.push(edge("approved", to, "edit", USER));
   }
+  // A composed post whose media change goes back to `render`, ready to submit again.
+  rows.push(edge("approved", "render", "edit", USER, true));
   rows.push(edge("approved", "approved", "edit", USER, true));
 
   // Calendar and publishing (M4): the scheduler acts as `system`.
@@ -142,8 +150,27 @@ function hasValue(value: unknown): boolean {
   return value !== undefined && value !== null;
 }
 
+function hasMedia(version: VersionArtifacts): boolean {
+  return (version.media?.length ?? 0) > 0;
+}
+
+/**
+ * Whether a version is a composed post rather than a studio video: any format but `reel`, or a
+ * `reel` made of an uploaded video instead of a script. Production work never runs on it.
+ */
+export function isComposed(version: VersionArtifacts): boolean {
+  return (
+    !isProducedFormat(version.format) ||
+    (!hasValue(version.script) && version.hasScript !== true && hasMedia(version))
+  );
+}
+
+/**
+ * Whether the version is ready to publish: a render for a studio video, otherwise the media its
+ * format needs (`isPublishable`). The rows that "need a render" need exactly this.
+ */
 function hasRender(version: VersionArtifacts | null | undefined): boolean {
-  return version !== null && version !== undefined && hasValue(version.renderAssetId);
+  return version !== null && version !== undefined && isPublishable(version);
 }
 
 /**
@@ -151,6 +178,14 @@ function hasRender(version: VersionArtifacts | null | undefined): boolean {
  * render present without a gap. A version with a voice but no storyboard is at `script`.
  */
 export function stageForArtifacts(version: VersionArtifacts): ProductionState {
+  // A composed post (photo, carousel, story, text or an uploaded video) skips production: it is
+  // at `render` once its media fit its format, and an `idea` until then.
+  if (
+    !isProducedFormat(version.format) ||
+    (!hasValue(version.script) && version.hasScript !== true && hasMedia(version))
+  ) {
+    return isPublishable(version) ? "render" : "idea";
+  }
   if (!hasValue(version.script) && version.hasScript !== true) return "idea";
   if (!hasValue(version.storyboard) && version.hasStoryboard !== true) return "script";
   if (!hasValue(version.voiceAssetId)) return "storyboard";
@@ -217,6 +252,7 @@ export type ProductionStep = (typeof PRODUCTION_STEPS)[number]["action"];
 
 /** The first production step a version still needs, or `null` once it has a render. */
 export function nextProductionStep(version: VersionArtifacts): ProductionStep | null {
+  if (isComposed(version)) return null;
   const stage = stageForArtifacts(version);
   const reached = PRODUCTION_STATES.indexOf(stage);
   const next = PRODUCTION_STEPS.find((step) => PRODUCTION_STATES.indexOf(step.stage) > reached);
@@ -266,6 +302,7 @@ function contentActionAllowed(
   version: VersionArtifacts | null | undefined,
 ): boolean {
   if (!ACTION_ACTORS.includes(actor) || !ACTION_STATES.includes(state)) return false;
+  if (version !== null && version !== undefined && isComposed(version)) return false;
   // `produce` drives an item to review, so it does not start from review itself.
   if (action === "produce" && state === "review") return false;
   return reachedStage(version, ACTION_REQUIRES[action]);

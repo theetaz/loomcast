@@ -238,12 +238,27 @@ export const PublishModeSchema = z.enum(PUBLISH_MODES);
 export type PublishMode = (typeof PUBLISH_MODES)[number];
 
 /**
- * Platforms a channel publishes to: Facebook Page Reels, Instagram Reels and Threads. `x` stays
- * behind a feature flag until its adapter ships.
+ * Platforms a channel publishes to: Facebook Pages, Instagram professional accounts and Threads.
+ * `x` stays behind a feature flag until its adapter ships. `PLATFORM_FORMATS` says which post
+ * formats each one publishes.
  */
 export const PLATFORMS = ["facebook", "instagram", "threads", "x"] as const;
 export const PlatformSchema = z.enum(PLATFORMS);
 export type Platform = (typeof PLATFORMS)[number];
+
+/**
+ * What kind of post a version publishes as:
+ * - `reel`: a vertical short video (Instagram and Facebook Reels, a Threads or X video).
+ * - `video`: a regular video post (a Facebook Page video).
+ * - `image`: one photo.
+ * - `carousel`: 2 to 10 photos or videos in one post (a Facebook multi-photo post takes photos).
+ * - `story`: one photo or video shown for 24 hours.
+ * - `text`: words only, optionally with a link (a Facebook Page post).
+ * Studio videos are `reel`s; the other formats are composed from uploaded `media` assets.
+ */
+export const POST_FORMATS = ["reel", "video", "image", "carousel", "story", "text"] as const;
+export const PostFormatSchema = z.enum(POST_FORMATS);
+export type PostFormat = (typeof POST_FORMATS)[number];
 
 /**
  * Accounts a channel is connected through:
@@ -326,7 +341,10 @@ export const PUBLISHING_MODES = ["dry-run", "live"] as const;
 export const PublishingModeSchema = z.enum(PUBLISHING_MODES);
 export type PublishingMode = (typeof PUBLISHING_MODES)[number];
 
-/** What a stored file is for. `reference_media` is a reference video or audio the user uploaded. */
+/**
+ * What a stored file is for. `reference_media` is a reference video or audio the user uploaded;
+ * `media` is a photo or video a post publishes (the items of an image, carousel or story post).
+ */
 export const ASSET_KINDS = [
   "voice",
   "render",
@@ -334,6 +352,7 @@ export const ASSET_KINDS = [
   "frame",
   "reference_media",
   "other",
+  "media",
 ] as const;
 export const AssetKindSchema = z.enum(ASSET_KINDS);
 export type AssetKind = (typeof ASSET_KINDS)[number];

@@ -4,7 +4,12 @@ import {
   type CreatePostRequest,
   MIN_SCHEDULE_LEAD_MS,
   OPEN_POST_STATUSES,
+  PLATFORM_LABELS,
+  type Platform,
+  POST_FORMAT_LABELS,
+  type PostFormat,
   type PublishingMode,
+  platformSupportsFormat,
   RESCHEDULABLE_POST_STATUSES,
   type ReschedulePostRequest,
   type ScheduledPost,
@@ -13,6 +18,7 @@ import {
   type ContentItemRow,
   channels,
   contentItems,
+  contentVersions,
   type Database,
   type ScheduledPostRow,
   scheduledPosts,
@@ -74,6 +80,16 @@ function postNotEditable(status: ScheduledPostRow["status"]): HttpError {
     "post_not_editable",
     "This post is publishing, published or cancelled and cannot change.",
     { status },
+  );
+}
+
+/** 422 when a channel's platform does not publish the item's post format. */
+export function formatNotSupported(platform: Platform, format: PostFormat): HttpError {
+  return new HttpError(
+    422,
+    "format_not_supported",
+    `${PLATFORM_LABELS[platform]} does not publish ${POST_FORMAT_LABELS[format].toLowerCase()}s.`,
+    { platform, format },
   );
 }
 
@@ -223,7 +239,12 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
           throw notFound("No content item has that id.");
         }
         const [channel] = await tx
-          .select({ id: channels.id, status: channels.status, dryRun: channels.dryRun })
+          .select({
+            id: channels.id,
+            platform: channels.platform,
+            status: channels.status,
+            dryRun: channels.dryRun,
+          })
           .from(channels)
           .where(eq(channels.id, input.channelId))
           .limit(1);
@@ -236,6 +257,15 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         if (channel.status === "disabled") {
           throw conflict("The channel is disabled.", { reason: "channel_disabled" });
         }
+        const [version] = await tx
+          .select({ format: contentVersions.format })
+          .from(contentVersions)
+          .where(eq(contentVersions.id, item.currentVersionId))
+          .limit(1);
+        const format = version?.format ?? "reel";
+        if (!platformSupportsFormat(channel.platform, format)) {
+          throw formatNotSupported(channel.platform, format);
+        }
         const scheduledAt = requireLead(input.scheduledAt);
         const [post] = await tx
           .insert(scheduledPosts)
@@ -247,6 +277,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
             scheduledAt,
             status: "queued",
             dryRun: newPostDryRun(channel, deps.config.publishing.mode),
+            options: input.options ?? {},
           })
           .onConflictDoNothing({
             target: [scheduledPosts.itemId, scheduledPosts.channelId],

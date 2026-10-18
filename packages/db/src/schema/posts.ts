@@ -1,4 +1,4 @@
-import type { JsonObject, PublishError } from "@loomcast/contracts";
+import type { JsonObject, PostOptions, PublishError } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -57,6 +57,8 @@ export const scheduledPosts = pgTable(
     scheduledAt: timestamptz("scheduled_at").notNull(),
     status: postStatus("status").notNull().default("planned"),
     dryRun: boolean("dry_run").notNull().default(true),
+    /** Per-platform options of this post (`PostOptionsSchema`). */
+    options: jsonb("options").$type<PostOptions>().notNull().default({}),
     /** The platform's id of the published post. */
     externalId: text("external_id"),
     /** The platform's id of the upload or media container, while it processes. */

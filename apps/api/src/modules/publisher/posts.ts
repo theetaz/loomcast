@@ -56,6 +56,7 @@ export function toScheduledPost(
     attempts: row.attempts,
     lastError: row.lastError ?? null,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    options: row.options,
     item: joined.item,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -76,6 +77,7 @@ export async function loadScheduledPosts(
       projectId: contentItems.projectId,
       title: contentItems.title,
       state: contentItems.state,
+      format: contentVersions.format,
       posterAssetId: contentVersions.posterAssetId,
       platform: channels.platform,
       requiresApproval: channels.requiresApproval,
@@ -95,7 +97,12 @@ export async function loadScheduledPosts(
       platform: row.platform,
       requiresApproval: row.requiresApproval,
       formatMode: row.formatMode,
-      item: { title: row.title, state: row.state, posterAssetId: row.posterAssetId },
+      item: {
+        title: row.title,
+        state: row.state,
+        format: row.format,
+        posterAssetId: row.posterAssetId,
+      },
     }),
   );
 }

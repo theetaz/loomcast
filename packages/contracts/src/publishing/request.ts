@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Platform, PlatformSchema } from "../enums";
 import { CAPTION_MAX_LENGTH, MAX_TIMELINE_MS } from "../pipeline/artifacts";
+import { ALT_TEXT_MAX_LENGTH, MAX_POST_MEDIA, MediaTypeSchema, PostOptionsSchema } from "./formats";
 
 // What the publisher hands a platform adapter, and how an adapter reports a failure. The dry-run
 // adapter records the same request the live adapter would send.
@@ -13,22 +14,69 @@ export const PLATFORM_ERROR_CODE_MAX_LENGTH = 100;
 /** A platform's id for an account, page or post, such as a Page id or an Instagram media id. */
 export const PlatformAccountIdSchema = z.string().trim().min(1).max(PLATFORM_ACCOUNT_ID_MAX_LENGTH);
 
-/**
- * One video to publish on one channel. `externalId` is the account the channel publishes as (the
- * Facebook Page, the Instagram professional account or the Threads profile). `videoUrl` and
- * `posterUrl` are public HTTPS links the platform fetches; they carry no credentials. Captions are
- * cut to each platform's limit by the publisher before they get here.
- */
-export const PublishRequestSchema = z.object({
+const HttpsUrlSchema = z.url({ protocol: /^https$/ });
+
+const PublishRequestBase = {
   platform: PlatformSchema,
   externalId: PlatformAccountIdSchema,
-  videoUrl: z.url({ protocol: /^https$/ }),
-  posterUrl: z.url({ protocol: /^https$/ }).optional(),
   caption: z.string().max(CAPTION_MAX_LENGTH),
+  options: PostOptionsSchema.optional(),
+};
+
+/**
+ * One video to publish on one channel: a `reel` or a `video` post. `externalId` is the account the
+ * channel publishes as (the Facebook Page, the Instagram professional account or the Threads
+ * profile). `videoUrl` and `posterUrl` are public HTTPS links the platform fetches; they carry no
+ * credentials. Captions are cut to each platform's limit by the publisher before they get here.
+ */
+export const VideoPublishRequestSchema = z.object({
+  ...PublishRequestBase,
+  format: z.enum(["reel", "video"]),
+  videoUrl: HttpsUrlSchema,
+  posterUrl: HttpsUrlSchema.optional(),
   durationMs: z.number().int().min(1).max(MAX_TIMELINE_MS),
   width: z.number().int().min(1).max(MAX_VIDEO_DIMENSION),
   height: z.number().int().min(1).max(MAX_VIDEO_DIMENSION),
 });
+export type VideoPublishRequest = z.infer<typeof VideoPublishRequestSchema>;
+
+/**
+ * One photo or video of a composed post, at a public HTTPS link. Sizes and durations are what the
+ * upload reported; null when it reported none.
+ */
+export const PublishMediaItemSchema = z.object({
+  type: MediaTypeSchema,
+  url: HttpsUrlSchema,
+  mime: z.string().min(1).max(100),
+  bytes: z.number().int().min(1),
+  width: z.number().int().min(1).max(MAX_VIDEO_DIMENSION).nullable(),
+  height: z.number().int().min(1).max(MAX_VIDEO_DIMENSION).nullable(),
+  durationMs: z.number().int().min(1).max(MAX_TIMELINE_MS).nullable(),
+  altText: z.string().max(ALT_TEXT_MAX_LENGTH).optional(),
+});
+export type PublishMediaItem = z.infer<typeof PublishMediaItemSchema>;
+
+/** A photo, a carousel or a story, from its media in order. */
+export const MediaPublishRequestSchema = z.object({
+  ...PublishRequestBase,
+  format: z.enum(["image", "carousel", "story"]),
+  media: z.array(PublishMediaItemSchema).min(1).max(MAX_POST_MEDIA),
+});
+export type MediaPublishRequest = z.infer<typeof MediaPublishRequestSchema>;
+
+/** Words only, with an optional link in `options.facebook.link`. */
+export const TextPublishRequestSchema = z.object({
+  ...PublishRequestBase,
+  format: z.literal("text"),
+});
+export type TextPublishRequest = z.infer<typeof TextPublishRequestSchema>;
+
+/** One post to publish on one channel, by format. */
+export const PublishRequestSchema = z.discriminatedUnion("format", [
+  VideoPublishRequestSchema,
+  MediaPublishRequestSchema,
+  TextPublishRequestSchema,
+]);
 export type PublishRequest = z.infer<typeof PublishRequestSchema>;
 
 /**

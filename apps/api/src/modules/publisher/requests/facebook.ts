@@ -1,4 +1,4 @@
-import type { PublishRequest } from "@loomcast/contracts";
+import type { PublishRequest, VideoPublishRequest } from "@loomcast/contracts";
 import { limitCaption } from "../caption";
 import {
   type BuildOptions,
@@ -12,6 +12,8 @@ import {
   type PublishPlan,
   type RequestIssue,
   segment,
+  unsupportedFormatMessage,
+  videoPlanInput,
 } from "./types";
 
 // Facebook Page Reels: start an upload session, let the upload host fetch the public video URL,
@@ -62,7 +64,11 @@ export const facebookRequests = {
   },
 
   /** `POST /{page-id}/video_reels {upload_phase: "finish", video_state: "PUBLISHED"}`. */
-  finishUpload(request: PublishRequest, videoId: string, options: BuildOptions): PlatformRequest {
+  finishUpload(
+    request: VideoPublishRequest,
+    videoId: string,
+    options: BuildOptions,
+  ): PlatformRequest {
     return {
       step: "finish_upload",
       method: "POST",
@@ -93,7 +99,8 @@ export const facebookRequests = {
 };
 
 /** What `publish` sends: start, upload from the public URL, finish. Then it waits (pending). */
-export function buildFacebookPublish(input: PlanInput): PublishPlan {
+export function buildFacebookPublish(plan: PlanInput): PublishPlan {
+  const input = videoPlanInput(plan);
   return {
     platform: "facebook",
     pending: true,
@@ -107,7 +114,13 @@ export function buildFacebookPublish(input: PlanInput): PublishPlan {
 
 export function validateFacebookRequest(
   request: PublishRequest,
-  media: MediaFacts,
+  media: MediaFacts | null,
 ): RequestIssue[] {
+  if (request.format !== "reel") {
+    return [{ field: "format", message: unsupportedFormatMessage("facebook", request) }];
+  }
+  if (media === null) {
+    return [{ field: "video", message: "The post has no video." }];
+  }
   return checkMedia(request, media, FACEBOOK_REELS_LIMITS);
 }

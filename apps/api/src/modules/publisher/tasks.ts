@@ -1,14 +1,21 @@
 import {
   DEFAULT_FORMAT_RULES,
+  FORMAT_MEDIA_RULES,
   type FormatRules,
+  formatMediaIssues,
   type JsonObject,
   PermalinkSchema,
+  PLATFORM_LABELS,
   type Platform,
+  POST_FORMAT_LABELS,
   POST_STATUS_POLL_INITIAL_MS,
   POST_STATUS_POLL_MAX_MS,
   POST_STATUS_TIMEOUT_MS,
+  type PostFormat,
+  type PostMediaEntry,
   type PublishError,
   type PublishingMode,
+  platformSupportsFormat,
   scheduledTaskRegistry,
 } from "@loomcast/contracts";
 import {
@@ -53,7 +60,9 @@ import {
 import type {
   PublishChannel,
   PublisherAdapter,
+  PublishFile,
   PublishMedia,
+  PublishMediaFile,
   PublishPost,
   PublishResult,
 } from "./types";
@@ -157,19 +166,71 @@ const channelColumns = {
   connected: sql<boolean>`${channels.secretCiphertext} is not null`,
 };
 
-function mediaOf(render: AssetRow, posterAssetId: string | null): PublishMedia {
-  const probe = render.meta.probe;
+function fileOf(asset: AssetRow): PublishFile {
+  const probe = asset.meta.probe;
   return {
-    renderAssetId: render.id,
-    mime: render.mime,
-    bytes: render.bytes,
-    sha256: render.sha256,
-    durationMs: render.durationMs ?? probe?.durationMs ?? null,
-    width: render.width ?? probe?.width ?? null,
-    height: render.height ?? probe?.height ?? null,
-    posterAssetId,
+    assetId: asset.id,
+    mime: asset.mime,
+    bytes: asset.bytes,
+    sha256: asset.sha256,
+    durationMs: asset.durationMs ?? probe?.durationMs ?? null,
+    width: asset.width ?? probe?.width ?? null,
+    height: asset.height ?? probe?.height ?? null,
     probe: probe ?? null,
   };
+}
+
+/** The ready asset `id`, or a final `invalid_media` failure. */
+async function readyAsset(executor: Executor, id: string, what: string): Promise<AssetRow> {
+  const [row] = await executor.select().from(assets).where(eq(assets.id, id));
+  if (row === undefined || row.status !== "ready") {
+    throw gateFailure(publishError("invalid_media", `The ${what} is not stored.`));
+  }
+  return row;
+}
+
+/**
+ * What a version publishes: the render (or the single uploaded video) of a `reel` or `video`
+ * post, the items of a composed post, nothing for a text post. Throws a final `invalid_media`
+ * failure when the media do not fit the format.
+ */
+async function mediaOf(
+  executor: Executor,
+  version: {
+    format: PostFormat;
+    media: readonly PostMediaEntry[];
+    renderAssetId: string | null;
+    posterAssetId: string | null;
+  },
+): Promise<PublishMedia> {
+  const issues = formatMediaIssues(version);
+  if (issues.length > 0) {
+    throw gateFailure(publishError("invalid_media", issues.join(" ")));
+  }
+  const rule = FORMAT_MEDIA_RULES[version.format];
+  if (rule.render) {
+    const videoId = version.renderAssetId ?? version.media[0]?.assetId ?? null;
+    if (videoId === null) {
+      throw gateFailure(publishError("invalid_media", "The approved version has no render."));
+    }
+    const what = version.renderAssetId === null ? "video" : "render";
+    return {
+      format: version.format,
+      video: fileOf(await readyAsset(executor, videoId, what)),
+      items: [],
+      posterAssetId: version.posterAssetId,
+    };
+  }
+  const items: PublishMediaFile[] = [];
+  for (const [index, entry] of version.media.entries()) {
+    const row = await readyAsset(executor, entry.assetId, `file ${index + 1}`);
+    items.push({
+      ...fileOf(row),
+      type: entry.type,
+      ...(entry.altText === undefined ? {} : { altText: entry.altText }),
+    });
+  }
+  return { format: version.format, video: null, items, posterAssetId: version.posterAssetId };
 }
 
 /** The final failure the publisher records when an attempt cannot even start. */
@@ -203,6 +264,8 @@ async function loadInputs(
     .select({
       caption: contentVersions.caption,
       script: contentVersions.script,
+      format: contentVersions.format,
+      media: contentVersions.media,
       renderAssetId: contentVersions.renderAssetId,
       posterAssetId: contentVersions.posterAssetId,
       rules: formatVersions.rules,
@@ -210,13 +273,18 @@ async function loadInputs(
     .from(contentVersions)
     .leftJoin(formatVersions, eq(formatVersions.id, contentVersions.formatVersionId))
     .where(and(eq(contentVersions.id, post.versionId), eq(contentVersions.itemId, post.itemId)));
-  if (version === undefined || version.renderAssetId === null) {
+  if (version === undefined) {
     throw gateFailure(publishError("invalid_media", "The approved version has no render."));
   }
-  const [render] = await executor.select().from(assets).where(eq(assets.id, version.renderAssetId));
-  if (render === undefined || render.status !== "ready") {
-    throw gateFailure(publishError("invalid_media", "The render is not stored."));
+  if (!platformSupportsFormat(channel.platform, version.format)) {
+    throw gateFailure(
+      publishError(
+        "invalid_media",
+        `${PLATFORM_LABELS[channel.platform]} does not publish ${POST_FORMAT_LABELS[version.format].toLowerCase()}s.`,
+      ),
+    );
   }
+  const media = await mediaOf(executor, version);
   const rules: FormatRules = version.rules ?? DEFAULT_FORMAT_RULES;
   const script = version.script;
   return {
@@ -236,7 +304,7 @@ async function loadInputs(
       rateLimit: channel.rateLimit,
       connected: channel.connected,
     },
-    media: mediaOf(render, version.posterAssetId),
+    media,
     captionParts: {
       text: version.caption ?? script?.caption ?? "",
       cta: rules.caption.cta ?? null,
@@ -660,6 +728,7 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
       attemptStartedAt: attempt.startedAt,
       externalId: post.externalId,
       externalContainerId: post.externalContainerId,
+      options: post.options,
     };
     return createPublishContext(
       { db, vault: deps.vault, storage: deps.storage, assets: deps.assets },

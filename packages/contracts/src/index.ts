@@ -23,6 +23,7 @@ export * from "./pipeline/format-rules";
 export * from "./pipeline/skills";
 export * from "./pipeline/style";
 export * from "./pipeline/transitions";
+export * from "./publishing/formats";
 export * from "./publishing/policy";
 export * from "./publishing/request";
 export * from "./scheduler/tasks";

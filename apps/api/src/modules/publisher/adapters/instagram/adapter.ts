@@ -2,6 +2,7 @@ import type { JsonObject } from "@loomcast/contracts";
 import { z } from "zod";
 import type { GraphClient } from "../../../../lib/meta-graph";
 import { PublishFailure, publishError } from "../../errors";
+import { videoFacts } from "../../media";
 import { buildInstagramFinish, buildInstagramPublish, instagramRequests } from "../../requests";
 import type {
   AdapterIssue,
@@ -302,7 +303,7 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
       const request = await context.publishRequest();
       const plan = buildInstagramPublish({
         request,
-        media: { bytes: context.media.bytes, mime: context.media.mime },
+        media: videoFacts(context.media),
         accessToken: call.accessToken,
       });
       context.record({ request: plan as unknown as JsonObject });

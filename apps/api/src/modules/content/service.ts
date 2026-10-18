@@ -286,6 +286,7 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
           itemId,
           versionNo: 1,
           stage: "idea",
+          format: input.format ?? "reel",
           formatVersionId: await currentFormatVersionId(tx, input.seriesId ?? null),
           createdVia: "system",
           createdByUser: actor.userId,

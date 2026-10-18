@@ -2,12 +2,17 @@ import type { JsonObject } from "@loomcast/contracts";
 import { z } from "zod";
 import { createMetaGraphClient, type GraphClient, parseGraph } from "../../../../lib/meta-graph";
 import { PublishFailure } from "../../errors";
+import { videoFacts } from "../../media";
 import {
   buildFacebookPublish,
   facebookRequests,
   validateFacebookRequest,
 } from "../../requests/facebook";
-import type { PlatformRequest } from "../../requests/types";
+import {
+  isVideoRequest,
+  type PlatformRequest,
+  unsupportedFormatMessage,
+} from "../../requests/types";
 import type { AdapterIssue, PublishContext, PublisherAdapter, PublishResult } from "../../types";
 import {
   clientOptions,
@@ -101,7 +106,7 @@ export function createFacebookAdapter(options: MetaAdapterOptions): PublisherAda
     async validate(context): Promise<AdapterIssue[]> {
       const request = await context.publishRequest();
       return [
-        ...validateFacebookRequest(request, context.media),
+        ...validateFacebookRequest(request, videoFacts(context.media)),
         ...context.caption().issues.map((issue) => ({ field: "caption", message: issue.message })),
       ];
     },
@@ -110,9 +115,14 @@ export function createFacebookAdapter(options: MetaAdapterOptions): PublisherAda
       requireApp();
       const { accessToken } = await credentialsOf(context, options);
       const request = await context.publishRequest();
+      if (!isVideoRequest(request)) {
+        throw PublishFailure.of("invalid_media", unsupportedFormatMessage("facebook", request), {
+          retryable: false,
+        });
+      }
       const plan = buildFacebookPublish({
         request,
-        media: { bytes: context.media.bytes, mime: context.media.mime },
+        media: videoFacts(context.media),
         accessToken,
       });
       context.record({ request: plan as unknown as JsonObject });

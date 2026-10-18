@@ -170,6 +170,7 @@ describe("dry-run publishing", () => {
       const expected = buildPublishPlan({
         request: {
           platform,
+          format: "reel",
           externalId: UNCONNECTED_ACCOUNT_ID,
           videoUrl: dryRunMediaUrl(postId, await sha256Of(item.renderAssetId), "mp4"),
           posterUrl: dryRunMediaUrl(postId, await sha256Of(item.posterAssetId), "jpg"),

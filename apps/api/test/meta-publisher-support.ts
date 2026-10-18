@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { JsonObject, Platform, PublishRequest } from "@loomcast/contracts";
+import type { JsonObject, Platform, VideoPublishRequest } from "@loomcast/contracts";
 import { createLogger } from "../src/lib/logger";
 import {
   buildCaption,
@@ -106,7 +106,7 @@ export function graphErrorBody(code: number, message: string, subcode?: number):
 export interface FakeContext extends PublishContext {
   readonly recorded: { request?: JsonObject; response?: JsonObject };
   readonly token: string;
-  readonly request: PublishRequest;
+  readonly request: VideoPublishRequest;
 }
 
 export interface ContextOptions {
@@ -133,8 +133,9 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
     text: options.caption ?? "Ownership in sixty seconds",
     hashtags: ["rust"],
   });
-  const request: PublishRequest = {
+  const request: VideoPublishRequest = {
     platform,
+    format: "reel",
     externalId: accountId,
     videoUrl: options.dryRun
       ? `https://dry-run.invalid/p/${postId}/render.mp4`
@@ -161,6 +162,7 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
       attemptStartedAt: new Date("2026-10-13T10:00:00Z"),
       externalId: options.externalId ?? null,
       externalContainerId: options.externalContainerId ?? null,
+      options: {},
     },
     channel: {
       id: randomUUID(),
@@ -173,14 +175,18 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
       meta: {},
     },
     media: {
-      renderAssetId: randomUUID(),
-      sha256: "0".repeat(64),
-      durationMs: request.durationMs,
-      width: request.width,
-      height: request.height,
+      format: "reel",
+      video: {
+        assetId: randomUUID(),
+        sha256: "0".repeat(64),
+        durationMs: request.durationMs,
+        width: request.width,
+        height: request.height,
+        bytes: options.bytes ?? 9 * 1_048_576,
+        mime: "video/mp4",
+      },
+      items: [],
       posterAssetId: null,
-      bytes: options.bytes ?? 9 * 1_048_576,
-      mime: "video/mp4",
     },
     async secrets() {
       if (options.unreadableSecrets === true) {
@@ -192,6 +198,9 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
     },
     async getPublicVideoUrl() {
       return request.videoUrl;
+    },
+    async getPublicItemUrls() {
+      return [];
     },
     async getPublicPosterUrl() {
       return null;

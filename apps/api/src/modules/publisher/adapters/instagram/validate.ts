@@ -1,6 +1,7 @@
-import type { PublishRequest } from "@loomcast/contracts";
+import type { VideoPublishRequest } from "@loomcast/contracts";
 import { captionLength, countHashtags, PLATFORM_CAPTION_LIMITS } from "../../caption";
 import { DEFAULT_RENDER_HEIGHT, DEFAULT_RENDER_WIDTH } from "../../context";
+import { videoFacts } from "../../media";
 import { UNCONNECTED_ACCOUNT_ID, validateInstagramRequest } from "../../requests";
 import type { AdapterIssue, PublishContext } from "../../types";
 
@@ -46,13 +47,14 @@ const VALIDATE_ORIGIN = "https://validate.invalid";
  * The request `validate` checks: the post as it would be sent, with a stand-in URL so nothing is
  * copied to public storage before the checks pass. Null when the render has no duration.
  */
-function requestFor(context: PublishContext): PublishRequest | null {
-  const { media } = context;
-  if (media.durationMs === null || media.durationMs < 1) {
+function requestFor(context: PublishContext): VideoPublishRequest | null {
+  const media = context.media.video;
+  if (media === null || media.durationMs === null || media.durationMs < 1) {
     return null;
   }
   return {
     platform: "instagram",
+    format: "reel",
     externalId: context.channel.externalId ?? UNCONNECTED_ACCOUNT_ID,
     videoUrl: `${VALIDATE_ORIGIN}/${media.sha256}.mp4`,
     caption: context.caption().text,
@@ -63,7 +65,7 @@ function requestFor(context: PublishContext): PublishRequest | null {
 }
 
 function codecIssues(context: PublishContext): AdapterIssue[] {
-  const probe = context.media.probe;
+  const probe = context.media.video?.probe;
   if (probe === null || probe === undefined) {
     return [];
   }
@@ -139,7 +141,7 @@ export function validateInstagramReel(context: PublishContext): AdapterIssue[] {
   const issues: AdapterIssue[] =
     request === null
       ? [{ field: "duration", message: "The render has no duration." }]
-      : validateInstagramRequest(request, context.media);
+      : validateInstagramRequest(request, videoFacts(context.media));
   issues.push(...codecIssues(context), ...captionIssues(context));
   // The shared validator and the fitted caption may report the same mention limit.
   const seen = new Set<string>();

@@ -8,10 +8,9 @@ import { channels, postMetrics } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   insertActiveChannel,
-  insertContentItem,
+  insertLegacyContentItem,
   insertOAuthConnection,
   insertOAuthState,
-  insertPost,
   insertProject,
   insertUser,
   oauthState,
@@ -50,7 +49,7 @@ describe("publishing migrations on a database of the previous release", () => {
     // channel columns that do not exist yet.
     const user = await insertUser(db, { role: "owner" });
     const project = await insertProject(db, user.id);
-    const { item, version } = await insertContentItem(db, {
+    const { item, version } = await insertLegacyContentItem(db, {
       projectId: project.id,
       createdBy: user.id,
     });
@@ -63,13 +62,13 @@ describe("publishing migrations on a database of the previous release", () => {
       returning id`);
     const pageId = page.rows[0]?.id;
     if (pageId === undefined) throw new Error("channel was not inserted");
-    const post = await insertPost(db, {
-      itemId: item.id,
-      channelId: pageId,
-      versionId: version.id,
-      status: "published",
-      publishedAt: new Date(Date.UTC(2026, 9, 1, 9)),
-    });
+    const inserted = await db.execute<{ id: string }>(sql`
+      insert into scheduled_posts (item_id, channel_id, version_id, scheduled_at, status,
+                                   published_at)
+      values (${item.id}, ${pageId}, ${version.id}, now(), 'published',
+              ${new Date(Date.UTC(2026, 9, 1, 9)).toISOString()})
+      returning id`);
+    const post = { id: inserted.rows[0]?.id ?? "" };
     const before = await db.execute<{ table_name: string }>(
       sql`select table_name from information_schema.tables
           where table_schema = 'public' and table_name in (${newTables})`,

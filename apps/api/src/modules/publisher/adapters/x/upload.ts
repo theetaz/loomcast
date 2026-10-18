@@ -5,7 +5,7 @@ import type { AssetsService } from "../../../assets/service";
 import { PublishFailure } from "../../errors";
 import type { MediaFacts, PlatformRequest } from "../../requests/types";
 import { X_SEGMENT_BYTES, xRequests, xSegments } from "../../requests/x";
-import type { PublishMedia } from "../../types";
+import type { PublishFile } from "../../types";
 import type { XClient, XRateLimit, XRequest } from "./client";
 
 // The X v2 chunked media upload, as documented at docs.x.com (media upload, chunked; checked
@@ -21,7 +21,7 @@ import type { XClient, XRateLimit, XRequest } from "./client";
 
 /** Opens the render's bytes. */
 export type XMediaSource = (
-  media: PublishMedia,
+  media: PublishFile,
   signal: AbortSignal,
 ) => Promise<AsyncIterable<Uint8Array>>;
 
@@ -31,7 +31,7 @@ export function storageMediaSource(services: {
   assets: Pick<AssetsService, "getRow">;
 }): XMediaSource {
   return async (media) => {
-    const row = await services.assets.getRow(media.renderAssetId);
+    const row = await services.assets.getRow(media.assetId);
     if (row === null || row.status !== "ready") {
       throw PublishFailure.of("invalid_media", "The file to publish is missing.", {
         retryable: false,

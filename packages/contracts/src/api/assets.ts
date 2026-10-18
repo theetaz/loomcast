@@ -4,7 +4,7 @@ import { type AssetKind, AssetKindSchema, AssetStatusSchema } from "../enums";
 import { VoiceAlignmentSchema } from "../pipeline/artifacts";
 import { isPlainText } from "./kb";
 
-// Stored files: voice takes, renders, posters, frames and reference media. Bytes never pass
+// Stored files: voice takes, renders, posters, frames, reference media and post media. Bytes never pass
 // through the API: a client asks for an upload, PUTs the file to the presigned URL, then
 // finalizes the asset, which verifies its size and SHA-256.
 
@@ -27,6 +27,7 @@ export const ASSET_KIND_MIME_TYPES = {
     "audio/x-m4a",
   ],
   other: ["text/plain", "image/jpeg", "image/png", "image/webp"],
+  media: ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"],
 } as const satisfies Record<AssetKind, readonly string[]>;
 
 /** Every MIME type an asset may have. */
@@ -54,6 +55,7 @@ export const ASSET_KIND_MAX_BYTES = {
   frame: 20 * MiB,
   reference_media: GiB,
   other: 20 * MiB,
+  media: GiB,
 } as const satisfies Record<AssetKind, number>;
 
 export const ASSET_FILENAME_MAX_LENGTH = 255;

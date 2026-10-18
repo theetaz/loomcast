@@ -1,10 +1,11 @@
-import type { JsonObject, PublishError, PublishRequest } from "@loomcast/contracts";
+import type { JsonObject, PublishError, VideoPublishRequest } from "@loomcast/contracts";
 import { z } from "zod";
 import { HttpError } from "../../../../lib/errors";
 import type { FetchLike } from "../../../../lib/meta-graph";
 import { VaultError } from "../../../../lib/vault";
 import { xWeightedLength } from "../../caption";
 import { PublishFailure, publishError } from "../../errors";
+import { videoFacts, videoOf } from "../../media";
 import { REDACTED, redactRequest } from "../../redact";
 import { buildXPublish, validateXRequest, xRequests } from "../../requests/x";
 import type {
@@ -92,15 +93,17 @@ function rateSnapshot(step: string, rate: XRateLimit, at: Date): JsonObject {
  * The request facts X needs. X uploads bytes instead of fetching a URL, so the render is not
  * copied to the public bucket: `videoUrl` names the stored asset and is never sent.
  */
-function xPublishRequest(context: PublishContext): PublishRequest {
-  const { media, channel } = context;
+function xPublishRequest(context: PublishContext): VideoPublishRequest {
+  const { channel } = context;
+  const media = videoOf(context.media);
   if (media.durationMs === null || media.durationMs < 1) {
     throw PublishFailure.of("invalid_media", "The render has no duration.", { retryable: false });
   }
   return {
     platform: "x",
+    format: "reel",
     externalId: channel.externalId ?? "",
-    videoUrl: `https://storage.invalid/assets/${media.renderAssetId}`,
+    videoUrl: `https://storage.invalid/assets/${media.assetId}`,
     caption: context.caption().text,
     durationMs: media.durationMs,
     width: media.width ?? 1_080,
@@ -274,7 +277,7 @@ export function createXAdapter(options: XAdapterOptions): PublisherAdapter {
       requireEnabled();
       const request = xPublishRequest(context);
       const issues: AdapterIssue[] = [
-        ...validateXRequest(request, context.media),
+        ...validateXRequest(request, videoFacts(context.media)),
         ...context.caption().issues.map((issue) => ({ field: "caption", message: issue.message })),
       ];
       if (xWeightedLength(request.caption) > X_POST_MAX_WEIGHTED_LENGTH) {
@@ -289,7 +292,8 @@ export function createXAdapter(options: XAdapterOptions): PublisherAdapter {
     async publish(context): Promise<PublishResult> {
       const { media } = requireLive(context);
       const request = xPublishRequest(context);
-      const facts = { bytes: context.media.bytes, mime: context.media.mime };
+      const video = videoOf(context.media);
+      const facts = { bytes: video.bytes, mime: video.mime };
       // The same record a dry run makes, before anything is sent.
       context.record({
         request: redactRequest(
@@ -302,7 +306,7 @@ export function createXAdapter(options: XAdapterOptions): PublisherAdapter {
           client: clientOf(),
           accessToken: token,
           media: facts,
-          open: () => media(context.media, context.signal),
+          open: () => media(video, context.signal),
           signal: context.signal,
         }),
       );

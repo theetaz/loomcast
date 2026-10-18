@@ -1,4 +1,4 @@
-import type { PublishRequest } from "@loomcast/contracts";
+import type { PublishRequest, VideoPublishRequest } from "@loomcast/contracts";
 import { limitCaption } from "../caption";
 import {
   type BuildOptions,
@@ -12,6 +12,8 @@ import {
   type PublishPlan,
   type RequestIssue,
   segment,
+  videoOnlyIssues,
+  videoPlanInput,
 } from "./types";
 
 // X: the v2 chunked media upload (initialize, append in 4 MB segments, finalize), polled until
@@ -96,7 +98,11 @@ export const xRequests = {
   },
 
   /** `POST /2/tweets {text, media: {media_ids}}`. */
-  createPost(request: PublishRequest, mediaId: string, options: BuildOptions): PlatformRequest {
+  createPost(
+    request: VideoPublishRequest,
+    mediaId: string,
+    options: BuildOptions,
+  ): PlatformRequest {
     return {
       step: "create_post",
       method: "POST",
@@ -119,7 +125,8 @@ export function xSegments(bytes: number): { start: number; end: number }[] {
 }
 
 /** What `publish` sends: initialize, every append, finalize. Then it waits for processing. */
-export function buildXPublish(input: PlanInput): PublishPlan {
+export function buildXPublish(plan: PlanInput): PublishPlan {
+  const input = videoPlanInput(plan);
   const appends = xSegments(input.media.bytes).map((range, index) =>
     xRequests.append(PLACEHOLDERS.mediaId, index, range, input),
   );
@@ -136,13 +143,18 @@ export function buildXPublish(input: PlanInput): PublishPlan {
 
 /** The requests `status` sends once processing succeeded. */
 export function buildXFinish(
-  request: PublishRequest,
+  request: VideoPublishRequest,
   mediaId: string,
   options: BuildOptions,
 ): PlatformRequest[] {
   return [xRequests.status(mediaId, options), xRequests.createPost(request, mediaId, options)];
 }
 
-export function validateXRequest(request: PublishRequest, media: MediaFacts): RequestIssue[] {
-  return checkMedia(request, media, X_VIDEO_LIMITS);
+export function validateXRequest(
+  request: PublishRequest,
+  media: MediaFacts | null,
+): RequestIssue[] {
+  return videoOnlyIssues(request, media, (video, facts) =>
+    checkMedia(video, facts, X_VIDEO_LIMITS),
+  );
 }

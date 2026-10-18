@@ -6,7 +6,7 @@ import { assets } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   assetValues,
-  insertContentItem,
+  insertLegacyContentItem,
   insertProject,
   insertUser,
   PG,
@@ -46,8 +46,8 @@ describe("asset dedupe migration on a database of the previous release", () => {
     // Assets as the previous release stores them; the table's columns are unchanged since.
     const user = await insertUser(db);
     const project = await insertProject(db, user.id);
-    const { item: first } = await insertContentItem(db, { projectId: project.id });
-    const { item: second } = await insertContentItem(db, { projectId: project.id });
+    const { item: first } = await insertLegacyContentItem(db, { projectId: project.id });
+    const { item: second } = await insertLegacyContentItem(db, { projectId: project.id });
     const sha256 = randomHash();
     const voice = { projectId: project.id, kind: "voice", sha256, status: "ready" } as const;
     const reference = {

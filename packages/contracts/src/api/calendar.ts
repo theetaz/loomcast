@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema, TimestampSchema } from "../common";
 import { PlatformSchema, PostStatusSchema, PublishModeSchema } from "../enums";
+import { PostOptionsSchema } from "../publishing/formats";
 import { PermalinkSchema, PublishErrorSchema } from "../publishing/request";
 import { csvIdsQuerySchema } from "./common";
 import { ContentItemSchema } from "./content";
@@ -39,6 +40,7 @@ export function checkCalendarRange(
 export const PostItemSchema = ContentItemSchema.pick({
   title: true,
   state: true,
+  format: true,
   posterAssetId: true,
 });
 export type PostItem = z.infer<typeof PostItemSchema>;
@@ -66,6 +68,8 @@ export const ScheduledPostSchema = z.object({
   attempts: z.number().int().min(0),
   lastError: PublishErrorSchema.nullable(),
   publishedAt: TimestampSchema.nullable(),
+  /** Per-platform options of this post (collaborators, a link, a video title). */
+  options: PostOptionsSchema,
   item: PostItemSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -75,12 +79,14 @@ export type ScheduledPost = z.infer<typeof ScheduledPostSchema>;
 /**
  * Schedules an approved item on a channel: creates a `queued` post and its publish task. The time
  * must be at least `MIN_SCHEDULE_LEAD_MS` ahead; an open post of the same item on the same channel
- * is a `409 conflict`.
+ * is a `409 conflict`. The channel's platform must publish the item's format
+ * (`PLATFORM_FORMATS`), otherwise `422 format_not_supported`.
  */
 export const CreatePostRequestSchema = z.object({
   itemId: IdSchema,
   channelId: IdSchema,
   scheduledAt: TimestampSchema,
+  options: PostOptionsSchema.optional(),
 });
 export type CreatePostRequest = z.infer<typeof CreatePostRequestSchema>;
 

@@ -1,4 +1,4 @@
-import type { PublishRequest } from "@loomcast/contracts";
+import type { PublishRequest, VideoPublishRequest } from "@loomcast/contracts";
 import { countMentions, limitCaption, PLATFORM_CAPTION_LIMITS } from "../caption";
 import {
   type BuildOptions,
@@ -12,6 +12,8 @@ import {
   type PublishPlan,
   type RequestIssue,
   segment,
+  unsupportedFormatMessage,
+  videoPlanInput,
 } from "./types";
 
 // Instagram Reels through the Graph API (Instagram API with Facebook Login): a container from a
@@ -47,7 +49,7 @@ export const instagramRequests = {
   },
 
   /** `POST /{ig-user-id}/media`: a Reels container from the public video URL. */
-  createContainer(request: PublishRequest, options: BuildOptions): PlatformRequest {
+  createContainer(request: VideoPublishRequest, options: BuildOptions): PlatformRequest {
     return {
       step: "create_container",
       method: "POST",
@@ -108,12 +110,13 @@ export const instagramRequests = {
  * platform, so the post is pending; `status` polls it, publishes it and reads the permalink.
  */
 export function buildInstagramPublish(input: PlanInput): PublishPlan {
+  const video = videoPlanInput(input);
   return {
     platform: "instagram",
     pending: true,
     steps: [
-      instagramRequests.publishingLimit(input.request.externalId, input),
-      instagramRequests.createContainer(input.request, input),
+      instagramRequests.publishingLimit(video.request.externalId, video),
+      instagramRequests.createContainer(video.request, video),
     ],
   };
 }
@@ -133,8 +136,14 @@ export function buildInstagramFinish(
 
 export function validateInstagramRequest(
   request: PublishRequest,
-  media: MediaFacts,
+  media: MediaFacts | null,
 ): RequestIssue[] {
+  if (request.format !== "reel") {
+    return [{ field: "format", message: unsupportedFormatMessage("instagram", request) }];
+  }
+  if (media === null) {
+    return [{ field: "video", message: "The post has no video." }];
+  }
   const issues = checkMedia(request, media, INSTAGRAM_REELS_LIMITS);
   const maxMentions = PLATFORM_CAPTION_LIMITS.instagram.maxMentions ?? Number.POSITIVE_INFINITY;
   if (countMentions(request.caption) > maxMentions) {

@@ -7,6 +7,7 @@ import {
   type SkillKind,
   skillChecksumInput,
 } from "@loomcast/contracts";
+import { sql } from "drizzle-orm";
 import type { Database } from "../src/client";
 import {
   type AssetMeta,
@@ -202,6 +203,33 @@ export async function insertItemWith(db: Writer, values: ContentItemFixture) {
 /** Inserts a content item and its version 1 in one transaction. */
 export function insertContentItem(db: Database, values: ContentItemFixture) {
   return db.transaction((tx) => insertItemWith(tx, values));
+}
+
+/**
+ * `insertContentItem` for a database of an earlier release, before `content_versions` had the
+ * post format columns: the version goes in with plain SQL naming only the columns it had.
+ */
+export function insertLegacyContentItem(db: Database, values: ContentItemFixture) {
+  return db.transaction(async (tx) => {
+    const itemId = randomUUID();
+    const versionId = randomUUID();
+    const [item] = await tx
+      .insert(contentItems)
+      .values({
+        title: "Test Item",
+        createdVia: "ui",
+        ...values,
+        id: itemId,
+        currentVersionId: versionId,
+      })
+      .returning();
+    await tx.execute(
+      sql`insert into content_versions (id, item_id, version_no, stage, created_via)
+          values (${versionId}, ${itemId}, 1, 'idea', 'system')`,
+    );
+    if (item === undefined) throw new Error("item was not inserted");
+    return { item, version: { id: versionId } };
+  });
 }
 
 type AssetFixture = Pick<NewAssetRow, "projectId"> & Partial<NewAssetRow>;

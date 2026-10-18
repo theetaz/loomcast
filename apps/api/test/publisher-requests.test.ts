@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PLATFORMS, type Platform, type PublishRequest } from "@loomcast/contracts";
+import { PLATFORMS, type Platform, type VideoPublishRequest } from "@loomcast/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildCaption,
@@ -26,9 +26,13 @@ import { testPassword } from "./support";
 const token = testPassword("access");
 const media = { bytes: 9 * 1_048_576, mime: "video/mp4" };
 
-function request(platform: Platform, overrides: Partial<PublishRequest> = {}): PublishRequest {
+function request(
+  platform: Platform,
+  overrides: Partial<VideoPublishRequest> = {},
+): VideoPublishRequest {
   return {
     platform,
+    format: "reel",
     externalId: "1784140000000",
     videoUrl: `https://media.example.test/p/${randomUUID()}/render.mp4`,
     caption: "Ownership in sixty seconds",

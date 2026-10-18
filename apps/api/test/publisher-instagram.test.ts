@@ -13,7 +13,7 @@ import {
   createDryRunAdapter,
   type PublishContext,
   PublishFailure,
-  type PublishMedia,
+  type PublishFile,
   type PublishPost,
   redactRequest,
 } from "../src/modules/publisher";
@@ -81,7 +81,7 @@ interface FakeContext {
 
 interface ContextSpec {
   dryRun?: boolean;
-  media?: Partial<PublishMedia>;
+  media?: Partial<PublishFile>;
   post?: Partial<PublishPost>;
   caption?: CaptionParts;
   igUserId?: string | null;
@@ -95,15 +95,14 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
   const sha256 = randomBytes(32).toString("hex");
   const postId = randomUUID();
   const videoUrl = spec.videoUrl ?? `https://media.example.test/p/${randomUUID()}/${sha256}.mp4`;
-  const media: PublishMedia = {
-    renderAssetId: randomUUID(),
+  const media: PublishFile = {
+    assetId: randomUUID(),
     sha256,
     mime: "video/mp4",
     bytes: 24 * 1_048_576,
     durationMs: 45_000,
     width: 1_080,
     height: 1_920,
-    posterAssetId: null,
     probe: { videoCodec: "h264", audioCodec: "aac", fps: 30, sampleRate: 48_000, channels: 2 },
     ...spec.media,
   };
@@ -116,6 +115,7 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
     attemptStartedAt: new Date(),
     externalId: null,
     externalContainerId: null,
+    options: {},
     ...spec.post,
   };
   const caption = buildCaption(
@@ -139,7 +139,7 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
       scopes: [],
       meta: {},
     },
-    media,
+    media: { format: "reel", video: media, items: [], posterAssetId: null },
     async secrets() {
       calls.secrets += 1;
       return { accessToken: token };
@@ -148,6 +148,9 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
       calls.promote += 1;
       return videoUrl;
     },
+    async getPublicItemUrls() {
+      return [];
+    },
     async getPublicPosterUrl() {
       return null;
     },
@@ -155,6 +158,7 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
     async publishRequest(): Promise<PublishRequest> {
       return {
         platform: "instagram",
+        format: "reel",
         externalId: igUserId ?? "{account-id}",
         videoUrl: await this.getPublicVideoUrl(),
         caption: caption.text,
@@ -238,7 +242,7 @@ describe("instagram validate", () => {
     ["video", { probe: { videoCodec: "h264", fps: 120 } }],
     ["video", { probe: { videoCodec: "h264", bitRate: 40_000_000 } }],
   ] as const)("refuses media with a bad %s (%j)", async (field, media) => {
-    const fake = fakeContext({ media: media as Partial<PublishMedia> });
+    const fake = fakeContext({ media: media as Partial<PublishFile> });
     const issues = await adapter().validate(fake.context);
     expect(issues.map((issue) => issue.field)).toContain(field);
   });

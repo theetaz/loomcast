@@ -2,6 +2,7 @@ import type {
   ContentItem,
   ContentVersion,
   ContentVersionSummary,
+  PostFormat,
   VersionArtifacts,
 } from "@loomcast/contracts";
 import {
@@ -16,6 +17,7 @@ import { getTableColumns, sql } from "drizzle-orm";
 /** An item row with the fields derived from its current version and that version's render. */
 export interface ItemRow extends ContentItemRow {
   versionNo: number;
+  format: PostFormat;
   posterAssetId: string | null;
   durationMs: number | null;
 }
@@ -27,6 +29,7 @@ export interface ItemRow extends ContentItemRow {
 export const itemColumns = {
   ...getTableColumns(contentItems),
   versionNo: contentVersions.versionNo,
+  format: contentVersions.format,
   posterAssetId: contentVersions.posterAssetId,
   durationMs: assets.durationMs,
 };
@@ -41,6 +44,8 @@ export const versionSummaryColumns = {
   formatVersionId: contentVersions.formatVersionId,
   hasScript: sql<boolean>`${contentVersions.script} is not null`,
   hasStoryboard: sql<boolean>`${contentVersions.storyboard} is not null`,
+  format: contentVersions.format,
+  media: contentVersions.media,
   voiceAssetId: contentVersions.voiceAssetId,
   renderAssetId: contentVersions.renderAssetId,
   posterAssetId: contentVersions.posterAssetId,
@@ -67,6 +72,7 @@ export function toContentItem(row: ItemRow): ContentItem {
     state: row.state,
     currentVersionId: row.currentVersionId,
     versionNo: row.versionNo,
+    format: row.format,
     durationMs: row.durationMs,
     posterAssetId: row.posterAssetId,
     targetAt: row.targetAt?.toISOString() ?? null,
@@ -90,6 +96,8 @@ export function toContentVersionSummary(row: VersionSummaryRow): ContentVersionS
     formatVersionId: row.formatVersionId,
     hasScript: row.hasScript,
     hasStoryboard: row.hasStoryboard,
+    format: row.format,
+    media: row.media,
     voiceAssetId: row.voiceAssetId,
     renderAssetId: row.renderAssetId,
     posterAssetId: row.posterAssetId,
@@ -121,5 +129,7 @@ export function versionArtifacts(row: ContentVersionRow): VersionArtifacts {
     storyboard: row.storyboard,
     voiceAssetId: row.voiceAssetId,
     renderAssetId: row.renderAssetId,
+    format: row.format,
+    media: row.media,
   };
 }

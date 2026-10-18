@@ -3,7 +3,10 @@ import {
   type AssetKind,
   type ContentItem,
   type ContentVersion,
+  mediaTypeOfMime,
   type PipelineState,
+  type PostFormat,
+  type PostMediaEntry,
   type Script,
   type Storyboard,
   stageForArtifacts,
@@ -35,8 +38,11 @@ import { applyTransition } from "./transitions";
  *   too (a storyboard is cut against the script's segments), so the item goes back to `script`;
  * - a changed storyboard clears the render and poster;
  * - a changed voice take (a ready `voice` asset of the same item) clears the render and poster.
+ * `format` and `media` compose a post from the item's uploaded `media` assets; they clear nothing.
  */
 export interface VersionChanges {
+  format?: PostFormat;
+  media?: PostMediaEntry[];
   script?: Script;
   storyboard?: Storyboard;
   voiceAssetId?: string;
@@ -84,6 +90,8 @@ export interface VersionDeps {
 }
 
 interface Artifacts {
+  format: PostFormat;
+  media: PostMediaEntry[];
   script: Script | null;
   storyboard: Storyboard | null;
   voiceAssetId: string | null;
@@ -96,6 +104,8 @@ interface Artifacts {
 /** The artifacts of a new version on top of `base`, with the invalidation rules applied. */
 export function applyChanges(base: ContentVersionRow, changes: VersionChanges): Artifacts {
   const next: Artifacts = {
+    format: changes.format ?? base.format,
+    media: changes.media ?? base.media,
     script: base.script,
     storyboard: base.storyboard,
     voiceAssetId: base.voiceAssetId,
@@ -134,6 +144,8 @@ export function applyChanges(base: ContentVersionRow, changes: VersionChanges): 
 
 function artifactsChanged(base: ContentVersionRow, next: Artifacts): boolean {
   return (
+    base.format !== next.format ||
+    !jsonEqual(base.media, next.media) ||
     !jsonEqual(base.script, next.script) ||
     !jsonEqual(base.storyboard, next.storyboard) ||
     base.voiceAssetId !== next.voiceAssetId ||
@@ -161,6 +173,46 @@ const ASSET_FIELDS = [
   ["renderAssetId", "render"],
   ["posterAssetId", "poster"],
 ] as const satisfies readonly (readonly [keyof Artifacts, AssetKind])[];
+
+/**
+ * New media entries must be ready `media` (or `render`) assets of the item, of the type the entry
+ * claims, each at most once.
+ */
+async function requireItemMedia(
+  tx: Transaction,
+  deps: VersionDeps,
+  itemId: string,
+  base: ContentVersionRow,
+  next: Artifacts,
+): Promise<void> {
+  const known = new Map(base.media.map((entry) => [entry.assetId, entry.type]));
+  const seen = new Set<string>();
+  for (const [index, entry] of next.media.entries()) {
+    const path = `media.${index}.assetId`;
+    if (seen.has(entry.assetId)) {
+      throw validationFailed([{ path, message: "The same file appears twice" }]);
+    }
+    seen.add(entry.assetId);
+    if (known.get(entry.assetId) === entry.type) {
+      continue;
+    }
+    const asset = await deps.assets.getRow(entry.assetId, tx);
+    if (asset === null || asset.itemId !== itemId || !MEDIA_ASSET_KINDS.includes(asset.kind)) {
+      throw validationFailed([{ path, message: "No media asset with that id on this item" }]);
+    }
+    if (asset.status !== "ready") {
+      throw validationFailed([{ path, message: "The media asset is not ready" }]);
+    }
+    if (mediaTypeOfMime(asset.mime) !== entry.type) {
+      throw validationFailed([
+        { path: `media.${index}.type`, message: `The file is not a ${entry.type}` },
+      ]);
+    }
+  }
+}
+
+/** Asset kinds a post's media may use: uploaded media, or a studio render. */
+const MEDIA_ASSET_KINDS: readonly AssetKind[] = ["media", "render"];
 
 /** New asset references must be ready assets of the right kind that belong to the item. */
 async function requireItemAssets(
@@ -228,6 +280,7 @@ export async function createVersion(
 
   const next = applyChanges(base, changes);
   await requireItemAssets(tx, deps, item.id, base, next);
+  await requireItemMedia(tx, deps, item.id, base, next);
   const to = options.state ?? targetState(item.state, base, next);
   const via = options.via ?? moveKind(item.state, to);
   const formatVersionId =

@@ -1,4 +1,4 @@
-import type { ContentItemError, Script, Storyboard } from "@loomcast/contracts";
+import type { ContentItemError, PostMediaEntry, Script, Storyboard } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -19,6 +19,7 @@ import {
   actorKind,
   contentCreatedVia,
   pipelineState,
+  postFormat,
   produceTarget,
   reviewDecision,
   versionCreatedVia,
@@ -103,6 +104,13 @@ export const contentVersions = pgTable(
     parentVersionId: uuid("parent_version_id"),
     /** The format version it was produced with; null for an item without a series. */
     formatVersionId: uuid("format_version_id").references(() => formatVersions.id),
+    /** What kind of post the version publishes as; studio videos are `reel`s. */
+    format: postFormat("format").notNull().default("reel"),
+    /**
+     * The photos and videos of a composed post, in order: ready `media` assets of the item,
+     * checked when the version is written (`createVersion`). Empty for a studio video.
+     */
+    media: jsonb("media").$type<PostMediaEntry[]>().notNull().default([]),
     script: jsonb("script").$type<Script>(),
     storyboard: jsonb("storyboard").$type<Storyboard>(),
     // Typed as `AnyPgColumn` because `assets` reaches back to this table through `item_id`.
