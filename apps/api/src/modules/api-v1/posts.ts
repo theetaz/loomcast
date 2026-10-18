@@ -605,6 +605,9 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
                 mime: entry.mime,
                 bytes: entry.bytes,
                 sha256: entry.sha256,
+                ...(entry.width === undefined ? {} : { width: entry.width }),
+                ...(entry.height === undefined ? {} : { height: entry.height }),
+                ...(entry.durationMs === undefined ? {} : { durationMs: entry.durationMs }),
                 ...(entry.altText === undefined || entry.altText === ""
                   ? {}
                   : { altText: entry.altText }),
@@ -734,7 +737,17 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
               { index, mediaId: asset.id, declared: asset.mime, detected: sniffed },
             );
           }
-          const finalized = await deps.assets.finalize(asset.id, {}, assetActor(caller));
+          // The client measured the file; its duration and size are what the platforms check.
+          const probe = {
+            ...(declared.width === undefined ? {} : { width: declared.width }),
+            ...(declared.height === undefined ? {} : { height: declared.height }),
+            ...(declared.durationMs === undefined ? {} : { durationMs: declared.durationMs }),
+          };
+          const finalized = await deps.assets.finalize(
+            asset.id,
+            Object.keys(probe).length === 0 ? {} : { probe },
+            assetActor(caller),
+          );
           if (finalized === null || finalized.status !== "ready") {
             throw uploadMissing(index, asset.id, "failed_verification");
           }

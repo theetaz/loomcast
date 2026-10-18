@@ -58,7 +58,14 @@ export const API_MEDIA_MIME_TYPES = [
 ] as const;
 export const ApiMediaMimeSchema = z.enum(API_MEDIA_MIME_TYPES);
 
-/** One file of a new post, in order. The bytes are PUT afterwards to the upload URL. */
+/** Largest width or height a file may declare, in pixels. */
+export const API_MEDIA_MAX_DIMENSION = 16_384;
+
+/**
+ * One file of a new post, in order. The bytes are PUT afterwards to the upload URL. A video must
+ * say how long it runs and its size in pixels, which the platforms check before they take it; a
+ * photo may give its size, which Instagram checks (width and aspect ratio) when it is known.
+ */
 export const ApiMediaInputSchema = z
   .object({
     filename: AssetFilenameSchema,
@@ -66,10 +73,31 @@ export const ApiMediaInputSchema = z
     bytes: z.number().int().min(1).max(ASSET_KIND_MAX_BYTES.media),
     /** SHA-256 of the bytes as 64 hex characters; the upload and finalize check it. */
     sha256: Sha256HexSchema,
+    width: z.number().int().min(1).max(API_MEDIA_MAX_DIMENSION).optional(),
+    height: z.number().int().min(1).max(API_MEDIA_MAX_DIMENSION).optional(),
+    /** Videos: how long it runs, in milliseconds. */
+    durationMs: z.number().int().min(1).optional(),
     /** What a photo shows, for screen readers. */
     altText: z.string().trim().max(ALT_TEXT_MAX_LENGTH).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((file, ctx) => {
+    if (!file.mime.startsWith("video/")) {
+      if (file.durationMs !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Only videos have a duration",
+          path: ["durationMs"],
+        });
+      }
+      return;
+    }
+    for (const field of ["durationMs", "width", "height"] as const) {
+      if (file[field] === undefined) {
+        ctx.addIssue({ code: "custom", message: `A video needs its ${field}`, path: [field] });
+      }
+    }
+  });
 export type ApiMediaInput = z.infer<typeof ApiMediaInputSchema>;
 
 /** One channel of a new post, with the post's per-platform options there. */

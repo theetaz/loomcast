@@ -415,6 +415,7 @@ describe("uploads and finalize", () => {
             bytes: file.bytes.length,
             sha256: file.sha256,
             ...(index === 0 ? { altText: "Step one" } : {}),
+            ...(index === 2 ? { width: 1080, height: 1350, durationMs: 12_000 } : {}),
           })),
           channels: [{ channelId: instagramId }],
           scheduledAt: ahead(3),
@@ -626,6 +627,63 @@ describe("publishing", () => {
       await (await machine(h.t, secret, "GET", "/api/v1/posts?status=published")).json(),
     );
     expect(listed.items.map((item) => item.id)).toContain(post.id);
+  });
+
+  it("publishes a Reel from an uploaded video with the size and duration the client gave", async () => {
+    const { secret } = await h.createClient([{ channelId: facebookId, access: "publish" }]);
+    const video = mediaFile("video/mp4");
+    const file = {
+      filename: "reel.mp4",
+      mime: "video/mp4",
+      bytes: video.bytes.length,
+      sha256: video.sha256,
+    };
+    const undeclared = await machine(h.t, secret, "POST", "/api/v1/posts", {
+      body: {
+        format: "reel",
+        media: [file],
+        channels: [{ channelId: facebookId }],
+        scheduledAt: ahead(1),
+      },
+    });
+    expect(undeclared.status).toBe(400);
+    const body = (await undeclared.json()) as { error: { details: { path: string }[] } };
+    expect(body.error.details.map((issue) => issue.path).sort()).toEqual([
+      "media.0.durationMs",
+      "media.0.height",
+      "media.0.width",
+    ]);
+
+    const post = await created(
+      await machine(h.t, secret, "POST", "/api/v1/posts", {
+        body: {
+          format: "reel",
+          caption: "Shipped.",
+          media: [{ ...file, width: 1080, height: 1920, durationMs: 20_000 }],
+          channels: [{ channelId: facebookId }],
+          scheduledAt: ahead(1),
+        },
+      }),
+    );
+    storedKeys.push(
+      assetStorageKey(
+        { projectId: h.projectId, itemId: post.id },
+        "media",
+        video.sha256,
+        "video/mp4",
+      ),
+    );
+    const [upload] = post.uploads;
+    if (upload === undefined) throw new Error("no upload");
+    expect((await putUpload(upload, video.bytes)).status).toBe(200);
+    expect(
+      (await ok(await machine(h.t, secret, "POST", `/api/v1/posts/${post.id}/finalize`))).status,
+    ).toBe("scheduled");
+    h.t.clock.advance(2 * HOUR_MS);
+    await runDue(h.deps.scheduler);
+    const published = await ok(await machine(h.t, secret, "GET", `/api/v1/posts/${post.id}`));
+    expect(published.targets[0]?.lastError ?? null).toBeNull();
+    expect(published.status).toBe("published");
   });
 });
 

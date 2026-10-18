@@ -75,6 +75,16 @@ describe("machine API posts", () => {
     expect(CreateApiPostRequestSchema.safeParse({ ...photo, extra: true }).success).toBe(false);
   });
 
+  it("needs a video's duration and size, and no duration on a photo", () => {
+    const video = { filename: "reel.mp4", mime: "video/mp4", bytes: 2048, sha256 };
+    const reel = { ...photo, format: "reel", media: [video] };
+    expect(CreateApiPostRequestSchema.safeParse(reel).success).toBe(false);
+    const measured = { ...video, width: 1080, height: 1920, durationMs: 20_000 };
+    expect(CreateApiPostRequestSchema.safeParse({ ...reel, media: [measured] }).success).toBe(true);
+    const timedPhoto = { ...photo, media: [{ ...photo.media[0], durationMs: 1_000 }] };
+    expect(CreateApiPostRequestSchema.safeParse(timedPhoto).success).toBe(false);
+  });
+
   it("takes idempotency keys of visible ASCII only", () => {
     expect(IdempotencyKeySchema.safeParse("order-1234:v1").success).toBe(true);
     expect(IdempotencyKeySchema.safeParse("has space").success).toBe(false);

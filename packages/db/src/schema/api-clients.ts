@@ -37,6 +37,10 @@ export interface ApiPostMediaEntry {
   bytes: number;
   /** Lowercase hex; the item's `media` asset with this checksum holds the file. */
   sha256: string;
+  /** What the client declared about the file; stored as the asset's probe on finalize. */
+  width?: number;
+  height?: number;
+  durationMs?: number;
   altText?: string;
 }
 
