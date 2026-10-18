@@ -22,13 +22,18 @@ const MAX_ITEMS = 200;
 /** Most missed posts the inbox lists, as in the API. */
 const MAX_MISSED = 100;
 
-/** A post as the API joins it: with its item's current title, state and poster. */
+/** A post as the API joins it: with its item's current title, state, format and poster. */
 function joined(db: MockDb, post: ScheduledPost): ScheduledPost {
   const item = db.contentItems.find((entry) => entry.id === post.itemId);
   return item
     ? {
         ...post,
-        item: { title: item.title, state: item.state, posterAssetId: item.posterAssetId },
+        item: {
+          title: item.title,
+          state: item.state,
+          format: item.format,
+          posterAssetId: item.posterAssetId,
+        },
       }
     : { ...post };
 }
