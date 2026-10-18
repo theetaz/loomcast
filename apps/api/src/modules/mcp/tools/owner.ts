@@ -22,7 +22,7 @@ export interface OwnerToolsDeps {
  * users approve and schedule, and it stays closed to tokens. The registry's audit row of the call
  * names the token and the records it changed.
  */
-function ownerActor(caller: McpCaller, what: string): PipelineActor {
+export function ownerActor(caller: McpCaller, what: string): PipelineActor {
   if (caller.token.user.role !== "owner") {
     throw new McpToolError("forbidden", `Only the owner can ${what}.`);
   }

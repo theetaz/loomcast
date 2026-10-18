@@ -137,6 +137,7 @@ describe("transition table", () => {
         via: "auto_approve",
         actors: ["system"],
         requiresRender: true,
+        composedOnly: false,
       },
     ]);
     expect(

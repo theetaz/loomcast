@@ -15,6 +15,7 @@ import { createCalendarTools } from "./calendar";
 import { createKbTools } from "./kb";
 import { createOwnerTools } from "./owner";
 import { createPipelineTools } from "./pipeline";
+import { createPostTools } from "./posts";
 import { createProjectTools } from "./projects";
 import type { ToolDefinition } from "./registry";
 import { createSkillTools } from "./skills";
@@ -25,6 +26,7 @@ export { type CalendarToolsDeps, createCalendarTools } from "./calendar";
 export { createKbTools, type KbToolsDeps, kbEntryUrl, projectIdFromCwd } from "./kb";
 export { createOwnerTools, type OwnerToolsDeps } from "./owner";
 export { createPipelineTools, type PipelineToolsDeps, tokenActor } from "./pipeline";
+export { createPostTools, type PostToolsDeps } from "./posts";
 export { createProjectTools, type ProjectToolsDeps, projectUrl } from "./projects";
 export {
   defineTool,
@@ -67,6 +69,13 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
       reviews: reviewsServiceFor(deps),
       calendar: calendarServiceFor(deps),
       listChannels: () => listChannels(db, config),
+    }),
+    ...createPostTools({
+      db,
+      content,
+      reviews: reviewsServiceFor(deps),
+      calendar: calendarServiceFor(deps),
+      assets: deps.assets,
     }),
   ];
 }

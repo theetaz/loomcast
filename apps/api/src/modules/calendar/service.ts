@@ -34,7 +34,7 @@ import { hasQueuedPost } from "../approvals/rules";
 import { produceAt, produceTaskKey } from "../cadence/plan";
 import { auditActor, type ContentService, type PipelineActor, SYSTEM_ACTOR } from "../content";
 import { lockItem } from "../content/queries";
-import { invalidTransition } from "../content/support";
+import { inTransaction, invalidTransition } from "../content/support";
 import type { Scheduler } from "../scheduler";
 import {
   APPROVED_ITEM_STATES,
@@ -63,7 +63,15 @@ export interface CalendarServiceDeps {
 
 export interface CalendarService {
   get(query: CalendarQuery): Promise<CalendarResponse>;
-  create(input: CreatePostRequest, actor: PipelineActor): Promise<ScheduledPost>;
+  /**
+   * Schedules an approved item on a channel. With `options.tx` it runs in the caller's
+   * transaction, so several posts (and the approval before them) commit or fail together.
+   */
+  create(
+    input: CreatePostRequest,
+    actor: PipelineActor,
+    options?: { tx?: Transaction },
+  ): Promise<ScheduledPost>;
   reschedule(
     id: string,
     input: ReschedulePostRequest,
@@ -232,8 +240,8 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
       return { posts, slots };
     },
 
-    async create(input, actor) {
-      return transaction(db, async (tx) => {
+    async create(input, actor, options = {}) {
+      return inTransaction(db, options.tx, async (tx) => {
         const item = await lockItem(tx, input.itemId);
         if (item === null) {
           throw notFound("No content item has that id.");

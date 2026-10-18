@@ -17,6 +17,7 @@ import {
   type ListContentQuery,
   type PipelineState,
   type ProduceTarget,
+  type SubmitContentRequest,
   type UpdateContentItemRequest,
 } from "@loomcast/contracts";
 import {
@@ -47,7 +48,7 @@ import {
   selectItemsWith,
   versionSummaries,
 } from "./queries";
-import { decodeCursor, encodeCursor, inTransaction, projectExists } from "./support";
+import { decodeCursor, encodeCursor, inTransaction, projectExists, staleVersion } from "./support";
 import { type TransitionOptions, transitionItem } from "./transitions";
 import {
   type CreateVersionOptions,
@@ -122,6 +123,18 @@ export interface ContentService {
    * for example while the item is scheduled. 404 for an unknown item.
    */
   edit(id: string, input: EditVersionRequest, actor: PipelineActor): Promise<EditVersionResponse>;
+  /**
+   * Sends the current version to review, as a user or the owner's MCP token does for a composed
+   * post. `versionId` must be current (409 `conflict` otherwise); the version must be ready to
+   * publish and the item in production (409 `invalid_transition` otherwise). Submitting an item
+   * already in review on that version changes nothing. 404 for an unknown item.
+   */
+  submit(
+    id: string,
+    input: SubmitContentRequest,
+    actor: PipelineActor,
+    options?: WriteOptions,
+  ): Promise<ContentItem>;
   /** Writes a version in the caller's transaction; see `createVersion` in `versions.ts`. */
   createVersion(
     tx: Transaction,
@@ -422,6 +435,23 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
         await requireActiveProject(tx, existing.projectId);
         const result = await createVersion(tx, deps, id, changes, actor, { baseVersionId });
         return { item: result.item, version: result.version };
+      });
+    },
+
+    async submit(id, input, actor, options = {}) {
+      if (!IdSchema.safeParse(id).success) {
+        throw itemNotFound();
+      }
+      return inTransaction(db, options.tx, async (tx) => {
+        const item = await lockItem(tx, id);
+        if (item === null) {
+          throw itemNotFound();
+        }
+        await requireActiveProject(tx, item.projectId);
+        if (input.versionId !== item.currentVersionId) {
+          throw staleVersion(item.currentVersionId);
+        }
+        return transitionItem(tx, bus, id, "review", actor, { via: "submit" });
       });
     },
 

@@ -16,6 +16,7 @@ export * from "./mcp/contract";
 export * from "./mcp/kb-tools";
 export * from "./mcp/owner-tools";
 export * from "./mcp/pipeline-tools";
+export * from "./mcp/post-tools";
 export * from "./mcp/project-tools";
 export * from "./mcp/tools";
 export * from "./pipeline/artifacts";

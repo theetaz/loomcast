@@ -38,6 +38,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/pipeline-tools.ts` | `pipelineTools`: format, content, asset and skill tools |
 | `src/mcp/calendar-tools.ts` | `calendarTools`: `calendar.get_slots` |
 | `src/mcp/owner-tools.ts` | `ownerTools`: the owner's `content.review`, `channel.list` and `calendar.*` post tools |
+| `src/mcp/post-tools.ts` | `postTools`: `post.formats` and the owner's `post.create`, `post.compose` and `post.schedule` for composed posts, with `postFormatCatalog` and `POST_OPTION_FIELDS` |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
@@ -153,12 +154,13 @@ All of them use the cookie session. Lists of formats, series, versions, reviews,
 | `series.get`, `series.update` `/api/series/:id` | `{name?, formatId?}` | `Series` |
 | `series.pause`, `series.resume`, `series.archive` `POST /api/series/:id/<action>` | | `Series` |
 | `content.list` `GET /api/content` | `?projectId=&states=a,b&seriesId=&q=&targetFrom=&targetTo=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`; archived items only when `states` asks for them |
-| `content.create` `POST /api/projects/:projectId/content` | `{title, pitch?, topic?, seriesId?, targetAt?}` | `ContentItemDetail` (201) |
+| `content.create` `POST /api/projects/:projectId/content` | `{title, format?, pitch?, topic?, seriesId?, targetAt?}` | `ContentItemDetail` (201) |
 | `content.get` `GET /api/content/:id` | | `ContentItemDetail`: `{item, currentVersion, versions, activeJob}` |
 | `content.update` `PATCH /api/content/:id` | `{title?, pitch?}` | `ContentItem` (no new version) |
 | `content.versions.list` `GET /api/content/:id/versions` | | `{items: ContentVersionSummary[]}` |
 | `content.versions.get` `GET /api/content/:id/versions/:versionId` | | `ContentVersion` |
-| `content.versions.edit` `POST /api/content/:id/versions` | `{baseVersionId, script?, storyboard?, caption?, voiceAssetId?, notes?}` | `{item, version}` (201); `409 conflict` when the base is stale |
+| `content.versions.edit` `POST /api/content/:id/versions` | `{baseVersionId, format?, media?, script?, storyboard?, caption?, voiceAssetId?, notes?}` | `{item, version}` (201); `409 conflict` when the base is stale |
+| `content.submit` `POST /api/content/:id/submit` | `{versionId}` | `ContentItem` in `review`; `409 conflict` when the version is stale, `409 invalid_transition` when it is not ready to publish |
 | `content.actions` `POST /api/content/:id/actions` | `{action, through?}` (`through` for `produce` only) | `JobSummary` (201) |
 | `content.archive`, `content.restore` `POST /api/content/:id/<action>` | | `ContentItem` |
 | `content.conversation` `POST /api/content/:id/conversation` | | `Conversation`, created on first use |
@@ -384,7 +386,7 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 | `series.channels` `GET /api/series/:id/channels` | | `SeriesChannels` `{seriesId, channels: [{channelId, enabled}]}` |
 | `series.setChannels` `PUT /api/series/:id/channels` | `{channels: [{channelId, enabled}]}` (replaces the set, at most 50) | `SeriesChannels` |
 | `calendar.get` `GET /api/calendar` | `?from=&to=&projectId=&seriesIds=a,b&channelIds=a,b` (at most 62 days) | `{posts: ScheduledPost[], slots: [{at, seriesId, channelId, postId?}]}` |
-| `scheduledPosts.create` `POST /api/scheduled-posts` | `{itemId, channelId, scheduledAt}` | `ScheduledPost` (201), `queued` |
+| `scheduledPosts.create` `POST /api/scheduled-posts` | `{itemId, channelId, scheduledAt, options?}` | `ScheduledPost` (201), `queued`; `422 format_not_supported` when the platform does not publish the format |
 | `scheduledPosts.reschedule` `PATCH /api/scheduled-posts/:id` | `{scheduledAt, expectedUpdatedAt}` | `ScheduledPost`; `409 conflict` when stale, `409 post_not_editable` |
 | `scheduledPosts.cancel` `POST /api/scheduled-posts/:id/cancel` | | `ScheduledPost` |
 | `scheduledPosts.attempts` `GET /api/scheduled-posts/:id/attempts` | | `{items: PublishAttempt[]}`, newest first |

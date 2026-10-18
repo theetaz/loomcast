@@ -201,7 +201,8 @@ pipeline's state machine, is audited and appears live in open pages (`content.it
 
 Media bytes never pass through `/mcp`. A client uploads a file in three steps:
 
-1. **`content.upload_asset`** with the item, the kind (`voice`, `render`, `poster`, `frame`, …),
+1. **`content.upload_asset`** with the item, the kind (`voice`, `render`, `poster`, `frame`,
+   `media` for a photo or video of a composed post, …),
    the file name, MIME type, size and SHA-256. The result is the asset and an `upload` with a
    presigned URL and headers. When the project already holds the same file as a ready asset of
    that kind, `upload` is null and the file needs neither an upload nor a finalize.
@@ -270,7 +271,7 @@ the owner, and job tokens are always refused (`forbidden`), so a producer sessio
 approve or schedule its own work.
 
 - **`content.review`** decides an item in `review`: `approve` (the current version must have a
-  render) moves it to `approved`, `request_changes` (with a `comment`) moves it to `script` and
+  render, or for a composed post the media its format takes) moves it to `approved`, `request_changes` (with a `comment`) moves it to `script` and
   queues a revision unless `enqueueRevision` is false, and `reject` archives it. `versionId` must
   be the item's current version (`conflict` otherwise). The result names the review, the decision
   and the item's new state.
@@ -293,6 +294,53 @@ The decisions and moves are the owner's own: they are stored and audited as the 
 user), exactly as if made in the web app. The `mcp.tool.called` row of each call names the token
 and the records it changed (see "Auditing"). Ordinary `mcp:write` tokens still cannot approve or
 schedule anything.
+
+## Composed post tools
+
+A composed post is published from files the owner uploads instead of a studio video: a photo
+(`image`), a `carousel` of photos and videos, a `story`, a Facebook `text` post or `video`, or a
+`reel` made of an uploaded video. It skips production: once its files fit its format it is in
+`render`, and it is reviewed and scheduled like any other item.
+
+- **`post.formats`** lists every format with the files it carries (how many, photos or videos),
+  the platforms that publish it, the MIME types of each media type, the platforms whose carousels
+  take photos only, and the `options` fields `post.schedule` takes per platform. Any token with
+  `mcp:read` may call it, job tokens included.
+- **`post.create`** creates the item with its format (and optionally its caption). A text post
+  with a caption is in `render` at once; every other format starts as an `idea`.
+- Upload each file with **`content.upload_asset`** (kind `media`, the post's `itemId`), `PUT` the
+  bytes and **`content.finalize_asset`** it (see "Uploading media").
+- **`post.compose`** writes a new version: the `format`, the `media` in order (each a ready
+  `media` asset of the item; photo or video is read from its MIME type, `altText` describes a
+  photo) and the `caption`. Fields left out are kept, and `media` replaces the whole list. A post
+  can be saved half done: `issues` says what its format still misses, and the item stays an
+  `idea` until it misses nothing. `next` names the call to make next.
+- **`post.schedule`** puts the item on one or more channels at one time, at least two minutes
+  ahead, with the per-platform `options`. An item in `render` is submitted and approved, one in
+  `review` approved, both as the owner's own review; an approved or scheduled item is just
+  scheduled. `versionId`, when given, must be the current version. The call is all or nothing:
+  every channel is checked first, and an unknown or disabled channel, one that already has the
+  item, or one whose platform does not publish the format (`format_not_supported` when that is
+  every refusal, `validation_failed` otherwise) fails the call with each refused channel listed by
+  its index in `channelIds`. A failure after that, such as a time too soon, rolls the approval back
+  as well.
+
+`post.create`, `post.compose` and `post.schedule` need `mcp:admin`, act as the owner and refuse
+job tokens, like the owner's review and publishing tools. `calendar.list_posts`,
+`calendar.reschedule_post` and `calendar.cancel_post` work on composed posts too; each post shows
+its item's `format` and its `options`.
+
+The usual flows:
+
+1. **Photo**: `post.create` (`format: "image"`), upload one `image/jpeg`, `image/png` or
+   `image/webp` file, `post.compose` with `media: [{assetId}]` and the caption, then
+   `post.schedule` on Instagram and Facebook channels.
+2. **Carousel**: `post.create` (`format: "carousel"`), upload 2 to 10 files, `post.compose` with
+   them in order (Facebook carousels take photos only), then `post.schedule`.
+3. **Story**: `post.create` (`format: "story"`), upload one photo or video, `post.compose`, then
+   `post.schedule`.
+4. **Facebook text or link post**: `post.create` with `format: "text"` and the caption, then
+   `post.schedule` on Facebook channels with `options: {facebook: {link}}` for a link card.
 
 ## Results and errors
 
@@ -390,7 +438,7 @@ Get a short-lived download URL for a ready asset, with its details.
 | `asset.id` | string (uuid) | yes |  |
 | `asset.projectId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
-| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
 | `asset.filename` | string | yes |  |
 | `asset.mime` | string | yes |  |
@@ -439,9 +487,19 @@ Owner only. Cancel a post that has not started publishing. An item left without 
 | `post.attempts` | integer | yes | at least 0 |
 | `post.lastError` | object \| null | yes |  |
 | `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.options` | object | yes |  |
+| `post.options.instagram` | object | no |  |
+| `post.options.instagram.shareToFeed` | boolean | no |  |
+| `post.options.instagram.collaborators` | string[] | no | at most 3 items |
+| `post.options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `post.options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `post.options.facebook` | object | no |  |
+| `post.options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `post.options.facebook.title` | string | no | 1 to 255 characters |
 | `post.item` | object | yes |  |
 | `post.item.title` | string | yes |  |
 | `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `post.item.posterAssetId` | string (uuid) \| null | yes |  |
 | `post.createdAt` | string (date-time) | yes |  |
 | `post.updatedAt` | string (date-time) | yes |  |
@@ -512,9 +570,19 @@ Owner only. List the posts scheduled between two times (at most 62 days) and the
 | `posts[].attempts` | integer | yes | at least 0 |
 | `posts[].lastError` | object \| null | yes |  |
 | `posts[].publishedAt` | string (date-time) \| null | yes |  |
+| `posts[].options` | object | yes |  |
+| `posts[].options.instagram` | object | no |  |
+| `posts[].options.instagram.shareToFeed` | boolean | no |  |
+| `posts[].options.instagram.collaborators` | string[] | no | at most 3 items |
+| `posts[].options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `posts[].options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `posts[].options.facebook` | object | no |  |
+| `posts[].options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `posts[].options.facebook.title` | string | no | 1 to 255 characters |
 | `posts[].item` | object | yes |  |
 | `posts[].item.title` | string | yes |  |
 | `posts[].item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `posts[].item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `posts[].item.posterAssetId` | string (uuid) \| null | yes |  |
 | `posts[].createdAt` | string (date-time) | yes |  |
 | `posts[].updatedAt` | string (date-time) | yes |  |
@@ -561,9 +629,19 @@ Owner only. Move a planned, queued, failed or missed post to a new time at least
 | `post.attempts` | integer | yes | at least 0 |
 | `post.lastError` | object \| null | yes |  |
 | `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.options` | object | yes |  |
+| `post.options.instagram` | object | no |  |
+| `post.options.instagram.shareToFeed` | boolean | no |  |
+| `post.options.instagram.collaborators` | string[] | no | at most 3 items |
+| `post.options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `post.options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `post.options.facebook` | object | no |  |
+| `post.options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `post.options.facebook.title` | string | no | 1 to 255 characters |
 | `post.item` | object | yes |  |
 | `post.item.title` | string | yes |  |
 | `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `post.item.posterAssetId` | string (uuid) \| null | yes |  |
 | `post.createdAt` | string (date-time) | yes |  |
 | `post.updatedAt` | string (date-time) | yes |  |
@@ -583,6 +661,15 @@ Owner only. Schedule an approved item on a channel at a time at least two minute
 | `itemId` | string (uuid) | yes |  |
 | `channelId` | string (uuid) | yes |  |
 | `scheduledAt` | string (date-time) | yes |  |
+| `options` | object | no |  |
+| `options.instagram` | object | no |  |
+| `options.instagram.shareToFeed` | boolean | no |  |
+| `options.instagram.collaborators` | string[] | no | at most 3 items |
+| `options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `options.facebook` | object | no |  |
+| `options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `options.facebook.title` | string | no | 1 to 255 characters |
 
 **Output** (`structuredContent`)
 
@@ -605,9 +692,19 @@ Owner only. Schedule an approved item on a channel at a time at least two minute
 | `post.attempts` | integer | yes | at least 0 |
 | `post.lastError` | object \| null | yes |  |
 | `post.publishedAt` | string (date-time) \| null | yes |  |
+| `post.options` | object | yes |  |
+| `post.options.instagram` | object | no |  |
+| `post.options.instagram.shareToFeed` | boolean | no |  |
+| `post.options.instagram.collaborators` | string[] | no | at most 3 items |
+| `post.options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `post.options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `post.options.facebook` | object | no |  |
+| `post.options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `post.options.facebook.title` | string | no | 1 to 255 characters |
 | `post.item` | object | yes |  |
 | `post.item.title` | string | yes |  |
 | `post.item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `post.item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `post.item.posterAssetId` | string (uuid) \| null | yes |  |
 | `post.createdAt` | string (date-time) | yes |  |
 | `post.updatedAt` | string (date-time) | yes |  |
@@ -711,7 +808,7 @@ Finish an upload: the server checks the size and SHA-256 and stores the media pr
 | `asset.id` | string (uuid) | yes |  |
 | `asset.projectId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
-| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
 | `asset.filename` | string | yes |  |
 | `asset.mime` | string | yes |  |
@@ -753,6 +850,7 @@ Get a content item with one version (the current one by default), its script and
 | `item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
 | `item.currentVersionId` | string (uuid) | yes |  |
 | `item.versionNo` | integer | yes | at least 1 |
+| `item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `item.durationMs` | integer \| null | yes | at least 0 |
 | `item.posterAssetId` | string (uuid) \| null | yes |  |
 | `item.targetAt` | string (date-time) \| null | yes |  |
@@ -772,6 +870,11 @@ Get a content item with one version (the current one by default), its script and
 | `version.formatVersionId` | string (uuid) \| null | yes |  |
 | `version.hasScript` | boolean | yes |  |
 | `version.hasStoryboard` | boolean | yes |  |
+| `version.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `version.media` | object[] | yes | at most 10 items |
+| `version.media[].assetId` | string (uuid) | yes |  |
+| `version.media[].type` | "image" \| "video" | yes |  |
+| `version.media[].altText` | string | no | at most 1000 characters |
 | `version.voiceAssetId` | string (uuid) \| null | yes |  |
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
@@ -867,7 +970,7 @@ Save a new version of an item with a script, a storyboard, a voice take, a finis
 
 ### `content.upload_asset`
 
-Start uploading a file for an item (voice, render, poster, frame). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when the item already holds an identical file of that kind.
+Start uploading a file for an item (voice, render, poster, frame, or media: a photo or video of a composed post). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when the item already holds an identical file of that kind.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
@@ -878,7 +981,7 @@ Start uploading a file for an item (voice, render, poster, frame). PUT the bytes
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `itemId` | string (uuid) | yes |  |
-| `kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `filename` | string | yes | 1 to 255 characters |
 | `mime` | "video/mp4" \| "video/quicktime" \| "audio/mpeg" \| "audio/wav" \| "audio/x-wav" \| "audio/mp4" \| "audio/x-m4a" \| "image/jpeg" \| "image/png" \| "image/webp" \| "text/plain" | yes |  |
 | `bytes` | integer | yes | at least 1 |
@@ -892,7 +995,7 @@ Start uploading a file for an item (voice, render, poster, frame). PUT the bytes
 | `asset.id` | string (uuid) | yes |  |
 | `asset.projectId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
-| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" | yes |  |
+| `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
 | `asset.filename` | string | yes |  |
 | `asset.mime` | string | yes |  |
@@ -1143,6 +1246,259 @@ Full-text search of the knowledge base, optionally within one project and entry 
 | `hits[].title` | string | yes |  |
 | `hits[].snippet` | string | yes | at most 2000 characters |
 | `hits[].score` | number | yes | at least 0 |
+
+### `post.compose`
+
+Owner only. Save a new version of a composed post: its format, its files in order (ready media assets of the item; photo or video is read from the file type, altText describes a photo) and its caption. Fields left out are kept; media replaces the whole list. issues lists what the format still misses; when empty the item is in render and post.schedule can schedule it.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `baseVersionId` | string (uuid) | no |  |
+| `format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | no |  |
+| `media` | object[] | no | at most 10 items |
+| `media[].assetId` | string (uuid) | yes |  |
+| `media[].altText` | string | no | at most 1000 characters |
+| `caption` | string \| null | no | at most 2200 characters |
+| `notes` | string | no | at most 4000 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `item` | object | yes |  |
+| `item.id` | string (uuid) | yes |  |
+| `item.projectId` | string (uuid) | yes |  |
+| `item.seriesId` | string (uuid) \| null | yes |  |
+| `item.title` | string | yes |  |
+| `item.pitch` | string \| null | yes |  |
+| `item.topic` | string \| null | yes |  |
+| `item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `item.currentVersionId` | string (uuid) | yes |  |
+| `item.versionNo` | integer | yes | at least 1 |
+| `item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `item.durationMs` | integer \| null | yes | at least 0 |
+| `item.posterAssetId` | string (uuid) \| null | yes |  |
+| `item.targetAt` | string (date-time) \| null | yes |  |
+| `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
+| `item.lastError` | object \| null | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdBy` | string (uuid) \| null | yes |  |
+| `item.createdAt` | string (date-time) | yes |  |
+| `item.updatedAt` | string (date-time) | yes |  |
+| `item.archivedAt` | string (date-time) \| null | yes |  |
+| `version` | object | yes |  |
+| `version.id` | string (uuid) | yes |  |
+| `version.itemId` | string (uuid) | yes |  |
+| `version.versionNo` | integer | yes | at least 1 |
+| `version.stage` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `version.parentVersionId` | string (uuid) \| null | yes |  |
+| `version.formatVersionId` | string (uuid) \| null | yes |  |
+| `version.hasScript` | boolean | yes |  |
+| `version.hasStoryboard` | boolean | yes |  |
+| `version.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `version.media` | object[] | yes | at most 10 items |
+| `version.media[].assetId` | string (uuid) | yes |  |
+| `version.media[].type` | "image" \| "video" | yes |  |
+| `version.media[].altText` | string | no | at most 1000 characters |
+| `version.voiceAssetId` | string (uuid) \| null | yes |  |
+| `version.renderAssetId` | string (uuid) \| null | yes |  |
+| `version.posterAssetId` | string (uuid) \| null | yes |  |
+| `version.notes` | string \| null | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdByUser` | string (uuid) \| null | yes |  |
+| `version.jobId` | string (uuid) \| null | yes |  |
+| `version.createdAt` | string (date-time) | yes |  |
+| `version.script` | object \| null | yes |  |
+| `version.storyboard` | object \| null | yes |  |
+| `version.caption` | string \| null | yes |  |
+| `issues` | string[] | yes |  |
+| `next` | string | yes |  |
+
+### `post.create`
+
+Owner only. Create a composed post in a project: a photo (image), carousel, story, text post, Facebook video or a Reel from an uploaded video, with no studio production. Next: upload each file with content.upload_asset (kind media, this itemId) and content.finalize_asset, then call post.compose. A text post with a caption is ready for post.schedule at once. For a studio video use content.create_idea.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `projectId` | string (uuid) | yes |  |
+| `title` | string | yes | 1 to 200 characters |
+| `format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `caption` | string | no | at most 2200 characters |
+| `pitch` | string | no | at most 2000 characters |
+| `targetAt` | string (date-time) | no |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `item` | object | yes |  |
+| `item.id` | string (uuid) | yes |  |
+| `item.projectId` | string (uuid) | yes |  |
+| `item.seriesId` | string (uuid) \| null | yes |  |
+| `item.title` | string | yes |  |
+| `item.pitch` | string \| null | yes |  |
+| `item.topic` | string \| null | yes |  |
+| `item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `item.currentVersionId` | string (uuid) | yes |  |
+| `item.versionNo` | integer | yes | at least 1 |
+| `item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `item.durationMs` | integer \| null | yes | at least 0 |
+| `item.posterAssetId` | string (uuid) \| null | yes |  |
+| `item.targetAt` | string (date-time) \| null | yes |  |
+| `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
+| `item.lastError` | object \| null | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdBy` | string (uuid) \| null | yes |  |
+| `item.createdAt` | string (date-time) | yes |  |
+| `item.updatedAt` | string (date-time) | yes |  |
+| `item.archivedAt` | string (date-time) \| null | yes |  |
+| `version` | object | yes |  |
+| `version.id` | string (uuid) | yes |  |
+| `version.itemId` | string (uuid) | yes |  |
+| `version.versionNo` | integer | yes | at least 1 |
+| `version.stage` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `version.parentVersionId` | string (uuid) \| null | yes |  |
+| `version.formatVersionId` | string (uuid) \| null | yes |  |
+| `version.hasScript` | boolean | yes |  |
+| `version.hasStoryboard` | boolean | yes |  |
+| `version.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `version.media` | object[] | yes | at most 10 items |
+| `version.media[].assetId` | string (uuid) | yes |  |
+| `version.media[].type` | "image" \| "video" | yes |  |
+| `version.media[].altText` | string | no | at most 1000 characters |
+| `version.voiceAssetId` | string (uuid) \| null | yes |  |
+| `version.renderAssetId` | string (uuid) \| null | yes |  |
+| `version.posterAssetId` | string (uuid) \| null | yes |  |
+| `version.notes` | string \| null | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdByUser` | string (uuid) \| null | yes |  |
+| `version.jobId` | string (uuid) \| null | yes |  |
+| `version.createdAt` | string (date-time) | yes |  |
+| `version.script` | object \| null | yes |  |
+| `version.storyboard` | object \| null | yes |  |
+| `version.caption` | string \| null | yes |  |
+| `issues` | string[] | yes |  |
+| `next` | string | yes |  |
+
+### `post.formats`
+
+List the post formats (reel, video, image, carousel, story, text), the photos and videos each carries, the platforms that publish each, the MIME types per media type and the per-platform options post.schedule takes.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Project binding:** the input names no project
+
+**Input**
+
+None.
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `formats` | object[] | yes |  |
+| `formats[].format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `formats[].label` | string | yes |  |
+| `formats[].render` | boolean | yes |  |
+| `formats[].min` | integer | yes | at least 0 |
+| `formats[].max` | integer | yes | at least 0 |
+| `formats[].types` | ("image" \| "video")[] | yes |  |
+| `formats[].platforms` | ("facebook" \| "instagram" \| "threads" \| "x")[] | yes |  |
+| `platforms` | object[] | yes |  |
+| `platforms[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `platforms[].label` | string | yes |  |
+| `platforms[].formats` | ("reel" \| "video" \| "image" \| "carousel" \| "story" \| "text")[] | yes |  |
+| `mediaTypes` | object[] | yes |  |
+| `mediaTypes[].type` | "image" \| "video" | yes |  |
+| `mediaTypes[].mimes` | string[] | yes |  |
+| `photoOnlyCarouselPlatforms` | ("facebook" \| "instagram" \| "threads" \| "x")[] | yes |  |
+| `options` | object[] | yes |  |
+| `options[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `options[].field` | string | yes |  |
+| `options[].type` | string | yes |  |
+| `options[].formats` | ("reel" \| "video" \| "image" \| "carousel" \| "story" \| "text")[] | yes |  |
+| `options[].description` | string | yes |  |
+
+### `post.schedule`
+
+Owner only. Schedule an item on one or more channels at one time, at least two minutes ahead. An item in render is submitted and approved, one in review approved, as the owner's review; an approved or scheduled item is just scheduled. All or nothing: when a channel is unknown, disabled, already has the item or does not publish its format (see post.formats), nothing changes and the error lists every refused channel.
+
+- **Scope:** `mcp:admin`
+- **Job tokens:** not allowed
+- **Project binding:** the input names the project
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `versionId` | string (uuid) | no |  |
+| `channelIds` | string (uuid)[] | yes | at least 1 items; at most 50 items |
+| `scheduledAt` | string (date-time) | yes |  |
+| `options` | object | no |  |
+| `options.instagram` | object | no |  |
+| `options.instagram.shareToFeed` | boolean | no |  |
+| `options.instagram.collaborators` | string[] | no | at most 3 items |
+| `options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `options.facebook` | object | no |  |
+| `options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `options.facebook.title` | string | no | 1 to 255 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `itemId` | string (uuid) | yes |  |
+| `versionId` | string (uuid) | yes |  |
+| `state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `reviewId` | string (uuid) \| null | yes |  |
+| `posts` | object[] | yes |  |
+| `posts[].id` | string (uuid) | yes |  |
+| `posts[].projectId` | string (uuid) | yes |  |
+| `posts[].itemId` | string (uuid) | yes |  |
+| `posts[].versionId` | string (uuid) \| null | yes |  |
+| `posts[].channelId` | string (uuid) | yes |  |
+| `posts[].seriesId` | string (uuid) \| null | yes |  |
+| `posts[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
+| `posts[].scheduledAt` | string (date-time) | yes |  |
+| `posts[].status` | "planned" \| "queued" \| "publishing" \| "published" \| "failed" \| "cancelled" \| "missed" | yes |  |
+| `posts[].dryRun` | boolean | yes |  |
+| `posts[].publishMode` | "auto" \| "approval" | yes |  |
+| `posts[].externalId` | string \| null | yes |  |
+| `posts[].permalink` | string \| null | yes | at most 2048 characters |
+| `posts[].attempts` | integer | yes | at least 0 |
+| `posts[].lastError` | object \| null | yes |  |
+| `posts[].publishedAt` | string (date-time) \| null | yes |  |
+| `posts[].options` | object | yes |  |
+| `posts[].options.instagram` | object | no |  |
+| `posts[].options.instagram.shareToFeed` | boolean | no |  |
+| `posts[].options.instagram.collaborators` | string[] | no | at most 3 items |
+| `posts[].options.instagram.locationId` | string | no | matches `^\d{1,30}$` |
+| `posts[].options.instagram.thumbOffsetMs` | integer | no | at least 0 |
+| `posts[].options.facebook` | object | no |  |
+| `posts[].options.facebook.link` | string (uri) | no | at most 2048 characters |
+| `posts[].options.facebook.title` | string | no | 1 to 255 characters |
+| `posts[].item` | object | yes |  |
+| `posts[].item.title` | string | yes |  |
+| `posts[].item.state` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `posts[].item.format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
+| `posts[].item.posterAssetId` | string (uuid) \| null | yes |  |
+| `posts[].createdAt` | string (date-time) | yes |  |
+| `posts[].updatedAt` | string (date-time) | yes |  |
 
 ### `project.create`
 

@@ -76,6 +76,18 @@ describe("post formats", () => {
     expect(canTransition("review", "approved", "user", { format: "image", media: [] })).toBe(false);
   });
 
+  it("lets a user save a composed post whose media are still incomplete", () => {
+    const half = { format: "carousel", media: [image] } as const;
+    for (const from of ["idea", "render", "review", "approved"] as const) {
+      expect(canTransition(from, "idea", "user", half), from).toBe(true);
+      expect(canTransition(from, "idea", "token", half), from).toBe(false);
+    }
+    expect(canTransition("scheduled", "idea", "user", half)).toBe(false);
+    // A studio video still needs a script before it gets a version of its own.
+    expect(canTransition("idea", "idea", "user", { format: "reel" })).toBe(false);
+    expect(canTransition("idea", "idea", "user")).toBe(false);
+  });
+
   it("parses publish requests by format", () => {
     const base = { platform: "instagram", externalId: "17841400000000001", caption: "Hello" };
     const item = {

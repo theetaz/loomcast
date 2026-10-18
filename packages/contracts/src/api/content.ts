@@ -195,6 +195,16 @@ export const EditVersionResponseSchema = z.object({
 export type EditVersionResponse = z.infer<typeof EditVersionResponseSchema>;
 
 /**
+ * Sends a version ready to publish to review. `versionId` must be the current version, so the
+ * reviewer sees what the sender saw. Composed posts take this route; production submits a studio
+ * video itself once its render is done.
+ */
+export const SubmitContentRequestSchema = z.object({
+  versionId: IdSchema,
+});
+export type SubmitContentRequest = z.infer<typeof SubmitContentRequestSchema>;
+
+/**
  * Starts production work. `through` is only for `produce` (default `review`). Answers `409
  * job_in_progress` while another production job of the item is active, `422 missing_artifact`
  * when the step's input is missing and `422 voice_not_configured` for a voice without a format

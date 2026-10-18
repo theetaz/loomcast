@@ -55,6 +55,8 @@ export interface PipelineTransition {
   readonly actors: readonly ActorKind[];
   /** The version the item ends up on must have a render. */
   readonly requiresRender: boolean;
+  /** The version the item ends up on must be a composed post (`isComposed`). */
+  readonly composedOnly: boolean;
 }
 
 /**
@@ -80,7 +82,10 @@ const USER = ["user"] as const satisfies readonly ActorKind[];
 const USER_OR_SYSTEM = ["user", "system"] as const satisfies readonly ActorKind[];
 const SYSTEM = ["system"] as const satisfies readonly ActorKind[];
 
-/** Stages a new version can put an item in; `idea` has no artifacts, so no version leads there. */
+/**
+ * Stages a new version can put an item in. `idea` has no artifacts; only a user's composed post
+ * whose media are still incomplete goes back there (the `composedOnly` rows below).
+ */
 const VERSION_STAGES = ["script", "storyboard", "voice", "render"] as const;
 
 function edge(
@@ -89,8 +94,9 @@ function edge(
   via: TransitionVia,
   actors: readonly ActorKind[],
   requiresRender = false,
+  composedOnly = false,
 ): PipelineTransition {
-  return { from, to, via, actors, requiresRender };
+  return { from, to, via, actors, requiresRender, composedOnly };
 }
 
 function buildTransitions(): PipelineTransition[] {
@@ -104,6 +110,11 @@ function buildTransitions(): PipelineTransition[] {
   }
   // A user may change only the caption or notes of an item in review and keep it there.
   rows.push(edge("review", "review", "version", USER, true));
+  // A user composing a post saves it while its media do not fit its format yet (one photo of a
+  // carousel); the version's stage is then `idea`. A studio video still needs a script first.
+  for (const from of [...PRODUCTION_STATES, "review"] as const) {
+    rows.push(edge(from, "idea", "version", USER, false, true));
+  }
 
   // A version with a render goes to review.
   for (const from of PRODUCTION_STATES) rows.push(edge(from, "review", "submit", EVERYONE, true));
@@ -122,6 +133,7 @@ function buildTransitions(): PipelineTransition[] {
   }
   // A composed post whose media change goes back to `render`, ready to submit again.
   rows.push(edge("approved", "render", "edit", USER, true));
+  rows.push(edge("approved", "idea", "edit", USER, false, true));
   rows.push(edge("approved", "approved", "edit", USER, true));
 
   // Calendar and publishing (M4): the scheduler acts as `system`.
@@ -193,6 +205,14 @@ export function stageForArtifacts(version: VersionArtifacts): ProductionState {
   return "render";
 }
 
+/** Whether a row's conditions on the version hold. */
+function rowFits(row: PipelineTransition, version: VersionArtifacts | null | undefined): boolean {
+  return (
+    (!row.requiresRender || hasRender(version)) &&
+    (!row.composedOnly || (version !== null && version !== undefined && isComposed(version)))
+  );
+}
+
 export interface TransitionQuery {
   readonly from: PipelineState;
   readonly to: PipelineState;
@@ -211,7 +231,7 @@ export function findTransition(query: TransitionQuery): PipelineTransition | und
       row.to === query.to &&
       (query.via === undefined || row.via === query.via) &&
       row.actors.includes(query.actor) &&
-      (!row.requiresRender || hasRender(query.version)),
+      rowFits(row, query.version),
   );
 }
 
@@ -316,10 +336,7 @@ function rowAllows(
 ): boolean {
   return PIPELINE_TRANSITIONS.some(
     (row) =>
-      row.from === state &&
-      row.via === via &&
-      row.actors.includes(actor) &&
-      (!row.requiresRender || hasRender(version)),
+      row.from === state && row.via === via && row.actors.includes(actor) && rowFits(row, version),
   );
 }
 
