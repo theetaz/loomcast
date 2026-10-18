@@ -4,9 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestApp, insertUser, login, send, testIp } from "../support";
 
 /**
- * Every unsafe route of the contracts refuses a cross-site request before its handler runs: a
- * foreign `Origin`, a cross-site `Sec-Fetch-Site` without `Origin`, and a body that is not JSON
- * (what a plain HTML form can send).
+ * Every unsafe cookie route of the contracts refuses a cross-site request before its handler runs:
+ * a foreign `Origin`, a cross-site `Sec-Fetch-Site` without `Origin`, and a body that is not JSON
+ * (what a plain HTML form can send). The machine API (`auth: "api_key"`) is no browser surface: it
+ * never reads the cookie, so a cross-site request that carries one is simply unauthenticated.
  */
 
 const SAMPLE_ID = "00000000-0000-4000-8000-000000000000";
@@ -30,8 +31,12 @@ function samplePath(path: string): string {
   return buildPath(path, params);
 }
 
-const unsafeRoutes = (Object.keys(routes) as RouteName[]).filter((name) =>
-  UNSAFE.has(routes[name].method),
+const unsafeRoutes = (Object.keys(routes) as RouteName[]).filter(
+  (name) => UNSAFE.has(routes[name].method) && routes[name].auth !== "api_key",
+);
+
+const machineRoutes = (Object.keys(routes) as RouteName[]).filter(
+  (name) => routes[name].auth === "api_key",
 );
 
 async function reason(response: Response): Promise<unknown> {
@@ -105,6 +110,23 @@ describe("csrf on every unsafe route", () => {
         expect(response.status, `${name} ${contentType}`).toBe(403);
         expect(await reason(response), `${name} ${contentType}`).toBe("content_type");
       }
+    }
+  });
+
+  it("answers 401 on the machine API to a cross-site request with a session cookie", async () => {
+    const { app } = createTestApp(testDb.db);
+    const user = await insertUser(testDb.db, { role: "owner" });
+    const { cookie } = await login(app, user.email, undefined, testIp(7));
+    expect(machineRoutes.length).toBeGreaterThan(5);
+    for (const name of machineRoutes) {
+      const route = routes[name];
+      const response = await send(app, route.method, samplePath(route.path), {
+        cookie,
+        body: UNSAFE.has(route.method) ? {} : undefined,
+        origin: FOREIGN,
+        ip: testIp(8),
+      });
+      expect(response.status, name).toBe(401);
     }
   });
 

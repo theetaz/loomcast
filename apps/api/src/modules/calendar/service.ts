@@ -28,7 +28,7 @@ import { and, asc, eq, gte, inArray, lt, min, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
 import type { EventBus } from "../../lib/bus";
 import type { Clock } from "../../lib/clock";
-import { type Transaction, transaction } from "../../lib/db";
+import type { Transaction } from "../../lib/db";
 import { conflict, HttpError, notFound, validationFailed } from "../../lib/errors";
 import { hasQueuedPost } from "../approvals/rules";
 import { produceAt, produceTaskKey } from "../cadence/plan";
@@ -48,9 +48,10 @@ import {
 import { listSlots, loadSeriesPlans } from "./slots";
 
 // The calendar: posts and open slots in a range, and the moves a person makes on it. Scheduling an
-// approved item creates a queued post and its publish task; rescheduling moves the post and its
-// task; cancelling withdraws it. An item whose last queued post is cancelled goes back from
-// `scheduled` to `approved`.
+// approved item creates a queued post and its publish task; planning an item still in review
+// creates a planned post, which the approval rules queue once the item is approved; rescheduling
+// moves the post and its task; cancelling withdraws it. An item whose last queued post is
+// cancelled goes back from `scheduled` to `approved`.
 
 export interface CalendarServiceDeps {
   db: Database;
@@ -72,12 +73,25 @@ export interface CalendarService {
     actor: PipelineActor,
     options?: { tx?: Transaction },
   ): Promise<ScheduledPost>;
+  /**
+   * Plans an item that is not approved yet on a channel: a `planned` post without a version, which
+   * becomes `queued` when the item is approved and is `missed` if its time comes first. The same
+   * checks as `create` apply, except the item's state; an archived item is refused.
+   */
+  plan(
+    input: CreatePostRequest,
+    actor: PipelineActor,
+    options?: { tx?: Transaction },
+  ): Promise<ScheduledPost>;
+  /** With `options.tx`, runs in the caller's transaction. */
   reschedule(
     id: string,
     input: ReschedulePostRequest,
     actor: PipelineActor,
+    options?: { tx?: Transaction },
   ): Promise<ScheduledPost>;
-  cancel(id: string, actor: PipelineActor): Promise<ScheduledPost>;
+  /** With `options.tx`, runs in the caller's transaction. */
+  cancel(id: string, actor: PipelineActor, options?: { tx?: Transaction }): Promise<ScheduledPost>;
 }
 
 const postNotFound = () => notFound("No scheduled post has that id.");
@@ -199,6 +213,65 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
     );
   }
 
+  /**
+   * The channel of a new post, checked against the item's current version: it exists, is not
+   * disabled, and its platform publishes the version's format.
+   */
+  async function postChannel(tx: Transaction, channelId: string) {
+    const [channel] = await tx
+      .select({
+        id: channels.id,
+        platform: channels.platform,
+        status: channels.status,
+        dryRun: channels.dryRun,
+      })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+    if (channel === undefined) {
+      throw notFound("No channel has that id.");
+    }
+    return channel;
+  }
+
+  async function requireChannelFits(
+    tx: Transaction,
+    item: ContentItemRow,
+    channel: { platform: Platform; status: string },
+  ): Promise<void> {
+    if (channel.status === "disabled") {
+      throw conflict("The channel is disabled.", { reason: "channel_disabled" });
+    }
+    const [version] = await tx
+      .select({ format: contentVersions.format, media: contentVersions.media })
+      .from(contentVersions)
+      .where(eq(contentVersions.id, item.currentVersionId))
+      .limit(1);
+    const format = version?.format ?? "reel";
+    const refusal = platformRefusal(channel.platform, { format, media: version?.media ?? [] });
+    if (refusal !== null) {
+      throw formatNotSupported(channel.platform, format, refusal);
+    }
+  }
+
+  /** 409 `conflict` (`reason: "duplicate"`) naming the item's open post on the channel. */
+  async function duplicatePost(tx: Transaction, itemId: string, channelId: string) {
+    const [existing] = await tx
+      .select({ id: scheduledPosts.id, status: scheduledPosts.status })
+      .from(scheduledPosts)
+      .where(
+        and(
+          eq(scheduledPosts.itemId, itemId),
+          eq(scheduledPosts.channelId, channelId),
+          sql`${scheduledPosts.status} <> 'cancelled'`,
+        ),
+      );
+    return conflict("This item already has a post on that channel.", {
+      reason: "duplicate",
+      ...(existing === undefined ? {} : { postId: existing.id, status: existing.status }),
+    });
+  }
+
   return {
     async get(query) {
       const from = new Date(query.from);
@@ -245,35 +318,11 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         if (item === null) {
           throw notFound("No content item has that id.");
         }
-        const [channel] = await tx
-          .select({
-            id: channels.id,
-            platform: channels.platform,
-            status: channels.status,
-            dryRun: channels.dryRun,
-          })
-          .from(channels)
-          .where(eq(channels.id, input.channelId))
-          .limit(1);
-        if (channel === undefined) {
-          throw notFound("No channel has that id.");
-        }
+        const channel = await postChannel(tx, input.channelId);
         if (!APPROVED_ITEM_STATES.includes(item.state)) {
           throw invalidTransition(item.state, "scheduled", "Only approved items can be scheduled.");
         }
-        if (channel.status === "disabled") {
-          throw conflict("The channel is disabled.", { reason: "channel_disabled" });
-        }
-        const [version] = await tx
-          .select({ format: contentVersions.format, media: contentVersions.media })
-          .from(contentVersions)
-          .where(eq(contentVersions.id, item.currentVersionId))
-          .limit(1);
-        const format = version?.format ?? "reel";
-        const refusal = platformRefusal(channel.platform, { format, media: version?.media ?? [] });
-        if (refusal !== null) {
-          throw formatNotSupported(channel.platform, format, refusal);
-        }
+        await requireChannelFits(tx, item, channel);
         const scheduledAt = requireLead(input.scheduledAt);
         const [post] = await tx
           .insert(scheduledPosts)
@@ -293,20 +342,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
           })
           .returning();
         if (post === undefined) {
-          const [existing] = await tx
-            .select({ id: scheduledPosts.id, status: scheduledPosts.status })
-            .from(scheduledPosts)
-            .where(
-              and(
-                eq(scheduledPosts.itemId, item.id),
-                eq(scheduledPosts.channelId, channel.id),
-                sql`${scheduledPosts.status} <> 'cancelled'`,
-              ),
-            );
-          throw conflict("This item already has a post on that channel.", {
-            reason: "duplicate",
-            ...(existing === undefined ? {} : { postId: existing.id, status: existing.status }),
-          });
+          throw await duplicatePost(tx, item.id, channel.id);
         }
         await enqueuePublish(tx, scheduler, post);
         await audit(tx, {
@@ -327,8 +363,56 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
       });
     },
 
-    async reschedule(id, input, actor) {
-      return transaction(db, async (tx) => {
+    async plan(input, actor, options = {}) {
+      return inTransaction(db, options.tx, async (tx) => {
+        const item = await lockItem(tx, input.itemId);
+        if (item === null) {
+          throw notFound("No content item has that id.");
+        }
+        const channel = await postChannel(tx, input.channelId);
+        if (item.state === "archived") {
+          throw invalidTransition(item.state, "scheduled", "Archived items cannot be planned.");
+        }
+        await requireChannelFits(tx, item, channel);
+        const scheduledAt = requireLead(input.scheduledAt);
+        const [post] = await tx
+          .insert(scheduledPosts)
+          .values({
+            itemId: item.id,
+            channelId: channel.id,
+            seriesId: item.seriesId,
+            scheduledAt,
+            status: "planned",
+            dryRun: newPostDryRun(channel, deps.config.publishing.mode),
+            options: input.options ?? {},
+          })
+          .onConflictDoNothing({
+            target: [scheduledPosts.itemId, scheduledPosts.channelId],
+            where: sql`${scheduledPosts.status} <> 'cancelled'`,
+          })
+          .returning();
+        if (post === undefined) {
+          throw await duplicatePost(tx, item.id, channel.id);
+        }
+        // At its time the publisher marks a post still planned as missed.
+        await enqueuePublish(tx, scheduler, post);
+        await audit(tx, {
+          ...auditActor(actor),
+          action: "post.planned",
+          targetType: "scheduled_post",
+          targetId: post.id,
+          data: {
+            itemId: item.id,
+            channelId: channel.id,
+            scheduledAt: scheduledAt.toISOString(),
+          },
+        });
+        return mapped(tx, post.id);
+      });
+    },
+
+    async reschedule(id, input, actor, options = {}) {
+      return inTransaction(db, options.tx, async (tx) => {
         const { row, item } = await lockPost(tx, id);
         if (!isReschedulable(row.status)) {
           throw postNotEditable(row.status);
@@ -379,8 +463,8 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
       });
     },
 
-    async cancel(id, actor) {
-      return transaction(db, async (tx) => {
+    async cancel(id, actor, options = {}) {
+      return inTransaction(db, options.tx, async (tx) => {
         const { row } = await lockPost(tx, id);
         if (!isReschedulable(row.status)) {
           throw postNotEditable(row.status);

@@ -22,6 +22,8 @@ import {
 } from "./lib/storage";
 import { createUnconfiguredVault, createVault, type TokenVault } from "./lib/vault";
 import { register as registerAnalytics } from "./modules/analytics";
+import { register as registerApiClients } from "./modules/api-clients";
+import { isApiV1Path, register as registerApiV1 } from "./modules/api-v1";
 import { register as registerApprovals } from "./modules/approvals";
 import { createAssetsService, register as registerAssets } from "./modules/assets";
 import { createAuthGuards, register as registerAuth } from "./modules/auth";
@@ -270,9 +272,11 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   );
 
   // Default deny: every `/api/*` request needs a cookie session (and passes the CSRF check)
-  // unless the contracts mark the route public. Public routes apply their own checks.
+  // unless the contracts mark the route public. Public routes apply their own checks. The machine
+  // API under `/api/v1` is not a browser surface: it never reads cookies and requires an API
+  // client's key on every path instead (`modules/api-v1`).
   app.use("/api/*", async (c, next) => {
-    if (isPublicApiRoute(c.req.method, c.req.path)) {
+    if (isPublicApiRoute(c.req.method, c.req.path) || isApiV1Path(c.req.path)) {
       await next();
       return;
     }
@@ -310,6 +314,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
 
   registerAuth(app, moduleDeps);
   registerTokens(app, moduleDeps);
+  registerApiClients(app, moduleDeps);
   registerProjects(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerKb(app, moduleDeps);
@@ -335,6 +340,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerBridge(app, moduleDeps);
   registerJobs(app, moduleDeps);
   registerMcp(app, moduleDeps);
+  registerApiV1(app, moduleDeps);
   registerOps(app, moduleDeps);
   for (const register of options.modules ?? []) {
     register(app, moduleDeps);
