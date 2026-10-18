@@ -122,6 +122,20 @@ time left before their first slot, nearest first, with Approve and Request chang
 Below it are **missed posts**: posts whose time came while still planned. Approve the video and
 reschedule the post, or leave it.
 
+### Posts from API clients
+
+Posts that another backend schedules through the machine API ([api.md](api.md)) have no series,
+so they publish in `approval` mode and the system never approves them. Finalizing such a post
+submits it as the client's owner, then:
+
+- with `publish` access on every channel and no channel that requires approval, approves it as
+  the owner's review (its comment names the client) and creates `queued` posts at once;
+- otherwise creates `planned` posts (`calendar.plan`), and the item waits in **Approvals** like
+  any other. Approving it queues them; a post still planned at its time is missed.
+
+The client can move (`PATCH /api/v1/posts/:id`) and withdraw (`POST /api/v1/posts/:id/cancel`)
+only the posts it created, through the same calendar service as the web app.
+
 ## Dry-run and going live
 
 Nothing reaches a platform unless three switches allow it. A post is sent live only when all of

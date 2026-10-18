@@ -48,7 +48,8 @@ Authorization: Bearer <access token>
   | `mcp:admin` | Administration and owner tools such as `admin.create_user`, `content.review` and `calendar.schedule_post`. Only the owner's tokens carry it |
 
 - **Cookies are ignored.** A signed-in browser session does not authorize `/mcp`, and the REST
-  API under `/api` never accepts access tokens.
+  API under `/api` never accepts access tokens. Other backends that schedule posts use the
+  machine API under `/api/v1` with an API client's key instead; see [api.md](api.md).
 - **Failures.** A missing, malformed, expired or revoked token gets `401` with a
   `WWW-Authenticate: Bearer` header. Revoking a token in Settings takes effect on its next request.
   Device tokens (`lc_dev_…`) are not accepted.

@@ -13,6 +13,7 @@ break. The web app shows the same pages under **Guide** in the sidebar, after yo
 - [Competitor research](competitor-research.md)
 - [Channels, calendar and publishing](publishing.md)
 - [Settings](settings.md)
+- [API clients](api-clients.md)
 
 ## Studio agent
 

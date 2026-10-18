@@ -1,12 +1,12 @@
 # Settings
 
-Settings holds the workspace's studio agents, access tokens for other tools, members, publishing channels and the scheduler's failed tasks. Open it from **Settings** at the bottom of the sidebar, or type a section's name in **Search or jump to…** (⌘K).
+Settings holds the workspace's studio agents, access tokens for other tools, API clients for other backends, members, publishing channels and the scheduler's failed tasks. Open it from **Settings** at the bottom of the sidebar, or type a section's name in **Search or jump to…** (⌘K).
 
 ## The settings tabs
 
-Settings has one tab per section: **Devices**, **Access tokens**, **Members**, **Channels** and **Scheduler**. **Members** is shown only to the workspace owner. Opening **Settings** without a tab takes you to **Devices**.
+Settings has one tab per section: **Devices**, **Access tokens**, **API clients**, **Members**, **Channels** and **Scheduler**. **API clients** and **Members** are shown only to the workspace owner. Opening **Settings** without a tab takes you to **Devices**.
 
-Every member of the workspace is either the owner or an admin. Admins can use every tab except **Members**.
+Every member of the workspace is either the owner or an admin. Admins can use every tab except **API clients** and **Members**.
 
 ## Devices
 
@@ -84,6 +84,10 @@ Under **Connect an MCP client**, copy the configuration and paste it into the to
 ### Revoke a token
 
 Select the bin icon at the end of the token's row, then **Revoke token**. Tools using it lose access at once. This cannot be undone.
+
+## API clients
+
+**API clients** let another backend you run schedule posts on chosen channels through Loomcast's REST API, each channel at a level you pick (read, write or publish). Only the owner sees this tab. See [API clients](api-clients.md).
 
 ## Members
 

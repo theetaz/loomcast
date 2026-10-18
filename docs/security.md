@@ -28,12 +28,32 @@ producer session (Mac) ──POST /mcp (job token)──┘
 
 | Surface | Credential | Notes |
 |---|---|---|
-| `/api/*` with `auth: "session"` (every route but four) | `__Host-lc_session` cookie (production): `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain` | 30-day sliding session. Default deny: unknown `/api` paths need a session too. Bearer tokens are never read here |
+| `/api/*` with `auth: "session"` (every route but four, outside `/api/v1`) | `__Host-lc_session` cookie (production): `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain` | 30-day sliding session. Default deny: unknown `/api` paths need a session too. Bearer tokens are never read here. `/api/api-clients` is owner-only |
+| `/api/v1/*` (`auth: "api_key"`, the machine API) | Bearer `lc_api_…` of an API client: one project and the channels the owner granted (`read`, `write` or `publish`) | Cookies are never read and no CSRF check applies (not a browser surface; no CORS). Default deny: unknown `/api/v1` paths need a key. Acts as the owner, who must still be the owner. 120 requests a minute per client. See [api.md](api.md) |
 | `POST /api/auth/login`, `/api/auth/password-tokens/inspect`, `/api/auth/set-password` | None (the body is the credential) | Rate limited per address; same CSRF checks as session routes |
 | `POST /api/bridge/pair` | A 10-minute single-use pairing code | Rate limited per address; refuses foreign `Origin` and non-JSON bodies |
 | `/mcp` | Bearer `lc_mcp_…` (user) or `lc_job_…` (one job, its project only) | Cookies are never read. Foreign `Origin` refused. 120 or 240 requests a minute per token |
 | `/bridge/v1` (WebSocket) | Bearer device token with the `bridge` scope | Cookies are never read; revoking a device closes its socket with 4403 |
 | `/healthz`, `/readyz` | None | Statuses only, no details; rate limited per address |
+
+### API clients
+
+The owner's other backends call the machine API under `/api/v1` with an API client's key. A
+client is bound to one project and reaches only the channels the owner granted it, each at a
+level: `read` (status, permalinks, errors and metrics), `write` (create and schedule posts that
+wait for the owner's approval) or `publish` (also approved on the owner's behalf). A channel
+that requires approval keeps every post for the owner whatever the level, and dry-run and the
+publishing switches apply as usual.
+
+- A channel the client was not granted reads like one that does not exist (`400` with the same
+  message), and a post it cannot see is a `404`; it can change only the posts it created.
+- The client acts as its owner, because approving and scheduling belong to users in the state
+  machine; each request is refused once that account is no longer the owner. One `api.request`
+  audit row per write names the client's token as the actor.
+- Files are uploaded to short-lived (15-minute) presigned URLs with their size and SHA-256
+  signed; on finalize the server checks size, checksum and the leading bytes against the declared
+  MIME type before anything can publish them.
+- Revoking a client in Settings stops its key on its next request.
 
 ### CSRF
 
@@ -82,14 +102,16 @@ All limits are in-memory token buckets per api process (there is one), reset on 
 | Password change | user | 5 a minute |
 | Device pairing (`/api/bridge/pair`) | client address | 10 a minute |
 | Pairing code creation | user | 10 a minute |
-| Failed credentials: a session cookie or bearer token that does not verify, on any session route or `/mcp` | client address | 30 a minute, then 429 before any lookup. Requests without credentials are not counted |
+| Failed credentials: a session cookie or bearer token that does not verify, on any session route, `/mcp` or `/api/v1` | client address | 30 a minute, then 429 before any lookup. Requests without credentials are not counted |
 | `/mcp` | user token / job token | 120 / 240 a minute |
+| `/api/v1` | API client | 120 a minute |
 | `/healthz`, `/readyz` | client address | 60 a minute |
 
 ### Secrets at rest
 
-- Passwords: argon2id. Session, MCP, job and device tokens and set-password links: only a hash is
-  stored; the secret is shown once.
+- Passwords: argon2id. Session, MCP, job, device and API client tokens and set-password links:
+  only a hash is stored; the secret is shown once (with `Cache-Control: no-store`) and never
+  audited or logged.
 - Platform credentials (Meta, Threads, X tokens): AES-256-GCM with a per-row nonce and the row id
   as associated data, under `LOOMCAST_ENCRYPTION_KEY` (versioned; see the rotation steps in the
   owner runbook).
@@ -107,8 +129,10 @@ All limits are in-memory token buckets per api process (there is one), reset on 
   - production cookie flags on sign-in and sign-out;
   - CSRF on every unsafe route of the contracts (foreign `Origin`, cross-site without `Origin`,
     form content types), found by iterating `routes`, so a new route is covered automatically;
-  - `/mcp` and `/bridge` refuse cookies, and every session route refuses MCP, job and device
-    tokens;
+  - `/mcp` and `/bridge` refuse cookies, and every session route refuses MCP, job, device and
+    API client tokens;
+  - every machine API route (`auth: "api_key"`) answers 401 without a key, to a session cookie
+    (even cross-site) and to MCP, job and device tokens, and an API key does not open `/mcp`;
   - every route the contracts mark public has a known per-address limit (a new public route fails
     the suite until it gets one), plus the probes and the failed-credential limit;
   - disabling a user revokes the devices they paired and closes their bridge connections.
@@ -169,6 +193,9 @@ curl -sI https://loomcast.prabhavalabs.com/healthz | grep -iE 'content-security|
 
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://loomcast.prabhavalabs.com/mcp
 # Expect 401 (no bearer token).
+
+curl -s -o /dev/null -w '%{http_code}\n' https://loomcast.prabhavalabs.com/api/v1/me
+# Expect 401 (no API key).
 ```
 
 On the server, confirm the api port is bound to loopback only:

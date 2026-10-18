@@ -41,7 +41,7 @@ describe("guide pages", () => {
       ["an IP address", /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/],
       ["a uuid", /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i],
       ["a home directory", /\/(?:Users|home)\/[\w.-]+/],
-      ["a device token", /\blc_(?:dev|mcp|job)_\w{8,}/],
+      ["a device token", /\blc_(?:dev|mcp|job|api)_\w{8,}/],
       ["the production domain", /prabhavalabs/i],
       ["an email address", /[\w.+-]+@(?!example\.com\b|loomcast\.test\b)[\w-]+\.[\w.]+/],
     ];
