@@ -34,6 +34,7 @@ Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs wit
 | `apps/web` | React and Vite web app built on shadcn/ui with the Loomcast theme |
 | `apps/studio-agent` | Local producer agent that drives the studio and pushes renders through the bridge |
 | `packages/*` | Shared packages used by the apps |
+| `packages/cli` | The `loomcast` command: calls the MCP server's tools from a shell |
 | `tests/e2e` | End-to-end tests |
 
 ## Not versioned
@@ -78,7 +79,7 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 | [MCP server](docs/mcp.md) | Endpoint, authentication, client configuration and the tool reference |
 | [M3 acceptance runbook](docs/runbooks/m3-acceptance.md) | Mac setup for the first real render (checkpoint C6) and the sign-off of milestone 3 |
 
-Each app and package also has a README: [`apps/api`](apps/api/README.md), [`apps/web`](apps/web/README.md), [`apps/studio-agent`](apps/studio-agent/README.md), [`packages/contracts`](packages/contracts/README.md), [`packages/db`](packages/db/README.md) and [`packages/ui`](packages/ui/README.md).
+Each app and package also has a README: [`apps/api`](apps/api/README.md), [`apps/web`](apps/web/README.md), [`apps/studio-agent`](apps/studio-agent/README.md), [`packages/contracts`](packages/contracts/README.md), [`packages/db`](packages/db/README.md), [`packages/ui`](packages/ui/README.md) and [`packages/cli`](packages/cli/README.md).
 
 ## Studio runtime
 

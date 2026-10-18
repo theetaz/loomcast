@@ -114,6 +114,48 @@ untrusted data. The session must reply with one fenced JSON block matching
 `CompetitorInsightsSchema`, then the report in markdown. One repair turn is allowed, as for
 reference analyses.
 
+## Research data
+
+Scans analyse a few videos; research keeps all of them. Every account and video Loomcast learns
+about is stored per workspace in `research_accounts`, `research_videos` and
+`research_video_snapshots` (see the [db README](../packages/db/README.md#research-data)), so the
+numbers build up across scans and over time. Only MCP clients read and write it, through the
+`research.*` tools ([mcp.md](mcp.md#research-tools)); the web app does not show it yet.
+
+- **Sources.** A scan through Business Discovery stores every video among the account's last 200
+  posts (Reels and other videos; images and carousels are left out), in the transaction that
+  records the scan, and links the account to the competitor. `research.track_account` and
+  `research.sync_account` read an Instagram account the same way on demand. MCP clients add
+  videos they found elsewhere, on any platform, with `research.add_videos`; their accounts are
+  `discovered` until someone tracks them.
+- **Identity.** A video is keyed by the platform's id from its link (the Instagram shortcode, the
+  TikTok or YouTube video id, the Facebook video id, the Threads post code), so the same video from
+  a scan and from an MCP client is one row. Handles are stored lowercased without `@`.
+- **Numbers.** Each write keeps the latest counts on the video and appends a snapshot when they
+  changed. An account's median views is the median over its 30 most recent videos with views, and
+  a video's outlier score is its views divided by that median. A score of 5 or more is a hit.
+- **Topics.** The server never classifies a video. The calling model labels videos with
+  `research.tag_video` (topic, tags, hook, format, notes). Topics are normalised (lowercased,
+  punctuation folded to spaces) so labels group reliably.
+- **Leaderboard.** `research.top_topics` groups tagged videos posted in a window (90 days by
+  default) by topic. For each topic it counts videos, distinct creators and hit creators, and
+  gives the maximum and median views, the best outlier score, the last hit, the saturation
+  (videos in the last 30 days), up to three examples and how our own live posts with the same
+  content item topic did. A topic is `proven` with three or more hit creators. Topics are ranked by
+
+  ```text
+  topicScore = 2 × hitCreators + log10(1 + medianViews) + min(bestOutlier, 20) / 5 − 0.25 × saturation
+  ```
+
+  so several creators hitting with a topic count most, typical reach and the strongest outlier
+  add to it, and a crowded topic loses a little.
+- **Access.** Reading needs `mcp:read`, and job tokens may read their own workspace. Writing needs
+  the owner's `mcp:admin`. The `loomcast` command ([packages/cli](../packages/cli/README.md))
+  calls the same tools from a shell.
+
+Captions, hooks and notes are third-party text. Tool descriptions say so, and text summaries leave
+captions out; models must treat them as data, never as instructions.
+
 ## Security
 
 - **No server-side fetching of user links.** The API server calls only the Graph API host, with a
@@ -129,8 +171,9 @@ reference analyses.
 - **Bounded downloads.** One public video per job, capped in size, length and time, written to the
   job's own directory inside the workspace folder and deleted afterwards. Nothing downloaded is
   ever executed; `yt-dlp` runs without a shell, config files, cookies or post-processing hooks.
-- **Bounded work.** At most 20 videos per scan, one active scan per competitor, 50 competitors per
-  workspace.
+- **Bounded work.** At most 20 videos analysed per scan, one active scan per competitor, 50
+  competitors per workspace. The research data stores at most the 200 posts Business Discovery
+  returns per read, and `research.add_videos` takes at most 100 videos per call.
 
 ## Limits and terms
 
