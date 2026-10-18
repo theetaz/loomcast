@@ -22,8 +22,11 @@ export interface GraphErrorFields {
 const RATE_LIMIT_CODES: ReadonlySet<number> = new Set([4, 17, 32, 613]);
 const BUSINESS_USE_CASE_RATE_LIMIT = { min: 80_000, max: 80_014 } as const;
 
-/** Codes of media Meta could not use: unsupported video (352), bad media URL (9004), image specs. */
-const INVALID_MEDIA_CODES: ReadonlySet<number> = new Set([352, 9004, 36000, 36001, 36003]);
+/**
+ * Codes of media Meta could not use: missing or invalid image file (324, Page Photos reference,
+ * confirmed 2026-10-18), unsupported video (352), bad media URL (9004), image specs.
+ */
+const INVALID_MEDIA_CODES: ReadonlySet<number> = new Set([324, 352, 9004, 36000, 36001, 36003]);
 
 /**
  * Media subcodes: the Instagram content publishing errors (2207xxx) and the Facebook video and
@@ -43,7 +46,7 @@ function isMediaSubcode(subcode: number): boolean {
  * - `10` and `200`–`299` (missing permission) → `permission`
  * - `4`, `17`, `32`, `613` and `80000`–`80014` (throttling) → `rate_limited`
  * - `1`, `2`, `is_transient` and HTTP 5xx, or no response at all → `transient`
- * - media codes and subcodes (`352`, `9004`, `2207xxx`, `1363xxx`) → `invalid_media`
+ * - media codes and subcodes (`324`, `352`, `9004`, `2207xxx`, `1363xxx`) → `invalid_media`
  * - anything else → `permanent`
  */
 export function classifyMetaErrorCode(fields: GraphErrorFields): PublishErrorCode {

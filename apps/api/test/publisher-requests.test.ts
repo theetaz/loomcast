@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { PLATFORMS, type Platform, type VideoPublishRequest } from "@loomcast/contracts";
+import {
+  type MediaPublishRequest,
+  PLATFORMS,
+  type Platform,
+  type PublishMediaItem,
+  type PublishRequest,
+  type TextPublishRequest,
+  type VideoPublishRequest,
+} from "@loomcast/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildCaption,
@@ -10,9 +18,12 @@ import {
   buildThreadsPublish,
   buildXPublish,
   captionLength,
+  FACEBOOK_PHOTO_LIMITS,
+  FACEBOOK_VIDEO_STORY_LIMITS,
   limitCaption,
   PLACEHOLDERS,
   PLATFORM_CAPTION_LIMITS,
+  photoPlaceholder,
   REDACTED,
   redactRequest,
   resolveRequestUrl,
@@ -282,5 +293,207 @@ describe("redaction", () => {
       const plan = buildPublishPlan({ request: request(platform), media, accessToken: REDACTED });
       expect(redactRequest(plan as never)).toEqual(plan);
     }
+  });
+});
+
+describe("facebook formats", () => {
+  const page = "1784140000000";
+
+  function photo(overrides: Partial<PublishMediaItem> = {}): PublishMediaItem {
+    return {
+      type: "image",
+      url: `https://media.example.test/p/${randomUUID()}.jpg`,
+      mime: "image/jpeg",
+      bytes: 1_048_576,
+      width: 1_080,
+      height: 1_350,
+      durationMs: null,
+      ...overrides,
+    };
+  }
+
+  function clip(overrides: Partial<PublishMediaItem> = {}): PublishMediaItem {
+    return {
+      type: "video",
+      url: `https://media.example.test/p/${randomUUID()}.mp4`,
+      mime: "video/mp4",
+      bytes: 9 * 1_048_576,
+      width: 1_080,
+      height: 1_920,
+      durationMs: 20_000,
+      ...overrides,
+    };
+  }
+
+  function composed(
+    format: MediaPublishRequest["format"],
+    items: PublishMediaItem[],
+    caption = "Ownership in sixty seconds",
+  ): MediaPublishRequest {
+    return { platform: "facebook", format, externalId: page, caption, media: items };
+  }
+
+  function text(caption: string, link?: string): TextPublishRequest {
+    return {
+      platform: "facebook",
+      format: "text",
+      externalId: page,
+      caption,
+      ...(link === undefined ? {} : { options: { facebook: { link } } }),
+    };
+  }
+
+  const plan = (input: PublishRequest, facts: typeof media | null = null) =>
+    buildFacebookPublish({ request: input, media: facts, accessToken: token });
+
+  it("builds a Page video from the public url with its title", () => {
+    const input = request("facebook", {
+      format: "video",
+      width: 1_920,
+      height: 1_080,
+      options: { facebook: { title: "Ownership" } },
+    });
+    const built = plan(input, media);
+    expect(built.pending).toBe(true);
+    expect(built.steps).toEqual([
+      {
+        step: "upload_video",
+        method: "POST",
+        api: "graph",
+        path: `/${page}/videos`,
+        headers: { Authorization: `Bearer ${token}` },
+        bodyEncoding: "json",
+        body: { file_url: input.videoUrl, description: input.caption, title: "Ownership" },
+      },
+    ]);
+  });
+
+  it("builds a photo post with its caption and alt text, then reads the permalink", () => {
+    const item = photo({ altText: "A crab on a keyboard" });
+    const built = plan(composed("image", [item]));
+    expect(built.pending).toBe(false);
+    expect(built.steps.map((step) => [step.step, step.method, step.path])).toEqual([
+      ["upload_photo", "POST", `/${page}/photos`],
+      ["permalink", "GET", `/${PLACEHOLDERS.postId}`],
+    ]);
+    expect(built.steps[0]?.body).toEqual({
+      url: item.url,
+      caption: "Ownership in sixty seconds",
+      alt_text_custom: "A crab on a keyboard",
+    });
+    expect(built.steps[1]?.query).toEqual({ fields: "permalink_url" });
+  });
+
+  it("builds a multi-photo post from unpublished photos", () => {
+    const items = [photo(), photo(), photo()];
+    const built = plan(composed("carousel", items));
+    expect(built.pending).toBe(false);
+    expect(built.steps.map((step) => step.step)).toEqual([
+      "upload_photo",
+      "upload_photo",
+      "upload_photo",
+      "create_post",
+      "permalink",
+    ]);
+    expect(built.steps.slice(0, 3).map((step) => step.body)).toEqual(
+      items.map((item) => ({ url: item.url, published: false })),
+    );
+    expect(built.steps[3]).toMatchObject({ method: "POST", path: `/${page}/feed` });
+    expect(built.steps[3]?.body).toEqual({
+      message: "Ownership in sixty seconds",
+      "attached_media[0]": JSON.stringify({ media_fbid: photoPlaceholder(0) }),
+      "attached_media[1]": JSON.stringify({ media_fbid: photoPlaceholder(1) }),
+      "attached_media[2]": JSON.stringify({ media_fbid: photoPlaceholder(2) }),
+    });
+    expect(photoPlaceholder(0)).toBe("{photo-id-1}");
+  });
+
+  it("builds text posts with a link, leaving out an empty message", () => {
+    const built = plan(text("Read the write-up", "https://example.test/post"));
+    expect(built.steps.map((step) => [step.step, step.path])).toEqual([
+      ["create_post", `/${page}/feed`],
+      ["permalink", `/${PLACEHOLDERS.postId}`],
+    ]);
+    expect(built.steps[0]?.body).toEqual({
+      message: "Read the write-up",
+      link: "https://example.test/post",
+    });
+    expect(plan(text("  ", "https://example.test/post")).steps[0]?.body).toEqual({
+      link: "https://example.test/post",
+    });
+  });
+
+  it("builds photo stories and video stories", () => {
+    const still = photo();
+    const photoStory = plan(composed("story", [still]));
+    expect(photoStory.pending).toBe(false);
+    expect(photoStory.steps.map((step) => [step.step, step.method, step.path])).toEqual([
+      ["upload_photo", "POST", `/${page}/photos`],
+      ["publish_story", "POST", `/${page}/photo_stories`],
+      ["stories", "GET", `/${page}/stories`],
+    ]);
+    expect(photoStory.steps[0]?.body).toEqual({ url: still.url, published: false });
+    expect(photoStory.steps[1]?.body).toEqual({ photo_id: PLACEHOLDERS.photoId });
+
+    const moving = clip();
+    const videoStory = plan(composed("story", [moving]));
+    expect(videoStory.pending).toBe(true);
+    expect(videoStory.steps.map((step) => [step.step, step.api, step.path])).toEqual([
+      ["start_upload", "graph", `/${page}/video_stories`],
+      ["upload", "rupload", `/${PLACEHOLDERS.videoId}`],
+      ["finish_upload", "graph", `/${page}/video_stories`],
+    ]);
+    expect(videoStory.steps[1]?.headers).toEqual({
+      Authorization: `OAuth ${token}`,
+      file_url: moving.url,
+    });
+    expect(videoStory.steps[2]?.body).toEqual({
+      upload_phase: "finish",
+      video_id: PLACEHOLDERS.videoId,
+    });
+  });
+
+  it("validates every Facebook format", () => {
+    const fields = (input: PublishRequest, facts: typeof media | null = null) =>
+      validatePublishRequest(input, facts).map((issue) => issue.field);
+
+    expect(
+      fields(request("facebook", { format: "video", width: 1_920, height: 1_080 }), media),
+    ).toEqual([]);
+    expect(
+      fields(request("facebook", { format: "video", durationMs: 30 * 60_000 }), media),
+    ).toEqual(["duration"]);
+    expect(fields(request("facebook", { format: "video" }))).toEqual(["video"]);
+
+    expect(fields(composed("image", [photo()]))).toEqual([]);
+    expect(fields(composed("image", [photo({ mime: "image/webp" })]))).toEqual(["media.0"]);
+    expect(
+      validatePublishRequest(composed("image", [photo({ mime: "image/webp" })]), null),
+    ).toEqual([expect.objectContaining({ message: expect.stringContaining("JPEG or PNG") })]);
+    expect(
+      fields(composed("image", [photo({ bytes: FACEBOOK_PHOTO_LIMITS.maxBytes + 1 })])),
+    ).toEqual(["media.0"]);
+
+    expect(fields(composed("carousel", [photo(), photo()]))).toEqual([]);
+    expect(validatePublishRequest(composed("carousel", [photo(), clip()]), null)).toEqual([
+      { field: "media", message: expect.stringContaining("photos only") },
+    ]);
+    expect(fields(composed("carousel", [photo(), photo({ mime: "image/webp" })]))).toEqual([
+      "media.1",
+    ]);
+
+    expect(fields(composed("story", [photo()]))).toEqual([]);
+    expect(fields(composed("story", [clip()]))).toEqual([]);
+    expect(fields(composed("story", [clip({ durationMs: 70_000 })]))).toEqual(["duration"]);
+    expect(fields(composed("story", [clip({ width: 1_920, height: 1_080 })]))).toContain(
+      "dimensions",
+    );
+    expect(fields(composed("story", [clip({ width: null, height: null })]))).toEqual([]);
+    expect(fields(composed("story", [clip({ durationMs: null })]))).toEqual(["media.0"]);
+    expect(FACEBOOK_VIDEO_STORY_LIMITS.maxDurationMs).toBe(60_000);
+
+    expect(fields(text("Words only"))).toEqual([]);
+    expect(fields(text("", "https://example.test/post"))).toEqual([]);
+    expect(fields(text(" "))).toEqual(["caption"]);
   });
 });

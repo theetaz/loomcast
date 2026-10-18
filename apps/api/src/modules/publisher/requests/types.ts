@@ -58,8 +58,17 @@ export const PLACEHOLDERS = {
   containerId: "{container-id}",
   videoId: "{video-id}",
   mediaId: "{media-id}",
+  /** A Facebook Page post (`{page-id}_{post-id}`) or a story post. */
+  postId: "{post-id}",
+  /** A Facebook photo uploaded on its own; `photoPlaceholder` numbers those of a multi-photo post. */
+  photoId: "{photo-id}",
   segmentIndex: "{segment-index}",
 } as const;
+
+/** The placeholder of the `index`th (from 0) photo of a multi-photo post: `{photo-id-1}`, ... */
+export function photoPlaceholder(index: number): string {
+  return `{photo-id-${index + 1}}`;
+}
 
 /** The account id a request shows for a channel that is not connected yet (dry-run only). */
 export const UNCONNECTED_ACCOUNT_ID = "{account-id}";
@@ -158,7 +167,7 @@ export function segment(id: string): string {
 
 /** Checks shared by every platform: duration, dimensions and size bounds. */
 export function checkMedia(
-  request: VideoPublishRequest,
+  request: Pick<VideoPublishRequest, "durationMs" | "width" | "height">,
   media: MediaFacts,
   limits: {
     minDurationMs: number;
