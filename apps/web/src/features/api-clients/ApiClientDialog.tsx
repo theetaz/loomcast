@@ -219,7 +219,7 @@ function ClientForm({
       </div>
 
       {client ? null : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid items-start gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor={ids.project}>Project</Label>
             <Select
