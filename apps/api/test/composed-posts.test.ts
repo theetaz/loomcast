@@ -360,7 +360,7 @@ describe("composed posts over REST", () => {
     expect(attempts[0]).toMatchObject({ adapter: "facebook", dryRun: true, error: null });
   });
 
-  it("records one dry-run attempt for a photo post", async () => {
+  it("publishes a photo post in dry run", async () => {
     const created = await createPost("image");
     const itemId = created.item.id;
     const photo = await uploadMedia(itemId, "image/jpeg", "photo.jpg");
@@ -375,18 +375,21 @@ describe("composed posts over REST", () => {
 
     t.clock.advance(3 * HOUR_MS);
     await runDue(deps.scheduler);
-    // The photo request builders land on their own; whatever they answer, the publisher loads the
-    // photo for the format, records exactly one dry-run attempt and settles the post.
     const [row] = await testDb.db
       .select()
       .from(scheduledPosts)
       .where(eq(scheduledPosts.id, post.id));
-    expect(["published", "failed"]).toContain(row?.status);
+    expect(row?.status, JSON.stringify(row?.lastError)).toBe("published");
     const attempts = await testDb.db
       .select()
       .from(publishAttempts)
       .where(eq(publishAttempts.postId, post.id));
     expect(attempts).toHaveLength(1);
-    expect(attempts[0]).toMatchObject({ attempt: 1, adapter: "facebook", dryRun: true });
+    expect(attempts[0]).toMatchObject({
+      attempt: 1,
+      adapter: "facebook",
+      dryRun: true,
+      error: null,
+    });
   });
 });
