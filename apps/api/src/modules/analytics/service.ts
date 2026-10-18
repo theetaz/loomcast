@@ -2,6 +2,7 @@ import {
   ANALYTICS_TOP_POSTS,
   type AnalyticsOverview,
   type AnalyticsOverviewQuery,
+  type AnalyticsPost,
   aggregatePosts,
   type DailyViews,
   type ItemAnalytics,
@@ -22,7 +23,7 @@ import {
   scheduledPosts,
   series,
 } from "@loomcast/db";
-import { and, asc, eq, gte, inArray, isNotNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, type SQL, sql } from "drizzle-orm";
 import { supportsInsights } from "../insights/normalize";
 import { toPostMetrics } from "./mappers";
 
@@ -125,6 +126,17 @@ export interface AnalyticsService {
   /** Null when the series does not exist. */
   series(id: string, query: SeriesAnalyticsQuery): Promise<SeriesAnalytics | null>;
   overview(query: AnalyticsOverviewQuery): Promise<AnalyticsOverview>;
+  /**
+   * Live posts newest first, each with its latest capture, its channel's name and its item's
+   * topic: what `analytics.list_posts` shows on `/mcp`.
+   */
+  listPosts(query: {
+    workspaceId?: string | undefined;
+    since?: string | undefined;
+    limit: number;
+  }): Promise<AnalyticsPost[]>;
+  /** The workspace of a post, or null when there is no such post. */
+  postWorkspace(id: string): Promise<string | null>;
 }
 
 export function createAnalyticsService(db: Database): AnalyticsService {
@@ -223,6 +235,48 @@ export function createAnalyticsService(db: Database): AnalyticsService {
         totals: aggregatePosts(posts.map((post) => countsOf(post.metrics))),
         posts,
       };
+    },
+
+    async listPosts(query) {
+      const rows = await db
+        .select({ ...liveColumns, channelName: channels.displayName, topic: contentItems.topic })
+        .from(scheduledPosts)
+        .innerJoin(contentItems, eq(contentItems.id, scheduledPosts.itemId))
+        .innerJoin(channels, eq(channels.id, scheduledPosts.channelId))
+        .where(
+          and(
+            eq(scheduledPosts.status, "published"),
+            eq(scheduledPosts.dryRun, false),
+            isNotNull(scheduledPosts.publishedAt),
+            ...(query.workspaceId === undefined ? [] : [eq(contentItems.workspaceId, query.workspaceId)]),
+            ...inRange({ from: query.since }),
+          ),
+        )
+        .orderBy(desc(scheduledPosts.publishedAt), desc(scheduledPosts.id))
+        .limit(query.limit);
+      const posts = rows.flatMap((row) =>
+        row.publishedAt === null
+          ? []
+          : [
+              {
+                ...row,
+                permalink: row.permalink?.startsWith("https://") ? row.permalink : null,
+                publishedAt: row.publishedAt.toISOString(),
+              },
+            ],
+      );
+      const latest = await latestOf(db, posts);
+      return posts.map((post) => ({ ...post, metrics: latest.get(post.postId) ?? null }));
+    },
+
+    async postWorkspace(id) {
+      const [row] = await db
+        .select({ workspaceId: contentItems.workspaceId })
+        .from(scheduledPosts)
+        .innerJoin(contentItems, eq(contentItems.id, scheduledPosts.itemId))
+        .where(eq(scheduledPosts.id, id))
+        .limit(1);
+      return row?.workspaceId ?? null;
     },
 
     async overview(query) {
