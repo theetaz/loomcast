@@ -1,5 +1,6 @@
 import {
   ACTOR_KINDS,
+  API_CHANNEL_ACCESS,
   ASSET_KINDS,
   ASSET_STATUSES,
   CHANNEL_STATUSES,
@@ -29,10 +30,19 @@ import {
 } from "@loomcast/contracts";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { apiTokens, jobs, kbEntries, kbReferences, passwordTokens, users } from "../src/schema";
+import {
+  apiTokenChannels,
+  apiTokens,
+  jobs,
+  kbEntries,
+  kbReferences,
+  passwordTokens,
+  users,
+} from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   apiTokenValues,
+  insertChannel,
   insertJob,
   insertKbEntry,
   insertProject,
@@ -356,6 +366,54 @@ describe("password_tokens", () => {
   });
 });
 
+describe("api clients", () => {
+  it("binds an API client to a project, and only job and API tokens to one", async () => {
+    const { user, project } = await setup();
+    const unbound = await pgError(
+      testDb.db.insert(apiTokens).values(apiTokenValues({ userId: user.id, kind: "api" })),
+    );
+    expect(unbound).toEqual({ code: PG.checkViolation, constraint: "api_tokens_project_id_ck" });
+    const mcp = await pgError(
+      testDb.db
+        .insert(apiTokens)
+        .values(apiTokenValues({ userId: user.id, kind: "mcp", projectId: project.id })),
+    );
+    expect(mcp).toEqual({ code: PG.checkViolation, constraint: "api_tokens_project_id_ck" });
+
+    const [client] = await testDb.db
+      .insert(apiTokens)
+      .values(apiTokenValues({ userId: user.id, kind: "api", projectId: project.id }))
+      .returning();
+    expect(client).toMatchObject({ kind: "api", projectId: project.id, jobId: null });
+  });
+
+  it("keeps one grant per channel and drops grants with their token or channel", async () => {
+    const { user, project } = await setup();
+    const [client] = await testDb.db
+      .insert(apiTokens)
+      .values(apiTokenValues({ userId: user.id, kind: "api", projectId: project.id }))
+      .returning();
+    if (client === undefined) throw new Error("token was not inserted");
+    const channel = await insertChannel(testDb.db);
+    await testDb.db
+      .insert(apiTokenChannels)
+      .values({ tokenId: client.id, channelId: channel.id, access: "write" });
+    const twice = await pgError(
+      testDb.db
+        .insert(apiTokenChannels)
+        .values({ tokenId: client.id, channelId: channel.id, access: "read" }),
+    );
+    expect(twice.code).toBe(PG.uniqueViolation);
+
+    await testDb.db.delete(apiTokens).where(eq(apiTokens.id, client.id));
+    const left = await testDb.db
+      .select()
+      .from(apiTokenChannels)
+      .where(eq(apiTokenChannels.channelId, channel.id));
+    expect(left).toEqual([]);
+  });
+});
+
 describe("pg enums", () => {
   const ENUMS: Record<string, readonly string[]> = {
     user_role: USER_ROLES,
@@ -385,6 +443,7 @@ describe("pg enums", () => {
     post_format: POST_FORMATS,
     task_status: TASK_STATUSES,
     oauth_provider: OAUTH_PROVIDERS,
+    api_channel_access: API_CHANNEL_ACCESS,
   };
 
   it("hold exactly the contracts values, in order", async () => {

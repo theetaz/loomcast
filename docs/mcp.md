@@ -856,7 +856,7 @@ Get a content item with one version (the current one by default), its script and
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -879,7 +879,7 @@ Get a content item with one version (the current one by default), its script and
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |
@@ -1288,7 +1288,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -1311,7 +1311,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |
@@ -1360,7 +1360,7 @@ Owner only. Create a composed post in a project: a photo (image), carousel, stor
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -1383,7 +1383,7 @@ Owner only. Create a composed post in a project: a photo (image), carousel, stor
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |

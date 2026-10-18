@@ -17,6 +17,7 @@ const AUTHORS: Record<VersionCreatedVia, string> = {
   mcp: "From an MCP client",
   job: "By the studio agent",
   system: "Created",
+  api: "From an API client",
 };
 
 const DECISIONS: Record<Review["decision"], { label: string; className: string }> = {

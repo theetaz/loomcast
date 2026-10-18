@@ -1,5 +1,6 @@
 import {
   type AccessToken,
+  API_KEY_RE,
   DEVICE_TOKEN_RE,
   IdSchema,
   JOB_TOKEN_RE,
@@ -27,6 +28,8 @@ export const ALLOWED_SCOPES: { readonly [K in TokenKind]: readonly TokenScope[] 
   mcp: MCP_TOKEN_SCOPES,
   device: ["bridge"],
   job: ["mcp:read", "mcp:write"],
+  // An API client's permissions are its channel grants (`api_token_channels`), not scopes.
+  api: [],
 };
 
 /** Scopes only the owner's tokens may hold. */
@@ -36,6 +39,7 @@ const TOKEN_FORMAT: { readonly [K in TokenKind]: RegExp } = {
   mcp: MCP_TOKEN_RE,
   device: DEVICE_TOKEN_RE,
   job: JOB_TOKEN_RE,
+  api: API_KEY_RE,
 };
 
 export interface CreateTokenInput {
@@ -162,6 +166,10 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
         // A job token must name its job and project; only `mintJobToken` creates one.
         throw new Error("job tokens are created with mintJobToken");
       }
+      if (input.kind === "api") {
+        // An API client needs its project and grants; the api-clients service creates one.
+        throw new Error("API clients are created by the api-clients service");
+      }
       const name = input.name.trim();
       if (name.length === 0 || name.length > TOKEN_NAME_MAX_LENGTH) {
         throw validationFailed([
@@ -266,6 +274,7 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
             : token.scopes.filter((scope) => !OWNER_ONLY_SCOPES.includes(scope)),
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
         ...(token.kind === "job" ? { projectId: token.projectId, jobId: token.jobId } : {}),
+        ...(token.kind === "api" ? { projectId: token.projectId } : {}),
       };
     },
 

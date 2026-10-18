@@ -10,9 +10,10 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 /**
  * `mcp`: a user's MCP token. `device`: a studio agent's bridge token. `job`: a short-lived MCP
- * token minted for one job and handed to its producer session in `job.assign`.
+ * token minted for one job and handed to its producer session in `job.assign`. `api`: an API
+ * client's key for the machine API (`/api/v1`), bound to one project and granted channels.
  */
-export const TOKEN_KINDS = ["mcp", "device", "job"] as const;
+export const TOKEN_KINDS = ["mcp", "device", "job", "api"] as const;
 export const TokenKindSchema = z.enum(TOKEN_KINDS);
 export type TokenKind = (typeof TOKEN_KINDS)[number];
 
@@ -28,6 +29,21 @@ export const MCP_TOKEN_SCOPES = [
 ] as const satisfies readonly TokenScope[];
 export const McpTokenScopeSchema = z.enum(MCP_TOKEN_SCOPES);
 export type McpTokenScope = (typeof MCP_TOKEN_SCOPES)[number];
+
+/**
+ * What an API client may do on one channel. The levels are cumulative:
+ * - `read`: see the channel and its posts' status, permalinks, errors and metrics.
+ * - `write`: also create and schedule posts; they wait for the owner's approval.
+ * - `publish`: also have its posts approved on the owner's behalf and scheduled straight away.
+ */
+export const API_CHANNEL_ACCESS = ["read", "write", "publish"] as const;
+export const ApiChannelAccessSchema = z.enum(API_CHANNEL_ACCESS);
+export type ApiChannelAccess = (typeof API_CHANNEL_ACCESS)[number];
+
+/** Whether `granted` includes `required`, as the levels are cumulative. */
+export function accessIncludes(granted: ApiChannelAccess, required: ApiChannelAccess): boolean {
+  return API_CHANNEL_ACCESS.indexOf(granted) >= API_CHANNEL_ACCESS.indexOf(required);
+}
 
 export const PROJECT_STATUSES = ["active", "archived"] as const;
 export const ProjectStatusSchema = z.enum(PROJECT_STATUSES);
@@ -209,18 +225,19 @@ export const ContentActionSchema = z.enum(CONTENT_ACTIONS);
 export type ContentAction = (typeof CONTENT_ACTIONS)[number];
 
 /**
- * How a content version was written: in the web app, through an MCP tool, from a job result, or by
- * the server itself (for example the first, empty version of a new item).
+ * How a content version was written: in the web app, through an MCP tool, from a job result, by
+ * the server itself (for example the first, empty version of a new item), or by an API client.
  */
-export const VERSION_CREATED_VIA = ["ui", "mcp", "job", "system"] as const;
+export const VERSION_CREATED_VIA = ["ui", "mcp", "job", "system", "api"] as const;
 export const VersionCreatedViaSchema = z.enum(VERSION_CREATED_VIA);
 export type VersionCreatedVia = (typeof VERSION_CREATED_VIA)[number];
 
 /**
  * How a content item was created: in the web app, by an MCP client with a user token, by a
- * producer session with a job token, or by the server (for example a scheduler).
+ * producer session with a job token, by the server (for example a scheduler), or by an API client
+ * through the machine API.
  */
-export const CONTENT_CREATED_VIA = ["ui", "mcp", "producer", "system"] as const;
+export const CONTENT_CREATED_VIA = ["ui", "mcp", "producer", "system", "api"] as const;
 export const ContentCreatedViaSchema = z.enum(CONTENT_CREATED_VIA);
 export type ContentCreatedVia = (typeof CONTENT_CREATED_VIA)[number];
 
