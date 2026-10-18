@@ -10,6 +10,7 @@ import {
   POST_FORMATS,
   PostOptionsSchema,
   PublishRequestSchema,
+  platformRefusal,
   platformSupportsFormat,
   stageForArtifacts,
 } from "../src";
@@ -56,7 +57,7 @@ describe("post formats", () => {
     expect(isPublishable({ format: "text" })).toBe(true);
     expect(isPublishable({ format: "text", media: [image] })).toBe(false);
     expect(formatMediaIssues({ format: "carousel", media: [image] })).toEqual([
-      "A carousel post needs at least 2 items.",
+      "A carousel needs at least 2 items.",
     ]);
   });
 
@@ -114,6 +115,20 @@ describe("post formats", () => {
     ).toBe(false);
     expect(PublishRequestSchema.safeParse({ ...base, format: "text" }).success).toBe(true);
     expect(PublishRequestSchema.safeParse({ ...base, format: "reel" }).success).toBe(false);
+  });
+
+  it("refuses channels that cannot publish a version", () => {
+    expect(platformRefusal("instagram", { format: "text" })).toBe(
+      "Instagram does not publish text posts.",
+    );
+    expect(platformRefusal("facebook", { format: "carousel", media: [image, video] })).toBe(
+      "Facebook carousels take photos only.",
+    );
+    expect(platformRefusal("facebook", { format: "carousel", media: [image, image] })).toBeNull();
+    expect(platformRefusal("instagram", { format: "carousel", media: [image, video] })).toBeNull();
+    expect(formatMediaIssues({ format: "image", media: [video] })).toEqual([
+      "A photo post cannot carry a video.",
+    ]);
   });
 
   it("checks post options", () => {

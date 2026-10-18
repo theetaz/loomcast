@@ -96,36 +96,71 @@ export interface PublishableArtifacts {
   readonly media?: readonly Pick<PostMediaEntry, "type">[] | null;
 }
 
+/** Each format as the subject of a sentence: "A photo post needs ...". */
+const FORMAT_SUBJECTS = {
+  reel: "A Reel",
+  video: "A video post",
+  image: "A photo post",
+  carousel: "A carousel",
+  story: "A story",
+  text: "A text post",
+} as const satisfies { readonly [F in PostFormat]: string };
+
+const MEDIA_TYPE_NOUNS = { image: "photo", video: "video" } as const satisfies {
+  readonly [T in MediaType]: string;
+};
+
 /** Why a version's media do not fit its format; empty when they do. */
 export function formatMediaIssues(version: PublishableArtifacts): string[] {
   const format = version.format ?? "reel";
   const rule: FormatMediaRule = FORMAT_MEDIA_RULES[format];
+  const subject = FORMAT_SUBJECTS[format];
   const media = version.media ?? [];
   const issues: string[] = [];
   if (media.length > rule.max || (rule.max === 0 && media.length > 0)) {
     issues.push(
       rule.max === 0
-        ? `A ${format} post carries no photos or videos.`
-        : `A ${format} post carries at most ${rule.max} ${rule.max === 1 ? "item" : "items"}.`,
+        ? `${subject} carries no photos or videos.`
+        : `${subject} carries at most ${rule.max} ${rule.max === 1 ? "item" : "items"}.`,
     );
   }
   for (const entry of media) {
     if (!rule.types.includes(entry.type)) {
-      issues.push(`A ${format} post cannot carry a ${entry.type}.`);
+      issues.push(`${subject} cannot carry a ${MEDIA_TYPE_NOUNS[entry.type]}.`);
       break;
     }
   }
   const hasRender = version.renderAssetId !== undefined && version.renderAssetId !== null;
   if (rule.render) {
     if (!hasRender && media.length === 0) {
-      issues.push(`A ${format} post needs a video.`);
+      issues.push(`${subject} needs a video.`);
     }
   } else if (media.length < rule.min) {
-    issues.push(
-      `A ${format} post needs at least ${rule.min} ${rule.min === 1 ? "item" : "items"}.`,
-    );
+    issues.push(`${subject} needs at least ${rule.min} ${rule.min === 1 ? "item" : "items"}.`);
   }
   return issues;
+}
+
+/**
+ * Why channels of `platform` cannot publish this version, or null when they can: the platform
+ * does not publish the format, or its carousels take photos only and this one has a video.
+ */
+export function platformRefusal(
+  platform: Platform,
+  version: Pick<PublishableArtifacts, "format" | "media">,
+): string | null {
+  const format = version.format ?? "reel";
+  if (!platformSupportsFormat(platform, format)) {
+    return `${PLATFORM_LABELS[platform]} does not publish ${POST_FORMAT_LABELS[format].toLowerCase()}s.`;
+  }
+  if (
+    format === "carousel" &&
+    (PHOTO_ONLY_CAROUSEL_PLATFORMS as readonly Platform[]).includes(platform) &&
+    (version.media ?? []).some((entry) => entry.type === "video")
+  ) {
+    return `${PLATFORM_LABELS[platform]} carousels take photos only.`;
+  }
+  return null;
 }
 
 /** Whether a version has everything its format needs to be reviewed, approved and published. */

@@ -5,11 +5,10 @@ import {
   mediaTypeOfMime,
   type PipelineState,
   PLATFORM_LABELS,
-  POST_FORMAT_LABELS,
   type PostFormat,
   type PostMediaEntry,
   PRODUCTION_STATES,
-  platformSupportsFormat,
+  platformRefusal,
   postFormatCatalog,
   postTools,
   type ScheduledPost,
@@ -63,7 +62,7 @@ function composed(item: ContentItem, version: ContentVersion) {
 async function refusedChannels(
   tx: Transaction,
   itemId: string,
-  format: PostFormat,
+  version: { format: PostFormat; media: readonly Pick<PostMediaEntry, "type">[] },
   channelIds: readonly string[],
 ): Promise<{ path: string; message: string; format: boolean }[]> {
   const rows = await tx
@@ -96,13 +95,9 @@ async function refusedChannels(
       continue;
     }
     const name = `${channel.displayName} (${PLATFORM_LABELS[channel.platform]})`;
-    if (!platformSupportsFormat(channel.platform, format)) {
-      const what = POST_FORMAT_LABELS[format].toLowerCase();
-      refused.push({
-        path,
-        message: `${name}: ${PLATFORM_LABELS[channel.platform]} does not publish ${what}s`,
-        format: true,
-      });
+    const refusal = platformRefusal(channel.platform, version);
+    if (refusal !== null) {
+      refused.push({ path, message: `${name}: ${refusal.replace(/\.$/, "")}`, format: true });
     } else if (channel.status === "disabled") {
       refused.push({ path, message: `${name}: the channel is disabled`, format: false });
     } else if (taken.has(id)) {
@@ -253,7 +248,7 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
         if (version === null) {
           throw new Error("content item without its current version");
         }
-        const refused = await refusedChannels(tx, item.id, version.format, input.channelIds);
+        const refused = await refusedChannels(tx, item.id, version, input.channelIds);
         if (refused.length > 0) {
           if (refused.every((issue) => issue.format)) {
             throw new McpToolError(

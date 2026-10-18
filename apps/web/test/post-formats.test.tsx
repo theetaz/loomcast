@@ -90,10 +90,10 @@ describe("post format rules", () => {
 
   it("explains what a draft still needs", () => {
     expect(draftIssues("carousel", [{ type: "image", altText: "" }], "")).toEqual([
-      "A carousel post needs at least 2 items.",
+      "A carousel needs at least 2 items.",
     ]);
     expect(draftIssues("image", [{ type: "video", altText: "" }], "")).toEqual([
-      "A image post cannot carry a video.",
+      "A photo post cannot carry a video.",
     ]);
     expect(draftIssues("text", [], "  ")).toEqual(["A text post needs its words."]);
     expect(draftIssues("text", [], "Hello")).toEqual([]);
@@ -382,13 +382,13 @@ describe("composer", () => {
     expect(within(dialog).getByRole("radio", { name: /Reel/ })).toHaveAccessibleDescription(
       "Facebook, Instagram, Threads, X",
     );
-    expect(within(dialog).getByText("A image post needs at least 1 item.")).toBeInTheDocument();
+    expect(within(dialog).getByText("A photo post needs at least 1 item.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Save draft" })).toBeEnabled();
 
     await user.click(within(dialog).getByRole("radio", { name: /Carousel/ }));
-    expect(within(dialog).getByText("A carousel post needs at least 2 items.")).toBeInTheDocument();
+    expect(within(dialog).getByText("A carousel needs at least 2 items.")).toBeInTheDocument();
     await user.upload(within(dialog).getByLabelText("Add photos or videos"), photo("one.png", 1));
-    expect(within(dialog).getByText("A carousel post needs at least 2 items.")).toBeInTheDocument();
+    expect(within(dialog).getByText("A carousel needs at least 2 items.")).toBeInTheDocument();
     await user.upload(within(dialog).getByLabelText("Add photos or videos"), photo("two.png", 2));
     expect(within(dialog).queryByText(/needs at least/)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Save post" })).toBeEnabled();

@@ -1,12 +1,12 @@
 import {
   type Channel,
   type MediaType,
-  PHOTO_ONLY_CAROUSEL_PLATFORMS,
   PLATFORM_FORMATS,
   PLATFORMS,
   type Platform,
   POST_FORMATS,
   type PostFormat,
+  platformRefusal,
   platformSupportsFormat,
 } from "@loomcast/contracts";
 
@@ -24,14 +24,6 @@ export function platformsFor(format: PostFormat): Platform[] {
   return PLATFORMS.filter((platform) => platformSupportsFormat(platform, format));
 }
 
-/** Whether a carousel with these media can go to `platform` (Facebook takes photos only). */
-function carouselFits(platform: Platform, media: readonly { type: MediaType }[]): boolean {
-  return (
-    !(PHOTO_ONLY_CAROUSEL_PLATFORMS as readonly Platform[]).includes(platform) ||
-    media.every((entry) => entry.type === "image")
-  );
-}
-
 /**
  * Whether `channel` can publish a post of `format` with `media`: its platform publishes the format,
  * and a carousel with a video skips platforms whose carousels take photos only.
@@ -41,8 +33,7 @@ export function channelPublishes(
   format: PostFormat,
   media: readonly { type: MediaType }[] = [],
 ): boolean {
-  if (!platformSupportsFormat(channel.platform, format)) return false;
-  return format !== "carousel" || carouselFits(channel.platform, media);
+  return platformRefusal(channel.platform, { format, media }) === null;
 }
 
 /** The formats at least one of `channels` can publish, in the contracts' order. */

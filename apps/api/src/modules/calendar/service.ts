@@ -9,7 +9,7 @@ import {
   POST_FORMAT_LABELS,
   type PostFormat,
   type PublishingMode,
-  platformSupportsFormat,
+  platformRefusal,
   RESCHEDULABLE_POST_STATUSES,
   type ReschedulePostRequest,
   type ScheduledPost,
@@ -92,13 +92,12 @@ function postNotEditable(status: ScheduledPostRow["status"]): HttpError {
 }
 
 /** 422 when a channel's platform does not publish the item's post format. */
-export function formatNotSupported(platform: Platform, format: PostFormat): HttpError {
-  return new HttpError(
-    422,
-    "format_not_supported",
-    `${PLATFORM_LABELS[platform]} does not publish ${POST_FORMAT_LABELS[format].toLowerCase()}s.`,
-    { platform, format },
-  );
+export function formatNotSupported(
+  platform: Platform,
+  format: PostFormat,
+  message = `${PLATFORM_LABELS[platform]} does not publish ${POST_FORMAT_LABELS[format].toLowerCase()}s.`,
+): HttpError {
+  return new HttpError(422, "format_not_supported", message, { platform, format });
 }
 
 function isReschedulable(status: ScheduledPostRow["status"]): boolean {
@@ -266,13 +265,14 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
           throw conflict("The channel is disabled.", { reason: "channel_disabled" });
         }
         const [version] = await tx
-          .select({ format: contentVersions.format })
+          .select({ format: contentVersions.format, media: contentVersions.media })
           .from(contentVersions)
           .where(eq(contentVersions.id, item.currentVersionId))
           .limit(1);
         const format = version?.format ?? "reel";
-        if (!platformSupportsFormat(channel.platform, format)) {
-          throw formatNotSupported(channel.platform, format);
+        const refusal = platformRefusal(channel.platform, { format, media: version?.media ?? [] });
+        if (refusal !== null) {
+          throw formatNotSupported(channel.platform, format, refusal);
         }
         const scheduledAt = requireLead(input.scheduledAt);
         const [post] = await tx

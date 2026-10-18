@@ -213,7 +213,7 @@ describe("composed posts over MCP", () => {
   it("creates, uploads, composes and schedules a photo on Facebook and Instagram", async () => {
     const created = await createPost({ format: "image", title: "Launch photo" });
     expect(created.item).toMatchObject({ state: "idea", format: "image", createdVia: "mcp" });
-    expect(created.issues).toEqual(["A image post needs at least 1 item."]);
+    expect(created.issues).toEqual(["A photo post needs at least 1 item."]);
     expect(created.next).toContain("content.upload_asset (kind media");
     const itemId = created.item.id;
 
@@ -309,7 +309,7 @@ describe("composed posts over MCP", () => {
     const first = await uploadMedia(itemId, "image/png", "one.png");
     const half = await compose({ itemId, media: [{ assetId: first }] });
     expect(half.item.state).toBe("idea");
-    expect(half.issues).toEqual(["A carousel post needs at least 2 items."]);
+    expect(half.issues).toEqual(["A carousel needs at least 2 items."]);
 
     const early = await call(owner, "post.schedule", {
       itemId,
@@ -318,7 +318,7 @@ describe("composed posts over MCP", () => {
     });
     expect(early.isError).toBe(true);
     expect(textOf(early)).toBe(
-      "missing_artifact: The post is not ready: A carousel post needs at least 2 items.",
+      "missing_artifact: The post is not ready: A carousel needs at least 2 items.",
     );
 
     const second = await uploadMedia(itemId, "video/mp4", "two.mp4");
