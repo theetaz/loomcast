@@ -31,6 +31,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { channelLabel, PlatformDot, platformLabel } from "@/features/channels/platforms";
 import { channelsQueryOptions } from "@/features/channels/queries";
 import { useSeriesOptions } from "@/features/library/queries";
+import { FormatIcon, formatLabel } from "@/features/post-formats/FormatBadge";
 import { projectsQueryOptions } from "@/features/projects/queries";
 import { Poster } from "@/features/review-queue/Poster";
 import { formatDateTime } from "@/lib/format";
@@ -264,7 +265,7 @@ function ApprovalRow({
       aria-label={item.title}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-2.5">
-        <Poster assetId={item.posterAssetId} className="w-[30px]" />
+        <Poster assetId={item.posterAssetId} format={item.format} className="w-[30px]" />
         <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <Link
@@ -284,6 +285,8 @@ function ApprovalRow({
           <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-small text-muted-foreground">
             {context ? <span className="min-w-0 truncate">{context}</span> : null}
             {context ? <span aria-hidden="true">·</span> : null}
+            <span data-format={item.format}>{formatLabel(item.format)}</span>
+            <span aria-hidden="true">·</span>
             <span className="font-mono text-[11px]">v{item.versionNo}</span>
             {posts.length > 0 ? <span aria-hidden="true">·</span> : null}
             {posts.length > 0 ? <PostChannels posts={posts} channelById={channelById} /> : null}
@@ -439,13 +442,16 @@ function MissedRow({
     >
       <PlatformDot platform={post.platform} className="ml-1" />
       <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
-        <Link
-          to="/content/$itemId"
-          params={{ itemId: post.itemId }}
-          className="truncate rounded-sm font-medium text-body text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {post.item.title}
-        </Link>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <FormatIcon format={post.item.format} label />
+          <Link
+            to="/content/$itemId"
+            params={{ itemId: post.itemId }}
+            className="truncate rounded-sm font-medium text-body text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {post.item.title}
+          </Link>
+        </span>
         <span className="truncate text-small text-muted-foreground">
           {where} · was due{" "}
           <time dateTime={post.scheduledAt} className="tabular-nums">

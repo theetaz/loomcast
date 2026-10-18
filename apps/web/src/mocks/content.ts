@@ -705,6 +705,43 @@ export function demoContent(
     seriesId: errors.id,
   });
 
+  // Composed posts: photos, a carousel, a story and a text post, made from uploaded files.
+  const compose = (
+    title: string,
+    format: ContentItem["format"],
+    state: PipelineState,
+    updatedMinutesAgo: number,
+    extra: { media?: PostMediaEntry[]; caption?: string } = {},
+  ) => {
+    const { item, versions } = mockComposedItem({
+      projectId: rust.id,
+      title,
+      format,
+      state,
+      createdBy: userId,
+      createdAt: ago(updatedMinutesAgo + 300),
+      updatedAt: ago(updatedMinutesAgo),
+      ...extra,
+    });
+    contentItems.push(item);
+    contentVersions.push(...versions);
+  };
+  compose("Ferris at RustConf, in five photos", "carousel", "approved", 50, {
+    media: mockMedia(
+      ["image", "image", "image", "image", "image"],
+      (index) => `Photo ${index + 1} of the RustConf hallway track, with Ferris on a laptop.`,
+    ),
+    caption: "Five moments from RustConf. Which talk should we explain next?",
+  });
+  compose("One cargo flag a day: --timings", "image", "review", 75, {
+    media: mockMedia(["image"], () => "A cargo build timing chart with one slow crate."),
+    caption: "cargo build --timings shows which crate slows the build down.",
+  });
+  compose("New explainer tonight", "text", "render", 15, {
+    caption: "A new 60-second explainer lands tonight: why Rust has no null.",
+  });
+  compose("Behind the scenes at the studio", "story", "idea", 200);
+
   if (agents) {
     const patterns = mockSeries({
       projectId: agents.id,

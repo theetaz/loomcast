@@ -1,4 +1,12 @@
-import type { CalendarResponse, Format, List, ScheduledPost } from "@loomcast/contracts";
+import type {
+  CalendarResponse,
+  Channel,
+  ContentItem,
+  Format,
+  List,
+  PostOptions,
+  ScheduledPost,
+} from "@loomcast/contracts";
 import {
   type QueryClient,
   queryOptions,
@@ -8,6 +16,7 @@ import {
 } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { toast } from "sonner";
+import { contentKeys, upsertContentItem } from "@/features/library/queries";
 import { api, errorMessage, isApiError } from "@/lib/api";
 import {
   type CalendarQueryKey,
@@ -185,5 +194,101 @@ export function useCreatePost() {
       applyPost(queryClient, post);
       void queryClient.invalidateQueries({ queryKey: ["calendar", "approved"] });
     },
+  });
+}
+
+export interface ScheduleItemInput {
+  item: ContentItem;
+  /** The version a review approves: the item's current one. */
+  versionId: string;
+  channels: readonly Channel[];
+  scheduledAt: string;
+  options?: PostOptions | undefined;
+}
+
+/** What scheduling did on one channel: the post, or why it was refused. */
+export type ChannelOutcome =
+  | { channel: Channel; post: ScheduledPost; error?: undefined }
+  | { channel: Channel; post?: undefined; error: unknown };
+
+export interface ScheduleItemResult {
+  /** The item after approving it, when it was submitted or in review. */
+  approved: ContentItem | null;
+  outcomes: ChannelOutcome[];
+}
+
+/** States from which `scheduleItem` first sends the item to review (`content.submit`). */
+const SUBMIT_FIRST = new Set<ContentItem["state"]>(["render"]);
+
+/**
+ * Schedules an item on several channels at one time. An item ready for review (`render`) is
+ * submitted first, and one in review approved, so a composed post goes from saved to scheduled in
+ * one step. Channels are scheduled one after another; a channel that refuses (`422
+ * format_not_supported`, `409 conflict`, a validation error) does not stop the others, and its
+ * error comes back with it. A refused submit or approval stops before any post is made.
+ */
+export async function scheduleItem(
+  input: ScheduleItemInput,
+  signal?: AbortSignal,
+): Promise<ScheduleItemResult> {
+  let approved: ContentItem | null = null;
+  let state = input.item.state;
+  if (SUBMIT_FIRST.has(state)) {
+    const submitted = await api.request("content.submit", {
+      params: { id: input.item.id },
+      body: { versionId: input.versionId },
+      signal,
+    });
+    state = submitted.state;
+  }
+  if (state === "review") {
+    const decided = await api.request("reviews.create", {
+      params: { id: input.item.id },
+      body: { versionId: input.versionId, decision: "approve" },
+      signal,
+    });
+    approved = decided.item;
+  }
+  const outcomes: ChannelOutcome[] = [];
+  for (const channel of input.channels) {
+    try {
+      const post = await api.request("scheduledPosts.create", {
+        body: {
+          itemId: input.item.id,
+          channelId: channel.id,
+          scheduledAt: input.scheduledAt,
+          ...(input.options ? { options: input.options } : {}),
+        },
+        signal,
+      });
+      outcomes.push({ channel, post });
+    } catch (error) {
+      outcomes.push({ channel, error });
+    }
+  }
+  return { approved, outcomes };
+}
+
+/** `scheduleItem` with the caches kept current: the item, its review and every new post. */
+export function useScheduleItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ScheduleItemInput) => scheduleItem(input),
+    onSuccess: ({ approved, outcomes }, input) => {
+      if (approved) upsertContentItem(queryClient, approved);
+      for (const outcome of outcomes) {
+        if (outcome.post) applyPost(queryClient, outcome.post);
+      }
+      void queryClient.invalidateQueries({ queryKey: contentKeys.detail(input.item.id) });
+      void queryClient.invalidateQueries({ queryKey: ["content", "reviews", input.item.id] });
+      void queryClient.invalidateQueries({ queryKey: ["calendar", "approved"] });
+      if (approved) {
+        void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+        void queryClient.invalidateQueries({ queryKey: ["reviews", "queue"] });
+      }
+    },
+    // A refused approval may follow a submit that went through: read the item again.
+    onError: (_error, input) =>
+      void queryClient.invalidateQueries({ queryKey: contentKeys.detail(input.item.id) }),
   });
 }

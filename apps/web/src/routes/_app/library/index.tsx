@@ -1,7 +1,8 @@
 import { Button } from "@loomcast/ui/components/button";
 import { createFileRoute } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
+import { ImagePlusIcon, PlusIcon } from "lucide-react";
 import { Page, PageHeader } from "@/components/PageHeader";
+import { NewPostDialog } from "@/features/composer/NewPostDialog";
 import { LibraryView } from "@/features/library/LibraryView";
 import { NewIdeaDialog } from "@/features/library/NewIdeaDialog";
 import { LibrarySearchSchema } from "@/features/library/search";
@@ -21,14 +22,22 @@ function LibraryPage() {
     <Page className="max-w-[1240px]">
       <PageHeader
         title="Library"
-        description="Every video in every project, from first idea to published."
+        description="Every video and post in every project, from first idea to published."
         actions={
-          <NewIdeaDialog>
-            <Button>
-              <PlusIcon aria-hidden="true" />
-              New idea
-            </Button>
-          </NewIdeaDialog>
+          <>
+            <NewPostDialog>
+              <Button variant="outline">
+                <ImagePlusIcon aria-hidden="true" />
+                New post
+              </Button>
+            </NewPostDialog>
+            <NewIdeaDialog>
+              <Button>
+                <PlusIcon aria-hidden="true" />
+                New idea
+              </Button>
+            </NewIdeaDialog>
+          </>
         }
       />
       <LibraryView

@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { RelativeTime } from "@/components/RelativeTime";
 import { formatDuration } from "@/features/library/format";
 import { useSeriesOptions } from "@/features/library/queries";
+import { formatLabel } from "@/features/post-formats/FormatBadge";
 import { projectsQueryOptions } from "@/features/projects/queries";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
@@ -196,7 +197,7 @@ function QueueRow({
           "hover:bg-secondary focus-visible:bg-secondary focus-visible:shadow-[inset_2px_0_0_var(--ring)]",
         )}
       >
-        <Poster assetId={item.posterAssetId} className="w-[30px]" />
+        <Poster assetId={item.posterAssetId} format={item.format} className="w-[30px]" />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium text-body text-foreground">{item.title}</span>
@@ -210,6 +211,8 @@ function QueueRow({
           <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-small text-muted-foreground">
             {context ? <span className="min-w-0 truncate">{context}</span> : null}
             {context ? <span aria-hidden="true">·</span> : null}
+            <span data-format={item.format}>{formatLabel(item.format)}</span>
+            <span aria-hidden="true">·</span>
             <span className="font-mono text-[11px]">v{item.versionNo}</span>
             {item.durationMs !== null ? (
               <>

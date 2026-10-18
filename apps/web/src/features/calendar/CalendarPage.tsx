@@ -1,12 +1,14 @@
 import { type CalendarSlot, MIN_SCHEDULE_LEAD_MS, type ScheduledPost } from "@loomcast/contracts";
+import { Button } from "@loomcast/ui/components/button";
 import { Tabs, TabsContent } from "@loomcast/ui/components/tabs";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { InfoIcon } from "lucide-react";
+import { ImagePlusIcon, InfoIcon } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { ErrorState } from "@/components/ErrorState";
 import { Page, PageHeader } from "@/components/PageHeader";
 import { channelsQueryOptions } from "@/features/channels/queries";
+import { NewPostDialog } from "@/features/composer/NewPostDialog";
 import { type SeriesOption, useSeriesOptions } from "@/features/library/queries";
 import { useNow } from "@/lib/use-now";
 import { useTitle } from "@/lib/use-title";
@@ -129,6 +131,14 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
       <PageHeader
         title="Calendar"
         description="Every post on every channel. Drag a post to move it, or fill an open slot."
+        actions={
+          <NewPostDialog>
+            <Button>
+              <ImagePlusIcon aria-hidden="true" />
+              New post
+            </Button>
+          </NewPostDialog>
+        }
       />
       <Tabs
         value={view}

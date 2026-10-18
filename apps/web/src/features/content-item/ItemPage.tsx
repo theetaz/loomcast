@@ -1,14 +1,21 @@
-import type { ContentItemDetail, ContentVersion, PipelineState } from "@loomcast/contracts";
+import {
+  type ContentItemDetail,
+  type ContentVersion,
+  isComposed,
+  type PipelineState,
+  type VersionArtifacts,
+} from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { FileQuestionIcon, HistoryIcon } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { Page } from "@/components/PageHeader";
+import { ScheduleDialog } from "@/features/composer/ScheduleDialog";
 import { useContentLive } from "@/features/library/use-content-live";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
@@ -18,6 +25,7 @@ import { editBlockedReason } from "./EditNotices";
 import { ItemChat } from "./ItemChat";
 import { ItemHeader } from "./ItemHeader";
 import { JobBanner, LastErrorBanner } from "./JobBanner";
+import { PostTab } from "./PostTab";
 import {
   contentItemQueryOptions,
   reviewsQueryOptions,
@@ -39,12 +47,27 @@ const TAB_LABELS: Record<ItemTab, string> = {
   storyboard: "Storyboard",
   voice: "Voice",
   video: "Video",
+  post: "Post",
 };
 
-/** The tab that shows the furthest a version got: the video once rendered, else its last artifact. */
+/** A studio video's tabs; a composed post has one, `post`. */
+const PRODUCED_TABS: readonly ItemTab[] = ["script", "storyboard", "voice", "video"];
+const COMPOSED_TABS: readonly ItemTab[] = ["post"];
+
+/** The tabs a version has: the production steps of a studio video, or the composed post. */
+export function tabsFor(version: VersionArtifacts): readonly ItemTab[] {
+  return isComposed(version) ? COMPOSED_TABS : PRODUCED_TABS;
+}
+
+/**
+ * The tab that shows the furthest a version got: the post for a composed one, the video once
+ * rendered, else its last artifact.
+ */
 export function defaultTab(
-  version: Pick<ContentVersion, "renderAssetId" | "voiceAssetId" | "hasStoryboard">,
+  version: Pick<ContentVersion, "renderAssetId" | "voiceAssetId" | "hasStoryboard"> &
+    VersionArtifacts,
 ): ItemTab {
+  if (isComposed(version)) return "post";
   if (version.renderAssetId) return "video";
   if (version.voiceAssetId) return "voice";
   if (version.hasStoryboard) return "storyboard";
@@ -68,8 +91,9 @@ export interface ItemPageProps {
 }
 
 /**
- * One video: header with its actions, the active job, tabs for script, storyboard, voice and
- * video, and a rail with the review, the version timeline and the producer chat.
+ * One video or post: header with its actions, the active job, tabs for script, storyboard, voice
+ * and video (or the composed post), and a rail with the review, the version timeline and the
+ * producer chat.
  */
 export function ItemPage({ itemId, search, onSearchChange }: ItemPageProps) {
   useContentLive();
@@ -112,6 +136,7 @@ function ItemView({
 }: Omit<ItemPageProps, "itemId"> & { detail: ContentItemDetail }) {
   const { item, currentVersion } = detail;
   const commentRef = useRef<HTMLTextAreaElement>(null);
+  const [scheduling, setScheduling] = useState(false);
   const { job, activity } = useItemJob(detail);
   const decisions = useItemDecisions(detail, job !== null);
   const reviews = useQuery(reviewsQueryOptions(item.id));
@@ -125,7 +150,10 @@ function ItemView({
   });
   const version: ContentVersion | undefined = otherId ? other.data : currentVersion;
   const viewingCurrent = otherId === undefined;
-  const tab = search.tab ?? defaultTab(version ?? currentVersion);
+  const shown = version ?? currentVersion;
+  const tabs = tabsFor(shown);
+  // A tab left in the address from another kind of version falls back to this one's default.
+  const tab = search.tab && tabs.includes(search.tab) ? search.tab : defaultTab(shown);
 
   const canEditState = decisions.can("edit") && EDITABLE_STATES.has(item.state);
   const editBlocked = editBlockedReason({
@@ -158,6 +186,7 @@ function ItemView({
         series={format.series}
         decisions={decisions}
         onRequestChanges={requestChanges}
+        onSchedule={() => setScheduling(true)}
       />
       {job ? (
         <JobBanner job={job} activity={activity} />
@@ -197,8 +226,8 @@ function ItemView({
             className="gap-0 rounded-lg bg-card shadow-card"
           >
             <div className="flex h-11 items-center border-divider border-b px-3">
-              <TabsList aria-label="Parts of the video">
-                {(Object.keys(TAB_LABELS) as ItemTab[]).map((key) => (
+              <TabsList aria-label={isComposed(shown) ? "The post" : "Parts of the video"}>
+                {tabs.map((key) => (
                   <TabsTrigger key={key} value={key}>
                     {TAB_LABELS[key]}
                   </TabsTrigger>
@@ -264,6 +293,12 @@ function ItemView({
         </aside>
       </div>
       {decisions.dialogs}
+      <ScheduleDialog
+        open={scheduling}
+        item={item}
+        version={currentVersion}
+        onClose={() => setScheduling(false)}
+      />
     </Page>
   );
 }
@@ -291,6 +326,7 @@ function ItemTabs({
       </TabsContent>
       <TabsContent value="voice">{tab === "voice" ? <VoiceTab {...props} /> : null}</TabsContent>
       <TabsContent value="video">{tab === "video" ? <VideoTab {...props} /> : null}</TabsContent>
+      <TabsContent value="post">{tab === "post" ? <PostTab {...props} /> : null}</TabsContent>
     </>
   );
 }

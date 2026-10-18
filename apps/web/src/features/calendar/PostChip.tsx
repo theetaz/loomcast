@@ -10,17 +10,22 @@ import {
   useLayoutEffect,
 } from "react";
 import { PlatformDot, platformLabel } from "@/features/channels/platforms";
+import { FormatIcon, formatLabel } from "@/features/post-formats/FormatBadge";
 import { useBoard } from "./board-context";
 import { isPendingFocus, restorePostFocus } from "./focus-return";
 import { isReschedulable } from "./model";
 import { longDayLabel } from "./time";
 
-/** What a screen reader hears for a chip: title, channel, day and time, and state. */
+/**
+ * What a screen reader hears for a chip: title, channel, day and time, and state. A post other than
+ * a Reel (the studio's videos) also names its format, as its chip shows the format's icon.
+ */
 export function postSummary(post: ScheduledPost, when: string, channel: Channel | undefined) {
   const where = channel
     ? `${channel.displayName} (${platformLabel(post.platform)})`
     : platformLabel(post.platform);
-  return `${post.item.title}. ${where}, ${when}. ${statusStyle("post", post.status).label}.`;
+  const format = post.item.format === "reel" ? "" : `${formatLabel(post.item.format)} on `;
+  return `${post.item.title}. ${format}${where}, ${when}. ${statusStyle("post", post.status).label}.`;
 }
 
 export interface PostChipProps {
@@ -148,6 +153,9 @@ export function ChipBody({
         <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
           {post.item.title}
         </span>
+        {post.item.format !== "reel" ? (
+          <FormatIcon format={post.item.format} className="[&>svg]:size-3" />
+        ) : null}
         <StatusDot kind="post" status={post.status} />
       </>
     );
@@ -162,6 +170,9 @@ export function ChipBody({
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{time}</span>
+        {post.item.format !== "reel" ? (
+          <FormatIcon format={post.item.format} className="[&>svg]:size-3" />
+        ) : null}
         <StatusPill
           kind="post"
           status={post.status}

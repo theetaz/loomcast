@@ -508,6 +508,43 @@ describe("open slots", () => {
     ).toBeNull();
     expect(await screen.findByText("Scheduled “Result is just an enum”")).toBeInTheDocument();
   });
+
+  it("leaves out approved posts whose format the slot's channel does not publish", async () => {
+    const setup = calendarSetup();
+    const { db, channels, items, series } = setup;
+    items.result.format = "image";
+    db.seriesChannels
+      .find((entry) => entry.seriesId === series.errors.id)
+      ?.channels.push({ channelId: channels.threads.id, enabled: true });
+    const { user } = renderCalendar(setup);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Open slot, Thursday 15 October at 18:00: Error handling on Rust threads \(Threads\)/,
+      }),
+    );
+    const threadsDialog = await screen.findByRole("dialog", { name: "Fill this slot" });
+    expect(
+      await within(threadsDialog).findByText(
+        "Threads doesn't publish the formats of the approved posts of Error handling.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(threadsDialog).queryByRole("radio")).toBeNull();
+    await user.click(within(threadsDialog).getByRole("button", { name: "Cancel" }));
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Open slot, Thursday 15 October at 18:00: Error handling on @rustin60 \(Instagram\)/,
+      }),
+    );
+    const instagramDialog = await screen.findByRole("dialog", { name: "Fill this slot" });
+    const choice = await within(instagramDialog).findByRole("radio", {
+      name: /Result is just an enum/,
+    });
+    expect(
+      within(choice.closest("label") as HTMLElement).getByRole("img", { name: "Photo" }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("calendar month view", () => {

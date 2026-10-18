@@ -5,6 +5,7 @@ import { cn } from "@loomcast/ui/lib/cn";
 import { Link } from "@tanstack/react-router";
 import { TriangleAlertIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { FormatIcon } from "@/features/post-formats/FormatBadge";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { formatDuration, formatTargetDay, isOverdue } from "./format";
@@ -111,6 +112,7 @@ function BoardCard({
             <span className="sr-only">Last step failed: {item.lastError.message}</span>
           </span>
         ) : null}
+        <FormatIcon format={item.format} label />
         <span className="min-w-0 truncate">{series ?? "No series"}</span>
         <span className="ml-auto shrink-0 font-mono text-[11px]">v{item.versionNo}</span>
       </div>

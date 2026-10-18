@@ -10,6 +10,8 @@ import {
   CreateReviewRequestSchema,
   EditVersionRequestSchema,
   findTransition,
+  formatMediaIssues,
+  isProducedFormat,
   isPublishable,
   mediaTypeOfMime,
   type PipelineState,
@@ -17,6 +19,7 @@ import {
   REVIEW_DECISION_STATES,
   type Review,
   routes,
+  SubmitContentRequestSchema,
   stageForArtifacts,
 } from "@loomcast/contracts";
 import { HttpResponse, http } from "msw";
@@ -481,6 +484,29 @@ export function createContentItemHandlers(db: MockDb) {
       return HttpResponse.json({ item: updated, version: next }, { status: 201 });
     }),
 
+    // Sends the current version to review: a render, or a composed post whose media fit.
+    http.post(path("content.submit"), async ({ params, request }) => {
+      if (!db.signedIn) return unauthorized();
+      const item = findItem(String(params.id));
+      if (!item) return itemNotFound();
+      const parsed = SubmitContentRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return invalid(parsed.error);
+      if (parsed.data.versionId !== item.currentVersionId) {
+        return apiError(409, "conflict", "A newer version arrived. Look at it before sending it.");
+      }
+      if (item.state === "review") return HttpResponse.json({ ...item });
+      const version = db.contentVersions.find((entry) => entry.id === item.currentVersionId);
+      if (
+        !findTransition({ from: item.state, to: "review", via: "submit", actor: "user", version })
+      ) {
+        return apiError(409, "invalid_transition", "It isn't ready for review yet.");
+      }
+      const updated = updateContentItem(db, item.id, (entry) => {
+        entry.state = "review";
+      });
+      return HttpResponse.json(updated);
+    }),
+
     http.post(path("content.conversation"), ({ params }) => {
       if (!db.signedIn) return unauthorized();
       const item = findItem(String(params.id));
@@ -589,9 +615,11 @@ export function createContentItemHandlers(db: MockDb) {
         return apiError(409, "conflict", "A newer version arrived. Look at it before deciding.");
       }
       const version = db.contentVersions.find((entry) => entry.id === body.versionId);
-      // As the contracts' transitions have it: a render, or the media the post's format needs.
+      // Like the API: a studio video needs its render, a composed post the media its format takes.
       if (body.decision === "approve" && !(version && isPublishable(version))) {
-        return apiError(422, "missing_artifact", "Approving needs a rendered video.");
+        return isProducedFormat(version?.format) && !version?.media.length
+          ? apiError(422, "missing_artifact", "Only a rendered version can be approved.")
+          : apiError(422, "missing_artifact", version ? formatMediaIssues(version).join(" ") : "");
       }
       const enqueueRevision = body.decision === "request_changes" && body.enqueueRevision !== false;
       const review: Review = {
