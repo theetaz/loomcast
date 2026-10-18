@@ -22,6 +22,7 @@
     "admin:token": "pnpm --filter @loomcast/api run admin:token",
     "admin:reset-password": "pnpm --filter @loomcast/api run admin:reset-password",
     "agent": "pnpm --filter @loomcast/studio-agent run cli",
+    "loomcast": "pnpm --silent --filter @loomcast/cli run start --",
     "stack:up": "docker compose up -d --wait",
     "stack:down": "docker compose down"
   },

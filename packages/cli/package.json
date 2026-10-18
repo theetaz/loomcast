@@ -1,0 +1,29 @@
+{
+  "name": "@loomcast/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The loomcast command: calls the Loomcast MCP server's tools from a shell, for people and for agents without an MCP client",
+  "type": "module",
+  "bin": {
+    "loomcast": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
