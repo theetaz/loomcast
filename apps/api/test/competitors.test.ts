@@ -20,6 +20,8 @@ import {
   kbEntries,
   kbReferences,
   workspaces,
+  researchAccounts,
+  researchVideos,
 } from "@loomcast/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -508,6 +510,25 @@ describe("starting a scan", () => {
       status: "analyzing",
       videoCount: 3,
     });
+
+    // Every video the API read is kept in the research data, not only the three analysed.
+    const [account] = await h.db
+      .select()
+      .from(researchAccounts)
+      .where(eq(researchAccounts.workspaceId, workspaceId));
+    expect(account).toMatchObject({
+      platform: "instagram",
+      handle: "nasa",
+      source: "tracked",
+      competitorId: nasa.id,
+      followers: 98_000_000,
+      medianViews: 9_000,
+    });
+    const stored = await h.db
+      .select({ externalId: researchVideos.externalId, views: researchVideos.views })
+      .from(researchVideos)
+      .where(eq(researchVideos.workspaceId, workspaceId));
+    expect(stored.map((video) => video.externalId).sort()).toEqual([c0, c1, c3, c4, c5].sort());
 
     // References are tagged; the reused one keeps its own tags and gains the competitor's.
     const tag = competitorTag("instagram", "nasa");
