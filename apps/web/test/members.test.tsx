@@ -81,7 +81,7 @@ describe("members list", () => {
       within(ownerTabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Devices", "Access tokens", "Members", "Channels", "Scheduler"]);
+    ).toEqual(["Devices", "Access tokens", "API clients", "Members", "Channels", "Scheduler"]);
     owner.unmount();
 
     const requests: string[] = [];
