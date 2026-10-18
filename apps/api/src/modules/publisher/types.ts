@@ -1,7 +1,10 @@
 import type {
   AssetProbe,
   JsonObject,
+  MediaType,
   Platform,
+  PostFormat,
+  PostOptions,
   PublishError,
   PublishRequest,
 } from "@loomcast/contracts";
@@ -50,18 +53,36 @@ export interface PublishPost {
   externalId: string | null;
   /** The upload or container id `publish` returned, for `status`. */
   externalContainerId: string | null;
+  /** The post's per-platform options. */
+  options: PostOptions;
 }
 
-/** The final render (and poster) of the approved version. */
-export interface PublishMedia extends MediaFacts {
-  renderAssetId: string;
+/** One stored file a post publishes. */
+export interface PublishFile extends MediaFacts {
+  assetId: string;
   sha256: string;
   durationMs: number | null;
   width: number | null;
   height: number | null;
-  posterAssetId: string | null;
-  /** What the studio agent probed at upload (codecs, frame rate, bit rate), when it sent one. */
+  /** What the uploader probed (codecs, frame rate, bit rate), when it sent one. */
   probe?: AssetProbe | null;
+}
+
+/** One photo or video of a composed post, in order. */
+export interface PublishMediaFile extends PublishFile {
+  type: MediaType;
+  altText?: string;
+}
+
+/**
+ * What the approved version publishes. A `reel` or `video` post has `video` (the render, or the
+ * single uploaded video); an image, carousel or story post has its `items`; a text post neither.
+ */
+export interface PublishMedia {
+  format: PostFormat;
+  video: PublishFile | null;
+  items: readonly PublishMediaFile[];
+  posterAssetId: string | null;
 }
 
 /** What an adapter call gets. Built by the publisher for each `publish`, `validate` and `status`. */
@@ -79,19 +100,22 @@ export interface PublishContext {
    */
   secrets(): Promise<ChannelCredentials>;
   /**
-   * The public URL of the render. Live: copies it to the public bucket on first call
-   * (`promoteToPublic`). Dry-run: a placeholder on the reserved `.invalid` domain; nothing is
-   * copied.
+   * The public URL of the video of a `reel` or `video` post. Live: copies it to the public bucket
+   * on first call (`promoteToPublic`). Dry-run: a placeholder on the reserved `.invalid` domain;
+   * nothing is copied.
    */
   getPublicVideoUrl(): Promise<string>;
+  /** Likewise for the items of a composed post, in order. */
+  getPublicItemUrls(): Promise<string[]>;
   /** Likewise for the poster; null when the version has none. */
   getPublicPosterUrl(): Promise<string | null>;
   /** The caption composed and fitted to this platform's limits. */
   caption(): FittedCaption;
   /**
-   * The `PublishRequest` for this post: account, public URLs, fitted caption and media facts.
-   * Throws `PublishFailure` (`invalid_media`) when the render lacks a duration, and
-   * (`not_configured`) for a live post on a channel without an account id.
+   * The `PublishRequest` for this post, by format: account, public URLs, fitted caption, media
+   * facts and options. Throws `PublishFailure` (`invalid_media`) when a video lacks a duration or
+   * the media do not fit the format, and (`not_configured`) for a live post on a channel without
+   * an account id.
    */
   publishRequest(): Promise<PublishRequest>;
   /**
@@ -128,6 +152,11 @@ export interface StatusResult {
   state: "pending" | "published" | "failed";
   permalink?: string;
   externalId?: string;
+  /**
+   * The container to poll from now on, when `status` created a new one (an Instagram carousel's
+   * container, once its items finished processing). Stored as the post's `externalContainerId`.
+   */
+  containerId?: string;
   /** Set when `state` is `failed`. */
   error?: PublishError;
 }

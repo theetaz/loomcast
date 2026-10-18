@@ -18,7 +18,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useMe } from "@/features/auth/queries";
 import { errorMessage } from "@/lib/api";
-import { useArchive, useItemAction, useRestore, useReviewItem } from "./queries";
+import { useArchive, useItemAction, useRestore, useReviewItem, useSubmitItem } from "./queries";
 
 export type Confirming = "reject" | "archive" | null;
 
@@ -45,10 +45,16 @@ export function useItemDecisions(detail: ContentItemDetail, hasActiveJob: boolea
   const action = useItemAction(item.id);
   const archive = useArchive(item.id);
   const restore = useRestore(item.id);
+  const submitItem = useSubmitItem(item.id);
   const [confirming, setConfirming] = useState<Confirming>(null);
 
   const can = (name: ItemAction) => allowed.includes(name);
-  const busy = review.isPending || action.isPending || archive.isPending || restore.isPending;
+  const busy =
+    review.isPending ||
+    action.isPending ||
+    archive.isPending ||
+    restore.isPending ||
+    submitItem.isPending;
 
   const start = (name: ContentAction) => {
     if (!can(name) || hasActiveJob) return;
@@ -58,6 +64,15 @@ export function useItemDecisions(detail: ContentItemDetail, hasActiveJob: boolea
         toast.error("Couldn't start it", {
           description: errorMessage(error, "Try again in a moment."),
         }),
+    });
+  };
+
+  const submit = () => {
+    if (!can("submit")) return;
+    submitItem.mutate(currentVersion.id, {
+      onSuccess: () => toast.success("Sent to review", { description: item.title }),
+      onError: (error) =>
+        toast.error("Couldn't send it to review", { description: errorMessage(error) }),
     });
   };
 
@@ -103,6 +118,7 @@ export function useItemDecisions(detail: ContentItemDetail, hasActiveJob: boolea
     busy,
     hasActiveJob,
     start,
+    submit,
     approve,
     requestChanges,
     confirmReject: () => {

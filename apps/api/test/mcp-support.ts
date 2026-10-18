@@ -3,6 +3,7 @@ import { apiTokens, type Database, jobs } from "@loomcast/db";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AppDeps, RegisterModule } from "../src/deps";
+import type { Config } from "../src/env";
 import { createEventBus } from "../src/lib/bus";
 import { generatePrefixedToken } from "../src/lib/crypto";
 import { createLifecycle } from "../src/lib/lifecycle";
@@ -26,6 +27,7 @@ export interface McpTestServer {
 export async function startMcpTestServer(
   db: Database,
   modules: readonly RegisterModule[] = [],
+  config: Partial<Config> = {},
 ): Promise<McpTestServer> {
   const logger = createLogger({ level: "silent" });
   const clock = createTestClock();
@@ -34,7 +36,7 @@ export async function startMcpTestServer(
     bus: createEventBus(logger),
     clock,
     logger,
-    config: testConfig({ trustProxy: false }),
+    config: testConfig({ trustProxy: false, ...config }),
     lifecycle: createLifecycle(logger),
   };
   const running = await startServer(deps, { port: 0, host: "127.0.0.1", modules });

@@ -10,7 +10,10 @@ import {
   MCP_TOKEN_SCOPES,
   mcpTools,
   ownerTools,
+  PostOptionsSchema,
   pipelineTools,
+  postFormatCatalog,
+  postTools,
   projectTools,
 } from "../src";
 import {
@@ -40,6 +43,7 @@ describe("mcp tool contracts", () => {
       pipelineTools,
       calendarTools,
       ownerTools,
+      postTools,
     ].flatMap((group) => Object.keys(group));
 
     expect(new Set(names).size).toBe(names.length);
@@ -79,6 +83,7 @@ describe("mcp tool contracts", () => {
       "kb.get",
       "kb.save_brainstorm",
       "kb.search",
+      "post.formats",
       "project.get",
       "project.list",
       "skill.pull",
@@ -443,5 +448,113 @@ describe("owner tools", () => {
     expect(reschedule.safeParse({ postId: ids.post, scheduledAt: at }).success).toBe(false);
     expect(cancel.safeParse({ postId: ids.post }).success).toBe(true);
     expect(ownerTools["calendar.cancel_post"].output.parse({ post })).toEqual({ post });
+  });
+});
+
+describe("post tools", () => {
+  it("keep composing and scheduling to the owner", () => {
+    for (const tool of Object.values(postTools)) {
+      if (tool.name === "post.formats") {
+        expect([tool.scope, tool.jobTokens]).toEqual(["mcp:read", "allow"]);
+        continue;
+      }
+      expect([tool.name, tool.scope, tool.jobTokens]).toEqual([tool.name, "mcp:admin", "deny"]);
+      expect(tool.description.startsWith("Owner only.")).toBe(true);
+    }
+  });
+
+  it("list every format, platform and option from the format tables", () => {
+    const catalog = postTools["post.formats"].output.parse(postFormatCatalog());
+    expect(catalog.formats.map((entry) => entry.format)).toEqual([
+      "reel",
+      "video",
+      "image",
+      "carousel",
+      "story",
+      "text",
+    ]);
+    expect(catalog.formats.find((entry) => entry.format === "text")).toMatchObject({
+      label: "Text post",
+      min: 0,
+      max: 0,
+      platforms: ["facebook"],
+    });
+    expect(catalog.platforms.find((entry) => entry.platform === "instagram")?.formats).toEqual([
+      "reel",
+      "image",
+      "carousel",
+      "story",
+    ]);
+    expect(catalog.photoOnlyCarouselPlatforms).toEqual(["facebook"]);
+    // Every documented option is a field of the options schema, and every field is documented.
+    const shapes = {
+      instagram: Object.keys(PostOptionsSchema.shape.instagram.unwrap().shape),
+      facebook: Object.keys(PostOptionsSchema.shape.facebook.unwrap().shape),
+    };
+    for (const platform of ["instagram", "facebook"] as const) {
+      expect(
+        catalog.options
+          .filter((option) => option.platform === platform)
+          .map((option) => option.field)
+          .sort(),
+      ).toEqual(shapes[platform].sort());
+    }
+  });
+
+  it("validate composing and scheduling input", () => {
+    const create = postTools["post.create"].input;
+    const compose = postTools["post.compose"].input;
+    const schedule = postTools["post.schedule"].input;
+
+    expect(
+      create.safeParse({ projectId: ids.project, title: "Launch", format: "image" }).success,
+    ).toBe(true);
+    expect(create.safeParse({ projectId: ids.project, title: "Launch" }).success).toBe(false);
+    expect(create.safeParse({ projectId: ids.project, title: "x", format: "gif" }).success).toBe(
+      false,
+    );
+
+    expect(compose.safeParse({ itemId: ids.item }).success).toBe(false);
+    expect(compose.safeParse({ itemId: ids.item, caption: null }).success).toBe(true);
+    expect(
+      compose.safeParse({ itemId: ids.item, media: [{ assetId: ids.asset, altText: "A cat" }] })
+        .success,
+    ).toBe(true);
+    expect(
+      compose.safeParse({
+        itemId: ids.item,
+        media: [{ assetId: ids.asset }, { assetId: ids.asset }],
+      }).success,
+    ).toBe(false);
+    expect(
+      compose.safeParse({ itemId: ids.item, media: [{ assetId: ids.asset, type: "image" }] }).data
+        ?.media,
+    ).toEqual([{ assetId: ids.asset }]);
+
+    const base = { itemId: ids.item, scheduledAt: at };
+    expect(schedule.safeParse({ ...base, channelIds: [ids.channel] }).success).toBe(true);
+    expect(schedule.safeParse({ ...base, channelIds: [] }).success).toBe(false);
+    expect(schedule.safeParse({ ...base, channelIds: [ids.channel, ids.channel] }).success).toBe(
+      false,
+    );
+    expect(
+      schedule.safeParse({
+        ...base,
+        channelIds: [ids.channel],
+        options: { facebook: { link: "https://example.com/launch" } },
+      }).success,
+    ).toBe(true);
+    expect(
+      schedule.safeParse({ ...base, channelIds: [ids.channel], options: { threads: {} } }).success,
+    ).toBe(false);
+    expect(
+      postTools["post.schedule"].output.parse({
+        ...base,
+        versionId: ids.version,
+        state: "scheduled",
+        reviewId: null,
+        posts: [post],
+      }),
+    ).toMatchObject({ posts: [post] });
   });
 });

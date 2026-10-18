@@ -55,6 +55,7 @@ import {
   EditVersionRequestSchema,
   EditVersionResponseSchema,
   ListContentQuerySchema,
+  SubmitContentRequestSchema,
   UpdateContentItemRequestSchema,
 } from "./content";
 import {
@@ -724,6 +725,19 @@ export const routes = {
     body: ContentActionRequestSchema,
     response: JobSummarySchema,
     status: 201,
+  }),
+  /**
+   * Sends the current version to review: a studio render, or a composed post whose media fit its
+   * format. `409 conflict` for a stale `versionId`; `409 invalid_transition` when refused.
+   */
+  "content.submit": route({
+    method: "POST",
+    path: "/api/content/:id/submit",
+    auth: "session",
+    params: IdParamsSchema,
+    body: SubmitContentRequestSchema,
+    response: ContentItemSchema,
+    status: 200,
   }),
   "content.archive": route({
     method: "POST",

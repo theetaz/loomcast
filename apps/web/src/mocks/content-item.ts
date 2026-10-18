@@ -10,10 +10,16 @@ import {
   CreateReviewRequestSchema,
   EditVersionRequestSchema,
   findTransition,
+  formatMediaIssues,
+  isProducedFormat,
+  isPublishable,
+  mediaTypeOfMime,
   type PipelineState,
+  type PostMediaEntry,
   REVIEW_DECISION_STATES,
   type Review,
   routes,
+  SubmitContentRequestSchema,
   stageForArtifacts,
 } from "@loomcast/contracts";
 import { HttpResponse, http } from "msw";
@@ -58,6 +64,7 @@ const EXTENSIONS: Record<AssetKind, string> = {
   frame: "png",
   reference_media: "mp4",
   other: "txt",
+  media: "jpg",
 };
 
 const MIME_TYPES: Record<AssetKind, string> = {
@@ -67,6 +74,7 @@ const MIME_TYPES: Record<AssetKind, string> = {
   frame: "image/png",
   reference_media: "video/mp4",
   other: "text/plain",
+  media: "image/jpeg",
 };
 
 /** A ready asset of an item, with plausible media facts for its kind. */
@@ -160,6 +168,24 @@ export function ensureItemAssets(db: MockDb, item: ContentItem) {
         }),
       );
     }
+    version.media.forEach((entry, index) => {
+      if (db.assets.some((asset) => asset.id === entry.assetId)) return;
+      const video = entry.type === "video";
+      db.assets.push(
+        mockAsset({
+          id: entry.assetId,
+          kind: "media",
+          projectId: item.projectId,
+          itemId: item.id,
+          createdAt: version.createdAt,
+          mime: video ? "video/mp4" : "image/jpeg",
+          filename: `media-${index + 1}.${video ? "mp4" : "jpg"}`,
+          width: 1080,
+          height: item.format === "story" || video ? 1920 : 1350,
+          durationMs: video ? 12_000 : null,
+        }),
+      );
+    });
   }
 }
 
@@ -168,7 +194,10 @@ function findAsset(db: MockDb, id: string): AssetDetail | undefined {
   if (stored) return stored;
   const version = db.contentVersions.find(
     (entry) =>
-      entry.voiceAssetId === id || entry.renderAssetId === id || entry.posterAssetId === id,
+      entry.voiceAssetId === id ||
+      entry.renderAssetId === id ||
+      entry.posterAssetId === id ||
+      entry.media.some((media) => media.assetId === id),
   );
   const item = version && db.contentItems.find((entry) => entry.id === version.itemId);
   if (!item) return undefined;
@@ -184,8 +213,39 @@ function publicAsset(asset: AssetDetail) {
 /** Only artifacts changed by the edit: a caption or notes change keeps an approved or reviewed item. */
 function onlyCaptionOrNotes(body: z.infer<typeof EditVersionRequestSchema>): boolean {
   return (
-    body.script === undefined && body.storyboard === undefined && body.voiceAssetId === undefined
+    body.script === undefined &&
+    body.storyboard === undefined &&
+    body.voiceAssetId === undefined &&
+    body.format === undefined &&
+    body.media === undefined
   );
+}
+
+/**
+ * Why `media` can't go on a version of `item`, like the API: each entry a ready `media` (or
+ * `render`) asset of the item, of the type it claims, at most once. Null when they fit.
+ */
+function mediaProblem(db: MockDb, item: ContentItem, media: readonly PostMediaEntry[]) {
+  ensureItemAssets(db, item);
+  const seen = new Set<string>();
+  for (const [index, entry] of media.entries()) {
+    const where = `media.${index}.assetId`;
+    if (seen.has(entry.assetId)) return `${where}: The same file is in the post twice.`;
+    seen.add(entry.assetId);
+    const asset = db.assets.find((candidate) => candidate.id === entry.assetId);
+    if (
+      !asset ||
+      asset.itemId !== item.id ||
+      (asset.kind !== "media" && asset.kind !== "render") ||
+      asset.status !== "ready"
+    ) {
+      return `${where}: Pick a ready photo or video of this item.`;
+    }
+    if (mediaTypeOfMime(asset.mime) !== entry.type) {
+      return `${where}: The file is not a ${entry.type}.`;
+    }
+  }
+  return null;
 }
 
 // Media bytes ------------------------------------------------------------------------------
@@ -245,6 +305,15 @@ function posterSvg(title: string): string {
     )
     .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a52d1"/><stop offset="1" stop-color="#1d1f4d"/></linearGradient></defs><rect width="1080" height="1920" fill="url(#g)"/><circle cx="880" cy="380" r="210" fill="#c2552a" opacity="0.9"/><text x="96" y="600" font-family="Helvetica, Arial, sans-serif" font-size="44" letter-spacing="6" fill="#f6f4ee" opacity="0.8">RUST IN 60 SECONDS</text>${text}</svg>`;
+}
+
+/** A photo for a composed post: the asset's shape in the brand colours, numbered. */
+function photoSvg(title: string, asset: AssetDetail): string {
+  const width = asset.width ?? 1080;
+  const height = asset.height ?? 1350;
+  const number = /media-(\d+)/.exec(asset.filename)?.[1] ?? "1";
+  const hue = (Number(number) * 47) % 360;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#1d1f4d"/><circle cx="${width * 0.7}" cy="${height * 0.35}" r="${width * 0.28}" fill="hsl(${hue} 55% 55%)" opacity="0.85"/><rect x="${width * 0.08}" y="${height * 0.62}" width="${width * 0.5}" height="${height * 0.06}" rx="12" fill="#4a52d1"/><text x="${width * 0.08}" y="${height * 0.82}" font-family="Georgia, serif" font-size="${width * 0.07}" fill="#f6f4ee">${escapeXml(title.slice(0, 22))}</text><text x="${width * 0.08}" y="${height * 0.12}" font-family="Helvetica, Arial, sans-serif" font-size="${width * 0.05}" fill="#c2552a">${number}</text></svg>`;
 }
 
 let demoVideo: Promise<Blob | null> | null = null;
@@ -383,6 +452,12 @@ export function createContentItemHandlers(db: MockDb) {
         next.renderAssetId = null;
         next.posterAssetId = null;
       }
+      if (body.format !== undefined) next.format = body.format;
+      if (body.media !== undefined) {
+        const problem = mediaProblem(db, item, body.media);
+        if (problem) return apiError(422, "validation_failed", problem);
+        next.media = body.media;
+      }
       if (body.caption !== undefined) next.caption = body.caption;
       if (body.notes !== undefined) next.notes = body.notes;
 
@@ -402,10 +477,34 @@ export function createContentItemHandlers(db: MockDb) {
         entry.state = state;
         entry.currentVersionId = next.id;
         entry.versionNo = next.versionNo;
+        entry.format = next.format;
         entry.durationMs = next.renderAssetId ? entry.durationMs : null;
         entry.posterAssetId = next.posterAssetId;
       });
       return HttpResponse.json({ item: updated, version: next }, { status: 201 });
+    }),
+
+    // Sends the current version to review: a render, or a composed post whose media fit.
+    http.post(path("content.submit"), async ({ params, request }) => {
+      if (!db.signedIn) return unauthorized();
+      const item = findItem(String(params.id));
+      if (!item) return itemNotFound();
+      const parsed = SubmitContentRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return invalid(parsed.error);
+      if (parsed.data.versionId !== item.currentVersionId) {
+        return apiError(409, "conflict", "A newer version arrived. Look at it before sending it.");
+      }
+      if (item.state === "review") return HttpResponse.json({ ...item });
+      const version = db.contentVersions.find((entry) => entry.id === item.currentVersionId);
+      if (
+        !findTransition({ from: item.state, to: "review", via: "submit", actor: "user", version })
+      ) {
+        return apiError(409, "invalid_transition", "It isn't ready for review yet.");
+      }
+      const updated = updateContentItem(db, item.id, (entry) => {
+        entry.state = "review";
+      });
+      return HttpResponse.json(updated);
     }),
 
     http.post(path("content.conversation"), ({ params }) => {
@@ -475,7 +574,13 @@ export function createContentItemHandlers(db: MockDb) {
           headers: { "Content-Type": "image/svg+xml" },
         });
       }
-      if (asset.kind === "render") {
+      if (asset.kind === "media" && asset.mime.startsWith("image/")) {
+        const item = db.contentItems.find((entry) => entry.id === asset.itemId);
+        return new HttpResponse(photoSvg(item?.title ?? "Loomcast", asset), {
+          headers: { "Content-Type": "image/svg+xml" },
+        });
+      }
+      if (asset.kind === "render" || asset.kind === "media") {
         const clip = await demoVideoClip();
         if (clip) {
           return HttpResponse.arrayBuffer(await clip.arrayBuffer(), {
@@ -510,8 +615,11 @@ export function createContentItemHandlers(db: MockDb) {
         return apiError(409, "conflict", "A newer version arrived. Look at it before deciding.");
       }
       const version = db.contentVersions.find((entry) => entry.id === body.versionId);
-      if (body.decision === "approve" && !version?.renderAssetId) {
-        return apiError(422, "missing_artifact", "Approving needs a rendered video.");
+      // Like the API: a studio video needs its render, a composed post the media its format takes.
+      if (body.decision === "approve" && !(version && isPublishable(version))) {
+        return isProducedFormat(version?.format) && !version?.media.length
+          ? apiError(422, "missing_artifact", "Only a rendered version can be approved.")
+          : apiError(422, "missing_artifact", version ? formatMediaIssues(version).join(" ") : "");
       }
       const enqueueRevision = body.decision === "request_changes" && body.enqueueRevision !== false;
       const review: Review = {

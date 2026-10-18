@@ -22,6 +22,7 @@ export {
   createKbTools,
   createMcpTools,
   createOwnerTools,
+  createPostTools,
   createProjectTools,
   defineTool,
   kbEntryUrl,

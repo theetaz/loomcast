@@ -13,6 +13,7 @@ import {
   PASSWORD_TOKEN_PURPOSES,
   PIPELINE_STATES,
   PLATFORMS,
+  POST_FORMATS,
   POST_STATUSES,
   PRODUCE_TARGETS,
   PROJECT_STATUSES,
@@ -381,6 +382,7 @@ describe("pg enums", () => {
     platform: PLATFORMS,
     channel_status: CHANNEL_STATUSES,
     post_status: POST_STATUSES,
+    post_format: POST_FORMATS,
     task_status: TASK_STATUSES,
     oauth_provider: OAUTH_PROVIDERS,
   };

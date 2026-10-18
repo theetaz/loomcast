@@ -6,10 +6,12 @@ import {
   JobTypeSchema,
   PIPELINE_STATES,
   PipelineStateSchema,
+  PostFormatSchema,
   VersionCreatedViaSchema,
 } from "../enums";
 import { CAPTION_MAX_LENGTH, ScriptSchema, StoryboardSchema } from "../pipeline/artifacts";
 import { ProduceTargetSchema } from "../pipeline/transitions";
+import { PostMediaSchema } from "../publishing/formats";
 import { CursorPageQuerySchema, csvEnumQuerySchema } from "./common";
 import { JobSummarySchema } from "./jobs";
 
@@ -46,6 +48,8 @@ export const ContentItemSchema = z.object({
   /** Every item has a version from the start: version 1 is the bare idea. */
   currentVersionId: IdSchema,
   versionNo: z.number().int().min(1),
+  /** The current version's post format. */
+  format: PostFormatSchema,
   /** The current version's render length, when it has one. */
   durationMs: z.number().int().min(0).nullable(),
   /** The current version's poster, when it has one. */
@@ -75,6 +79,10 @@ export const ContentVersionSummarySchema = z.object({
   formatVersionId: IdSchema.nullable(),
   hasScript: z.boolean(),
   hasStoryboard: z.boolean(),
+  /** What kind of post it publishes as. */
+  format: PostFormatSchema,
+  /** The photos and videos of a composed post, in order; empty for a studio video. */
+  media: PostMediaSchema,
   voiceAssetId: IdSchema.nullable(),
   renderAssetId: IdSchema.nullable(),
   posterAssetId: IdSchema.nullable(),
@@ -127,9 +135,14 @@ export const ListContentQuerySchema = CursorPageQuerySchema.extend({
 );
 export type ListContentQuery = z.infer<typeof ListContentQuerySchema>;
 
-/** Creates an idea (state `idea`, version 1). The series must belong to the project. */
+/**
+ * Creates an idea (state `idea`, version 1). The series must belong to the project. `format`
+ * defaults to `reel`, a studio video; any other format is composed from uploaded media
+ * (`EditVersionRequest.media`) instead of produced.
+ */
 export const CreateContentItemRequestSchema = z.object({
   title: ContentTitleSchema,
+  format: PostFormatSchema.optional(),
   pitch: ContentPitchSchema.optional(),
   topic: ContentTopicSchema.optional(),
   seriesId: IdSchema.optional(),
@@ -152,12 +165,15 @@ export type UpdateContentItemRequest = z.infer<typeof UpdateContentItemRequestSc
  * Writes a new version on top of `baseVersionId`, which must be the current version (otherwise
  * `409 conflict`). Fields left out are copied forward. A changed script clears the voice, render
  * and poster; a changed storyboard clears the render and poster; a new `voiceAssetId` (a ready
- * voice take of the same item) clears the render. The item's state follows from
- * `PIPELINE_TRANSITIONS`.
+ * voice take of the same item) clears the render. `format` and `media` compose a post from
+ * uploaded `media` assets of the item: a composed post whose media fit its format reaches
+ * `render`, ready for review. The item's state follows from `PIPELINE_TRANSITIONS`.
  */
 export const EditVersionRequestSchema = z
   .object({
     baseVersionId: IdSchema,
+    format: PostFormatSchema.optional(),
+    media: PostMediaSchema.optional(),
     script: ScriptSchema.optional(),
     storyboard: StoryboardSchema.optional(),
     caption: z.string().trim().max(CAPTION_MAX_LENGTH).nullable().optional(),
@@ -177,6 +193,16 @@ export const EditVersionResponseSchema = z.object({
   version: ContentVersionSchema,
 });
 export type EditVersionResponse = z.infer<typeof EditVersionResponseSchema>;
+
+/**
+ * Sends a version ready to publish to review. `versionId` must be the current version, so the
+ * reviewer sees what the sender saw. Composed posts take this route; production submits a studio
+ * video itself once its render is done.
+ */
+export const SubmitContentRequestSchema = z.object({
+  versionId: IdSchema,
+});
+export type SubmitContentRequest = z.infer<typeof SubmitContentRequestSchema>;
 
 /**
  * Starts production work. `through` is only for `produce` (default `review`). Answers `409

@@ -83,14 +83,18 @@ const logger = createLogger({ level: "silent", destination: { write: () => undef
 
 function media(bytes: number): PublishMedia {
   return {
-    renderAssetId: randomUUID(),
-    sha256: randomBytes(32).toString("hex"),
-    durationMs: 30_000,
-    width: 1_080,
-    height: 1_920,
+    format: "reel",
+    video: {
+      assetId: randomUUID(),
+      sha256: randomBytes(32).toString("hex"),
+      durationMs: 30_000,
+      width: 1_080,
+      height: 1_920,
+      bytes,
+      mime: "video/mp4",
+    },
+    items: [],
     posterAssetId: null,
-    bytes,
-    mime: "video/mp4",
   };
 }
 
@@ -870,7 +874,10 @@ describe("x adapter", () => {
       const { context } = contextFor({ channelId: randomUUID(), bytes: 600 * MB });
       const long = {
         ...context,
-        media: { ...context.media, durationMs: 200_000 },
+        media: {
+          ...context.media,
+          video: { ...context.media.video, durationMs: 200_000 },
+        },
         caption: () => ({ text: "界".repeat(141), issues: [], truncated: false }),
       } as unknown as PublishContext;
       const fields = (await adapter.validate(long)).map((issue) => issue.field).sort();

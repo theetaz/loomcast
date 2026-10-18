@@ -1,5 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { JsonObject, PublishRequest } from "@loomcast/contracts";
+import type {
+  JsonObject,
+  MediaPublishRequest,
+  PostFormat,
+  PublishRequest,
+} from "@loomcast/contracts";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createLogger } from "../src/lib/logger";
 import {
@@ -13,7 +18,8 @@ import {
   createDryRunAdapter,
   type PublishContext,
   PublishFailure,
-  type PublishMedia,
+  type PublishFile,
+  type PublishMediaFile,
   type PublishPost,
   redactRequest,
 } from "../src/modules/publisher";
@@ -22,6 +28,8 @@ import {
   graphClientFromEnv,
   INSTAGRAM_QUOTA_RETRY_MS,
   parseQuota,
+  stagedCarouselId,
+  stagedItemIds,
 } from "../src/modules/publisher/adapters/instagram";
 import {
   answer,
@@ -79,13 +87,48 @@ interface FakeContext {
   calls: { secrets: number; promote: number };
 }
 
+/** One photo or video of a composed post; `url` is its public URL (generated when absent). */
+type ItemSpec = Partial<PublishMediaFile> & { url?: string };
+
 interface ContextSpec {
   dryRun?: boolean;
-  media?: Partial<PublishMedia>;
+  media?: Partial<PublishFile>;
   post?: Partial<PublishPost>;
   caption?: CaptionParts;
   igUserId?: string | null;
   videoUrl?: string;
+  /** The post's format; a Reel by default. Other formats publish `items`. */
+  format?: PostFormat;
+  items?: ItemSpec[];
+}
+
+/** A 4:5 JPEG photo of a composed post. */
+function photoItem(): PublishMediaFile {
+  return {
+    type: "image",
+    assetId: randomUUID(),
+    sha256: randomBytes(32).toString("hex"),
+    mime: "image/jpeg",
+    bytes: 2 * 1_048_576,
+    durationMs: null,
+    width: 1_080,
+    height: 1_350,
+  };
+}
+
+/** A 9:16 H.264 clip of a composed post. */
+function videoItem(): PublishMediaFile {
+  return {
+    type: "video",
+    assetId: randomUUID(),
+    sha256: randomBytes(32).toString("hex"),
+    mime: "video/mp4",
+    bytes: 20 * 1_048_576,
+    durationMs: 15_000,
+    width: 1_080,
+    height: 1_920,
+    probe: { videoCodec: "h264", audioCodec: "aac", fps: 30 },
+  };
 }
 
 /** A publish context like the publisher builds, without a database or object storage. */
@@ -95,15 +138,14 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
   const sha256 = randomBytes(32).toString("hex");
   const postId = randomUUID();
   const videoUrl = spec.videoUrl ?? `https://media.example.test/p/${randomUUID()}/${sha256}.mp4`;
-  const media: PublishMedia = {
-    renderAssetId: randomUUID(),
+  const media: PublishFile = {
+    assetId: randomUUID(),
     sha256,
     mime: "video/mp4",
     bytes: 24 * 1_048_576,
     durationMs: 45_000,
     width: 1_080,
     height: 1_920,
-    posterAssetId: null,
     probe: { videoCodec: "h264", audioCodec: "aac", fps: 30, sampleRate: 48_000, channels: 2 },
     ...spec.media,
   };
@@ -116,11 +158,22 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
     attemptStartedAt: new Date(),
     externalId: null,
     externalContainerId: null,
+    options: {},
     ...spec.post,
   };
   const caption = buildCaption(
     "instagram",
     spec.caption ?? { text: "Ownership in sixty seconds", hashtags: ["rust"] },
+  );
+  const format = spec.format ?? "reel";
+  const items: PublishMediaFile[] = (spec.items ?? []).map(({ url: _url, ...item }) => ({
+    ...(item.type === "video" ? videoItem() : photoItem()),
+    ...item,
+  }));
+  const itemUrls = (spec.items ?? []).map(
+    (item, index) =>
+      item.url ??
+      `https://media.example.test/p/${postId}/${items[index]?.sha256}.${items[index]?.type === "video" ? "mp4" : "jpg"}`,
   );
   let request: JsonObject | null = null;
   let response: JsonObject | null = null;
@@ -139,7 +192,10 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
       scopes: [],
       meta: {},
     },
-    media,
+    media:
+      format === "reel"
+        ? { format, video: media, items: [], posterAssetId: null }
+        : { format, video: null, items, posterAssetId: null },
     async secrets() {
       calls.secrets += 1;
       return { accessToken: token };
@@ -148,19 +204,45 @@ function fakeContext(spec: ContextSpec = {}): FakeContext {
       calls.promote += 1;
       return videoUrl;
     },
+    async getPublicItemUrls() {
+      calls.promote += 1;
+      return itemUrls;
+    },
     async getPublicPosterUrl() {
       return null;
     },
     caption: () => caption,
     async publishRequest(): Promise<PublishRequest> {
-      return {
-        platform: "instagram",
+      const base = {
+        platform: "instagram" as const,
         externalId: igUserId ?? "{account-id}",
-        videoUrl: await this.getPublicVideoUrl(),
         caption: caption.text,
-        durationMs: media.durationMs ?? 0,
-        width: media.width ?? 1_080,
-        height: media.height ?? 1_920,
+        ...(Object.keys(post.options).length === 0 ? {} : { options: post.options }),
+      };
+      if (format === "reel") {
+        return {
+          ...base,
+          format,
+          videoUrl: await this.getPublicVideoUrl(),
+          durationMs: media.durationMs ?? 0,
+          width: media.width ?? 1_080,
+          height: media.height ?? 1_920,
+        };
+      }
+      const urls = await this.getPublicItemUrls();
+      return {
+        ...base,
+        format: format as MediaPublishRequest["format"],
+        media: items.map((item, index) => ({
+          type: item.type,
+          url: urls[index] ?? "",
+          mime: item.mime,
+          bytes: item.bytes,
+          width: item.width,
+          height: item.height,
+          durationMs: item.durationMs,
+          ...(item.altText === undefined ? {} : { altText: item.altText }),
+        })),
       };
     },
     record(part) {
@@ -238,7 +320,7 @@ describe("instagram validate", () => {
     ["video", { probe: { videoCodec: "h264", fps: 120 } }],
     ["video", { probe: { videoCodec: "h264", bitRate: 40_000_000 } }],
   ] as const)("refuses media with a bad %s (%j)", async (field, media) => {
-    const fake = fakeContext({ media: media as Partial<PublishMedia> });
+    const fake = fakeContext({ media: media as Partial<PublishFile> });
     const issues = await adapter().validate(fake.context);
     expect(issues.map((issue) => issue.field)).toContain(field);
   });
@@ -634,5 +716,360 @@ describe("instagram errors", () => {
       .replyWithError(new Error("socket hang up"));
     const error = await failure(adapter({ maxRetries: 0 }).status(fake.context));
     expect(error.error).toMatchObject({ code: "transient", retryable: true });
+  });
+});
+
+// Photos, carousels and stories ------------------------------------------------------------------
+
+/** Items with fixed hashes and URLs, so a live and a dry-run context publish the same files. */
+function sharedItems(types: ("image" | "video")[]): ItemSpec[] {
+  return types.map((type) => {
+    const sha256 = randomBytes(32).toString("hex");
+    return {
+      type,
+      sha256,
+      url: `https://media.example.test/p/${randomUUID()}/${sha256}.${type === "image" ? "jpg" : "mp4"}`,
+      ...(type === "image" ? { altText: "A crab" } : {}),
+    };
+  });
+}
+
+function answerMedia(mediaId: string, permalink?: string) {
+  answer(graph(), "GET", v(`/${mediaId}`), {
+    body: { id: mediaId, ...(permalink === undefined ? {} : { permalink }) },
+  });
+}
+
+describe("instagram photos and stories", () => {
+  it("validates a JPEG photo and asks for a JPEG instead of a PNG", async () => {
+    const ok = fakeContext({ format: "image", items: [{ type: "image" }] });
+    expect(await adapter().validate(ok.context)).toEqual([]);
+    expect(ok.calls).toEqual({ secrets: 0, promote: 0 });
+    const png = fakeContext({ format: "image", items: [{ type: "image", mime: "image/png" }] });
+    expect(await adapter().validate(png.context)).toEqual([
+      {
+        field: "media.0",
+        message:
+          "Instagram publishes JPEG photos only; the photo is image/png. Upload it as a JPEG.",
+      },
+    ]);
+  });
+
+  it("checks a story video's codecs and skips the caption checks of a story", async () => {
+    const mentions = Array.from({ length: 21 }, (_, index) => `@user${index}`).join(" ");
+    const story = fakeContext({
+      format: "story",
+      items: [{ type: "video", probe: { videoCodec: "vp9", fps: 30 } }],
+      caption: { text: mentions },
+    });
+    expect(await adapter().validate(story.context)).toEqual([
+      { field: "media.0", message: "The video codec vp9 is not accepted; use H.264 or HEVC." },
+    ]);
+  });
+
+  it("refuses formats Instagram does not publish", async () => {
+    const text = fakeContext({ format: "text" });
+    expect(await adapter().validate(text.context)).toEqual([
+      { field: "format", message: "Instagram does not publish text posts." },
+    ]);
+  });
+
+  it("creates a photo container like the dry run records, then publishes it", async () => {
+    const items = sharedItems(["image"]);
+    const options = { instagram: { collaborators: ["rustlang"], locationId: "110123" } };
+    const live = fakeContext({ format: "image", items, post: { options } });
+    const dry = fakeContext({
+      format: "image",
+      items,
+      post: { options },
+      dryRun: true,
+      igUserId: live.igUserId,
+    });
+    const containerId = fakeId();
+    const seen: SeenRequest[] = [];
+    answerQuota(live.igUserId, quota(0));
+    answerContainer(live.igUserId, { body: { id: containerId } }, seen);
+    expect(await adapter().publish(live.context)).toEqual({ pending: true, containerId });
+    await createDryRunAdapter("instagram").publish(dry.context);
+    expect(live.recorded().request).toEqual(dry.recorded().request);
+    expect(Object.fromEntries(await formOf(seen[0]))).toEqual({
+      image_url: items[0]?.url,
+      caption: "Ownership in sixty seconds\n\n#rust",
+      alt_text: "A crab",
+      collaborators: JSON.stringify(["rustlang"]),
+      location_id: "110123",
+    });
+
+    const mediaId = fakeId();
+    const polled = fakeContext({ format: "image", post: { externalContainerId: containerId } });
+    answerStatus(containerId, "FINISHED");
+    answer(graph(), "POST", v(`/${polled.igUserId}/media_publish`), { body: { id: mediaId } });
+    answerMedia(mediaId, `https://www.instagram.com/p/${mediaId}/`);
+    expect(await adapter().status(polled.context)).toEqual({
+      state: "published",
+      externalId: mediaId,
+      permalink: `https://www.instagram.com/p/${mediaId}/`,
+    });
+  });
+
+  it("creates a story container without a caption and publishes it without a permalink", async () => {
+    const items = sharedItems(["video"]);
+    const live = fakeContext({ format: "story", items });
+    const containerId = fakeId();
+    const seen: SeenRequest[] = [];
+    answerQuota(live.igUserId, quota(0));
+    answerContainer(live.igUserId, { body: { id: containerId } }, seen);
+    expect(await adapter().publish(live.context)).toEqual({ pending: true, containerId });
+    expect(Object.fromEntries(await formOf(seen[0]))).toEqual({
+      media_type: "STORIES",
+      video_url: items[0]?.url,
+    });
+
+    const mediaId = fakeId();
+    const polled = fakeContext({ format: "story", post: { externalContainerId: containerId } });
+    const instance = adapter();
+    answerStatus(containerId, "IN_PROGRESS");
+    expect(await instance.status(polled.context)).toEqual({ state: "pending" });
+    answerStatus(containerId, "FINISHED");
+    answer(graph(), "POST", v(`/${polled.igUserId}/media_publish`), { body: { id: mediaId } });
+    answerMedia(mediaId);
+    expect(await instance.status(polled.context)).toEqual({
+      state: "published",
+      externalId: mediaId,
+    });
+  });
+
+  it("finds a lost story in the account's stories, not its media", async () => {
+    const containerId = fakeId();
+    const mediaId = fakeId();
+    const fake = fakeContext({ format: "story", post: { externalContainerId: containerId } });
+    answerStatus(containerId, "PUBLISHED");
+    const seen: SeenRequest[] = [];
+    answer(
+      graph(),
+      "GET",
+      v(`/${fake.igUserId}/stories`),
+      {
+        body: {
+          data: [
+            { id: mediaId, media_product_type: "STORY", timestamp: new Date().toISOString() },
+            { id: fakeId(), media_product_type: "STORY", timestamp: "2020-01-01T00:00:00+0000" },
+          ],
+        },
+      },
+      seen,
+    );
+    expect(await adapter().status(fake.context)).toEqual({
+      state: "published",
+      externalId: mediaId,
+    });
+    expect(seen[0]?.query.get("fields")).toBe("id,permalink,timestamp,caption,media_product_type");
+  });
+
+  it("does not guess between several recent stories", async () => {
+    const containerId = fakeId();
+    const fake = fakeContext({ format: "story", post: { externalContainerId: containerId } });
+    answerStatus(containerId, "PUBLISHED");
+    const now = new Date().toISOString();
+    answer(graph(), "GET", v(`/${fake.igUserId}/stories`), {
+      body: {
+        data: [
+          { id: fakeId(), media_product_type: "STORY", timestamp: now },
+          { id: fakeId(), media_product_type: "STORY", timestamp: now },
+        ],
+      },
+    });
+    expect(await adapter().status(fake.context)).toEqual({ state: "published" });
+  });
+
+  it("matches a lost photo among feed media only", async () => {
+    const containerId = fakeId();
+    const mediaId = fakeId();
+    const fake = fakeContext({ format: "image", post: { externalContainerId: containerId } });
+    const caption = fake.context.caption().text;
+    answerStatus(containerId, "PUBLISHED");
+    answer(graph(), "GET", v(`/${fake.igUserId}/media`), {
+      body: {
+        data: [
+          { id: fakeId(), caption, media_product_type: "REELS" },
+          { id: mediaId, caption, media_product_type: "FEED" },
+        ],
+      },
+    });
+    expect(await adapter().status(fake.context)).toEqual({
+      state: "published",
+      externalId: mediaId,
+    });
+  });
+
+  it("fails a photo whose container errored with the platform's text", async () => {
+    const containerId = fakeId();
+    const fake = fakeContext({ format: "image", post: { externalContainerId: containerId } });
+    answerStatus(containerId, "ERROR", "Error: The image format is not supported (2207004)");
+    expect(await adapter().status(fake.context)).toMatchObject({
+      state: "failed",
+      error: {
+        code: "invalid_media",
+        retryable: false,
+        platformCode: "2207004",
+        message: expect.stringContaining("Instagram could not process the photo"),
+      },
+    });
+  });
+});
+
+describe("instagram carousels", () => {
+  it("creates the item containers in order and waits for them, as the dry run records", async () => {
+    const items = sharedItems(["image", "video"]);
+    const live = fakeContext({ format: "carousel", items });
+    const dry = fakeContext({ format: "carousel", items, dryRun: true, igUserId: live.igUserId });
+    const [first, second] = [fakeId(), fakeId()];
+    const seen: SeenRequest[] = [];
+    answerQuota(live.igUserId, quota(2));
+    answerContainer(live.igUserId, { body: { id: first } }, seen);
+    answerContainer(live.igUserId, { body: { id: second } }, seen);
+
+    expect(await adapter().publish(live.context)).toEqual({
+      pending: true,
+      containerId: stagedCarouselId([first, second]),
+    });
+    await createDryRunAdapter("instagram").publish(dry.context);
+    expect(live.recorded().request).toEqual(dry.recorded().request);
+    expect(live.recorded().response).toEqual({
+      quota_usage: 2,
+      quota_total: 50,
+      quota_duration: 86_400,
+      item_container_ids: [first, second],
+    });
+    expect(Object.fromEntries(await formOf(seen[0]))).toEqual({
+      is_carousel_item: "true",
+      image_url: items[0]?.url,
+      alt_text: "A crab",
+    });
+    expect(Object.fromEntries(await formOf(seen[1]))).toEqual({
+      is_carousel_item: "true",
+      media_type: "VIDEO",
+      video_url: items[1]?.url,
+    });
+    expect(stagedItemIds(stagedCarouselId([first, second]))).toEqual([first, second]);
+    expect(stagedItemIds(first)).toBeNull();
+  });
+
+  it("creates the carousel container once every item is FINISHED, then publishes it", async () => {
+    const [first, second, carousel, mediaId] = [fakeId(), fakeId(), fakeId(), fakeId()];
+    const staged = stagedCarouselId([first, second]);
+    const options = { instagram: { collaborators: ["rustlang"] } };
+    const fake = fakeContext({
+      format: "carousel",
+      post: { externalContainerId: staged, options },
+    });
+    const instance = adapter();
+
+    answerStatus(first, "FINISHED");
+    answerStatus(second, "IN_PROGRESS");
+    expect(await instance.status(fake.context)).toEqual({ state: "pending" });
+
+    const seen: SeenRequest[] = [];
+    answerStatus(first, "FINISHED");
+    answerStatus(second, "FINISHED");
+    answerContainer(fake.igUserId, { body: { id: carousel } }, seen);
+    expect(await instance.status(fake.context)).toEqual({
+      state: "pending",
+      containerId: carousel,
+    });
+    expect(Object.fromEntries(await formOf(seen[0]))).toEqual({
+      media_type: "CAROUSEL",
+      children: `${first},${second}`,
+      caption: "Ownership in sixty seconds\n\n#rust",
+      collaborators: JSON.stringify(["rustlang"]),
+    });
+    expect(fake.recorded().response).toEqual({
+      item_container_ids: [first, second],
+      item_status_codes: ["FINISHED", "FINISHED"],
+      container_id: carousel,
+    });
+
+    // The publisher stores the carousel container; later polls follow it.
+    const next = fakeContext({
+      format: "carousel",
+      post: { externalContainerId: carousel },
+      igUserId: fake.igUserId,
+    });
+    answerStatus(carousel, "FINISHED");
+    answer(graph(), "POST", v(`/${fake.igUserId}/media_publish`), { body: { id: mediaId } });
+    answerMedia(mediaId, `https://www.instagram.com/p/${mediaId}/`);
+    expect(await instance.status(next.context)).toEqual({
+      state: "published",
+      externalId: mediaId,
+      permalink: `https://www.instagram.com/p/${mediaId}/`,
+    });
+  });
+
+  it("creates one carousel container for concurrent polls", async () => {
+    const [first, second, carousel] = [fakeId(), fakeId(), fakeId()];
+    const fake = fakeContext({
+      format: "carousel",
+      post: { externalContainerId: stagedCarouselId([first, second]) },
+    });
+    const instance = adapter();
+    const created: SeenRequest[] = [];
+    for (let poll = 0; poll < 2; poll += 1) {
+      answerStatus(first, "FINISHED");
+      answerStatus(second, "FINISHED");
+    }
+    answerContainer(fake.igUserId, { body: { id: carousel } }, created);
+    const results = await Promise.all([
+      instance.status(fake.context),
+      instance.status(fake.context),
+    ]);
+    expect(results).toEqual([
+      { state: "pending", containerId: carousel },
+      { state: "pending", containerId: carousel },
+    ]);
+    expect(created).toHaveLength(1);
+  });
+
+  it("fails the carousel when an item failed to process", async () => {
+    const [first, second] = [fakeId(), fakeId()];
+    const fake = fakeContext({
+      format: "carousel",
+      post: { externalContainerId: stagedCarouselId([first, second]) },
+    });
+    answerStatus(first, "FINISHED");
+    answerStatus(second, "ERROR", "Error: Media upload has failed with error code 2207026");
+    expect(await adapter().status(fake.context)).toMatchObject({
+      state: "failed",
+      error: {
+        code: "invalid_media",
+        retryable: false,
+        platformCode: "2207026",
+        message: expect.stringContaining("item 2 of the carousel"),
+      },
+    });
+  });
+
+  it("starts over from new item containers after a staged attempt was lost", async () => {
+    const fake = fakeContext({
+      format: "carousel",
+      items: [{ type: "image" }, { type: "image" }],
+      post: { externalContainerId: stagedCarouselId([fakeId(), fakeId()]) },
+    });
+    const [first, second] = [fakeId(), fakeId()];
+    // No status read of the staged id: the mock refuses any call it was not told about.
+    answerQuota(fake.igUserId, quota(0));
+    answerContainer(fake.igUserId, { body: { id: first } });
+    answerContainer(fake.igUserId, { body: { id: second } });
+    expect(await adapter().publish(fake.context)).toEqual({
+      pending: true,
+      containerId: stagedCarouselId([first, second]),
+    });
+  });
+
+  it("waits out the quota before copying any item to public storage", async () => {
+    const fake = fakeContext({ format: "carousel", items: [{ type: "image" }, { type: "video" }] });
+    answerQuota(fake.igUserId, quota(50));
+    const error = await failure(adapter().publish(fake.context));
+    expect(error.error).toMatchObject({ code: "rate_limited", retryable: true });
+    expect(fake.calls.promote).toBe(0);
   });
 });

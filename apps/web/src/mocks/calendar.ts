@@ -11,8 +11,11 @@ import {
   generateSlots,
   type LivePublishingBlocker,
   MIN_SCHEDULE_LEAD_MS,
+  PLATFORM_LABELS,
   type Platform,
+  POST_FORMAT_LABELS,
   type PublishingMode,
+  platformSupportsFormat,
   RESCHEDULABLE_POST_STATUSES,
   ReschedulePostRequestSchema,
   routes,
@@ -31,8 +34,11 @@ import { type MockDb, mockId, publish } from "./db";
 
 const path = (name: keyof typeof routes) => `*${routes[name].path}`;
 
-function apiError(status: number, code: string, message: string) {
-  return HttpResponse.json<ApiError>({ error: { code, message } }, { status });
+function apiError(status: number, code: string, message: string, details?: unknown) {
+  return HttpResponse.json<ApiError>(
+    { error: { code, message, ...(details === undefined ? {} : { details }) } },
+    { status },
+  );
 }
 
 const unauthorized = () => apiError(401, "unauthorized", "Sign in to continue.");
@@ -132,10 +138,16 @@ export function mockPost(
     attempts: status === "published" || status === "failed" ? 1 : 0,
     lastError: null,
     publishedAt: status === "published" ? post.scheduledAt : null,
+    options: {},
     createdAt: at,
     updatedAt: at,
     ...post,
-    item: { title: item.title, state: item.state, posterAssetId: item.posterAssetId },
+    item: {
+      title: item.title,
+      state: item.state,
+      format: item.format,
+      posterAssetId: item.posterAssetId,
+    },
   };
 }
 
@@ -245,7 +257,7 @@ export function createCalendarHandlers(db: MockDb) {
       if (!db.signedIn) return unauthorized();
       const parsed = CreatePostRequestSchema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return invalid(parsed.error);
-      const { itemId, channelId, scheduledAt } = parsed.data;
+      const { itemId, channelId, scheduledAt, options } = parsed.data;
       const item = db.contentItems.find((entry) => entry.id === itemId);
       if (!item) return apiError(404, "not_found", "No content item has that id.");
       const channel = db.channels.find((entry) => entry.id === channelId);
@@ -255,6 +267,14 @@ export function createCalendarHandlers(db: MockDb) {
       }
       if (channel.status === "disabled") {
         return apiError(409, "conflict", "The channel is disabled.");
+      }
+      if (!platformSupportsFormat(channel.platform, item.format)) {
+        return apiError(
+          422,
+          "format_not_supported",
+          `${PLATFORM_LABELS[channel.platform]} does not publish ${POST_FORMAT_LABELS[item.format].toLowerCase()}s.`,
+          { platform: channel.platform, format: item.format },
+        );
       }
       if (Date.parse(scheduledAt) < Date.now() + MIN_SCHEDULE_LEAD_MS) {
         return apiError(
@@ -277,6 +297,7 @@ export function createCalendarHandlers(db: MockDb) {
         channel,
         scheduledAt: new Date(scheduledAt).toISOString(),
         status: "queued",
+        options: options ?? {},
         publishMode: effectivePublishMode(
           format?.currentVersion.rules.publishMode ?? "approval",
           channel.requiresApproval,

@@ -3,6 +3,7 @@ import {
   ASSET_KIND_MAX_BYTES,
   type Asset,
   type AssetMimeType,
+  type CreateUploadRequest,
   isAssetMimeTypeFor,
   type JobSummary,
   type KbEntryDetail,
@@ -211,6 +212,58 @@ export interface UploadProgress {
   share: number;
 }
 
+/**
+ * Stores a hashed file as an asset: asks the API for an upload (`assets.createUpload`), PUTs the
+ * bytes with progress unless the owner already has the same file (`upload: null`), then finalizes
+ * the asset, which checks its size and checksum. A `409 upload_missing` PUTs once more. Reports
+ * `upload` and `verify` as it goes.
+ */
+export async function uploadAsset(
+  file: Blob,
+  request: CreateUploadRequest,
+  options: {
+    onProgress?: (stage: "upload" | "verify", share: number) => void;
+    signal?: AbortSignal;
+    createXhr?: XhrFactory;
+  } = {},
+): Promise<Asset> {
+  const { onProgress, signal, createXhr } = options;
+  const report = (stage: "upload" | "verify", share = 0) => onProgress?.(stage, share);
+  const created = await api.request("assets.createUpload", { body: request, signal });
+
+  let asset = created.asset;
+  if (!created.upload) {
+    report("upload", 1);
+    return asset;
+  }
+  const upload = created.upload;
+  const put = () =>
+    putFile(upload, file, {
+      signal,
+      createXhr,
+      onProgress: (share) => report("upload", share),
+    });
+  await put();
+  report("verify");
+  try {
+    asset = await api.request("assets.finalize", { params: { id: asset.id }, body: {}, signal });
+  } catch (error) {
+    if (!(isApiError(error, 409) && error.code === "upload_missing")) throw error;
+    report("upload");
+    await put();
+    report("verify");
+    asset = await api.request("assets.finalize", { params: { id: asset.id }, body: {}, signal });
+  }
+  if (asset.status !== "ready") {
+    throw new ApiError(
+      422,
+      "upload_failed",
+      "The uploaded file didn't match its checksum. Try the upload again.",
+    );
+  }
+  return asset;
+}
+
 export interface ReferenceUploadResult {
   asset: Asset;
   entry: KbEntryDetail;
@@ -251,8 +304,9 @@ export async function uploadReferenceMedia(
   });
 
   report("upload");
-  const created = await api.request("assets.createUpload", {
-    body: {
+  const asset = await uploadAsset(
+    file,
+    {
       projectId: entry.projectId,
       kind: "reference_media",
       filename: uploadFilename(file.name),
@@ -260,39 +314,8 @@ export async function uploadReferenceMedia(
       bytes: file.size,
       sha256,
     },
-    signal,
-  });
-
-  let asset = created.asset;
-  if (created.upload) {
-    const upload = created.upload;
-    const put = () =>
-      putFile(upload, file, {
-        signal,
-        createXhr,
-        onProgress: (share) => report("upload", share),
-      });
-    await put();
-    report("verify");
-    try {
-      asset = await api.request("assets.finalize", { params: { id: asset.id }, body: {}, signal });
-    } catch (error) {
-      if (!(isApiError(error, 409) && error.code === "upload_missing")) throw error;
-      report("upload");
-      await put();
-      report("verify");
-      asset = await api.request("assets.finalize", { params: { id: asset.id }, body: {}, signal });
-    }
-    if (asset.status !== "ready") {
-      throw new ApiError(
-        422,
-        "upload_failed",
-        "The uploaded file didn't match its checksum. Try the upload again.",
-      );
-    }
-  } else {
-    report("upload", 1);
-  }
+    { signal, createXhr, onProgress: (stage, share) => report(stage, share) },
+  );
 
   report("attach");
   const attach = (base: KbEntryDetail) =>

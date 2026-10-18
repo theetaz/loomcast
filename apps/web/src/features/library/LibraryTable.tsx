@@ -6,6 +6,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowDownIcon, ArrowUpIcon, TriangleAlertIcon } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useRef, useState } from "react";
 import { RelativeTime } from "@/components/RelativeTime";
+import { FormatIcon } from "@/features/post-formats/FormatBadge";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { formatDuration, formatTargetDay, isOverdue } from "./format";
@@ -132,6 +133,7 @@ export function LibraryTable({
             >
               <td className="py-0 pr-2 pl-3.5">
                 <div className="flex min-w-0 items-center gap-1.5">
+                  <FormatIcon format={item.format} label />
                   <Link
                     to="/content/$itemId"
                     params={{ itemId: item.id }}

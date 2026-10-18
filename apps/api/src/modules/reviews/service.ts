@@ -5,7 +5,10 @@ import {
   type CreateReviewResponse,
   type CursorPage,
   DEFAULT_PAGE_LIMIT,
+  formatMediaIssues,
   IdSchema,
+  isProducedFormat,
+  isPublishable,
   REVIEW_DECISION_STATES,
   type Review,
   type ReviewQueueQuery,
@@ -39,7 +42,8 @@ export interface ReviewOptions {
 export interface ReviewsService {
   /**
    * Decides the item's current version, which must be in `review`:
-   * - `approve` needs a render and moves the item to `approved`. A user approves; the system
+   * - `approve` needs a render (for a composed post, the media its format takes) and moves the
+   *   item to `approved`. A user approves; the system
    *   approves on the user's behalf (`auto_approve`) when every post publishes in `auto` mode.
    * - `request_changes` needs a comment and moves the item to `script`. `enqueueRevision`
    *   (default true) is stored for production, which queues `content.revise` on `review.created`.
@@ -47,7 +51,7 @@ export interface ReviewsService {
    *
    * 409 `invalid_transition` when the item is not in review or the actor may not decide (tokens
    * and devices never approve); 409 `conflict` for a version that is no longer current; 422
-   * `missing_artifact` for an approval without a render. Publishes `review.created` after commit.
+   * `missing_artifact` for an approval without a render or media. Publishes `review.created` after commit.
    * Null when there is no such item.
    */
   create(
@@ -130,8 +134,11 @@ export function createReviewsService(deps: ReviewsServiceDeps): ReviewsService {
         if (version === null) {
           throw notFound("The item has no version with that id.");
         }
-        if (input.decision === "approve" && version.renderAssetId === null) {
-          throw missingArtifact("Only a rendered version can be approved.", "render");
+        if (input.decision === "approve" && !isPublishable(version)) {
+          // A studio video needs its render; a composed post needs the media its format takes.
+          throw isProducedFormat(version.format) && version.media.length === 0
+            ? missingArtifact("Only a rendered version can be approved.", "render")
+            : missingArtifact(formatMediaIssues(version).join(" "), "media");
         }
         const via: TransitionVia =
           input.decision === "approve" && actor.kind === "system" ? "auto_approve" : input.decision;

@@ -3,6 +3,7 @@ import {
   EditVersionRequestSchema,
   ListContentQuerySchema,
   routes,
+  SubmitContentRequestSchema,
   UpdateContentItemRequestSchema,
 } from "@loomcast/contracts";
 import { type Context, Hono } from "hono";
@@ -69,9 +70,10 @@ function queryObject(c: Context<AppEnv>, repeatable: readonly string[]): Record<
 }
 
 /**
- * Content item endpoints: items, their immutable versions and edits, archive and restore. Every
- * state change goes through the content service's transitions. Production actions and the
- * item's conversation belong to the production module; the asset list to the assets module.
+ * Content item endpoints: items, their immutable versions and edits, submitting to review,
+ * archive and restore. Every state change goes through the content service's transitions.
+ * Production actions and the item's conversation belong to the production module; the asset list
+ * to the assets module.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const content = contentServiceFor(deps);
@@ -140,6 +142,12 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     const input = await readJson(c, EditVersionRequestSchema);
     const result = await content.edit(id, input, userActor(c, trustProxy));
     return c.json(result, 201);
+  });
+
+  router.post(routes["content.submit"].path, async (c) => {
+    const input = await readJson(c, SubmitContentRequestSchema);
+    const item = await content.submit(idParam(c), input, userActor(c, trustProxy));
+    return c.json(item, 200);
   });
 
   router.post(routes["content.archive"].path, async (c) => {

@@ -2,6 +2,7 @@ import {
   type CalendarSlot,
   type Channel,
   OPEN_POST_STATUSES,
+  platformSupportsFormat,
   type Series,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
@@ -24,6 +25,7 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { platformLabel } from "@/features/channels/platforms";
+import { FormatIcon } from "@/features/post-formats/FormatBadge";
 import { errorMessage, isApiError } from "@/lib/api";
 import { approvedItemsQueryOptions, cachedPosts, useCreatePost } from "./queries";
 import { longDayLabel, placeInstant } from "./time";
@@ -36,7 +38,10 @@ export interface SlotPickerProps {
   onClose: () => void;
 }
 
-/** Fills an open cadence slot with one of the series' approved videos. */
+/**
+ * Fills an open cadence slot with one of the series' approved videos or posts, leaving out those
+ * whose format the slot's channel does not publish.
+ */
 export function SlotPicker({ slot, zone, channel, series, onClose }: SlotPickerProps) {
   return (
     <Dialog open={slot !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
@@ -89,7 +94,10 @@ function SlotPickerForm({
       )
       .map((post) => post.itemId),
   );
-  const choices = (items.data?.items ?? []).filter((item) => !taken.has(item.id));
+  const choices = (items.data?.items ?? []).filter(
+    (item) =>
+      !taken.has(item.id) && (!channel || platformSupportsFormat(channel.platform, item.format)),
+  );
   const chosen = choices.find((item) => item.id === itemId) ?? null;
 
   const submit = (event: FormEvent) => {
@@ -111,6 +119,11 @@ function SlotPickerForm({
       ? "That video already has a post on this channel, or the slot was taken. Pick another."
       : errorMessage(create.error)
     : null;
+  // Approved items this channel can't publish, to explain an empty list.
+  const unsupported = (items.data?.items ?? []).filter(
+    (item) =>
+      !taken.has(item.id) && channel && !platformSupportsFormat(channel.platform, item.format),
+  ).length;
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
@@ -139,7 +152,11 @@ function SlotPickerForm({
           size="compact"
           icon={FilmIcon}
           title="No approved videos to schedule"
-          description={`Approve a video of ${series?.name ?? "this series"} in review, then come back to this slot.`}
+          description={
+            unsupported > 0 && channel
+              ? `${platformLabel(channel.platform)} doesn't publish the formats of the approved posts of ${series?.name ?? "this series"}.`
+              : `Approve a video of ${series?.name ?? "this series"} in review, then come back to this slot.`
+          }
         />
       ) : (
         <ScrollArea viewportClassName="max-h-72">
@@ -175,6 +192,7 @@ function SlotPickerForm({
                   >
                     {selected ? <CheckIcon className="size-3" /> : null}
                   </span>
+                  <FormatIcon format={item.format} label />
                   <span className="min-w-0 flex-1 truncate">{item.title}</span>
                   <span className="shrink-0 text-small text-muted-foreground">
                     v{item.versionNo}

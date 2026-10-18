@@ -6,14 +6,17 @@ import { cn } from "@loomcast/ui/lib/cn";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  CalendarPlusIcon,
   CheckIcon,
   MessageSquareWarningIcon,
   PencilIcon,
+  SendIcon,
   ThumbsDownIcon,
   WandSparklesIcon,
 } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { RelativeTime } from "@/components/RelativeTime";
+import { FormatBadge } from "@/features/post-formats/FormatBadge";
 import { errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
@@ -22,6 +25,9 @@ import { useRenameItem } from "./queries";
 
 /** States after which a missed target no longer matters. */
 const DONE_STATES = new Set(["published", "archived"]);
+
+/** States in which an item can be put on more channels. */
+const SCHEDULABLE_STATES = new Set(["approved", "scheduled"]);
 
 /**
  * The item's title (renamed in place), its state, version, series and target date, and the
@@ -32,11 +38,13 @@ export function ItemHeader({
   series,
   decisions,
   onRequestChanges,
+  onSchedule,
 }: {
   item: ContentItem;
   series: Series | null;
   decisions: ItemDecisions;
   onRequestChanges: () => void;
+  onSchedule: () => void;
 }) {
   const now = useNow();
   const overdue =
@@ -48,6 +56,7 @@ export function ItemHeader({
         <EditableTitle item={item} />
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted-foreground">
           <StatusPill kind="pipeline" status={item.state} />
+          <FormatBadge format={item.format} />
           <span className="font-mono text-mono">v{item.versionNo}</span>
           {series ? (
             <>
@@ -71,7 +80,11 @@ export function ItemHeader({
         </div>
         {item.pitch ? <p className="max-w-prose text-body text-text-2">{item.pitch}</p> : null}
       </div>
-      <HeaderActions decisions={decisions} onRequestChanges={onRequestChanges} />
+      <HeaderActions
+        decisions={decisions}
+        onRequestChanges={onRequestChanges}
+        onSchedule={SCHEDULABLE_STATES.has(item.state) ? onSchedule : null}
+      />
     </header>
   );
 }
@@ -79,18 +92,34 @@ export function ItemHeader({
 function HeaderActions({
   decisions,
   onRequestChanges,
+  onSchedule,
 }: {
   decisions: ItemDecisions;
   onRequestChanges: () => void;
+  /** Opens the schedule dialog; null when the item can't be scheduled now. */
+  onSchedule: (() => void) | null;
 }) {
   const { can, busy, hasActiveJob } = decisions;
   const inReview = can("approve") || can("request_changes") || can("reject");
-  if (!inReview && !can("produce") && !can("archive") && !can("restore")) {
+  if (
+    !inReview &&
+    !onSchedule &&
+    !can("submit") &&
+    !can("produce") &&
+    !can("archive") &&
+    !can("restore")
+  ) {
     return null;
   }
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {onSchedule ? (
+        <Button type="button" disabled={busy} onClick={onSchedule}>
+          <CalendarPlusIcon aria-hidden="true" />
+          Schedule
+        </Button>
+      ) : null}
       {can("produce") ? (
         <Button
           type="button"
@@ -99,6 +128,12 @@ function HeaderActions({
         >
           <WandSparklesIcon aria-hidden="true" />
           Produce
+        </Button>
+      ) : null}
+      {can("submit") ? (
+        <Button type="button" disabled={busy || hasActiveJob} onClick={decisions.submit}>
+          <SendIcon aria-hidden="true" />
+          Submit for review
         </Button>
       ) : null}
       {can("approve") ? (

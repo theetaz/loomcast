@@ -7,8 +7,8 @@ import { contentItems, publishAttempts, series, seriesChannels } from "../src/sc
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   insertActiveChannel,
-  insertContentItem,
   insertFormat,
+  insertLegacyContentItem,
   insertPost,
   insertProject,
   insertUser,
@@ -56,7 +56,7 @@ describe("scheduler migrations on a database of the previous release", () => {
       .values({ projectId: project.id, name: "Upgraded", slug: "upgraded", formatId: format.id })
       .returning();
     if (created === undefined) throw new Error("series was not inserted");
-    const { item, version } = await insertContentItem(db, {
+    const { item, version } = await insertLegacyContentItem(db, {
       projectId: project.id,
       seriesId: created.id,
       createdBy: user.id,

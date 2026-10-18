@@ -183,6 +183,7 @@ describe("scheduled posts", () => {
 describe("publisher", () => {
   const request = {
     platform: "instagram",
+    format: "reel" as const,
     externalId: "17841400000000001",
     videoUrl: "https://media.example.test/renders/final.mp4",
     posterUrl: "https://media.example.test/renders/poster.jpg",

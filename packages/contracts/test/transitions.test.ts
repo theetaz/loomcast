@@ -57,6 +57,8 @@ function expected(
   // An edit after approval goes back into production, or keeps the approval for caption and notes.
   if (from === "approved" && ["script", "storyboard", "voice"].includes(to)) return user;
   if (from === "approved" && to === "approved") return user && hasRender;
+  // A composed post whose media change goes back to render, ready to submit again.
+  if (from === "approved" && to === "render") return user && hasRender;
   // Calendar and publisher (M4).
   if (from === "approved" && to === "scheduled") return userOrSystem && hasRender;
   if (from === "scheduled" && to === "approved") return userOrSystem && hasRender;
@@ -135,6 +137,7 @@ describe("transition table", () => {
         via: "auto_approve",
         actors: ["system"],
         requiresRender: true,
+        composedOnly: false,
       },
     ]);
     expect(
@@ -160,7 +163,8 @@ describe("transition table", () => {
     expect(findTransition({ from: "approved", to: "script", actor: "user" })?.via).toBe("edit");
     expect(findTransition({ from: "approved", to: "storyboard", actor: "user" })?.via).toBe("edit");
     expect(canTransition("approved", "script", "device")).toBe(false);
-    expect(canTransition("approved", "render", "user", rendered)).toBe(false);
+    expect(canTransition("approved", "render", "user", bare)).toBe(false);
+    expect(canTransition("approved", "render", "device", rendered)).toBe(false);
   });
 
   it("restores an archived item as an idea", () => {

@@ -1,6 +1,7 @@
 import { Button } from "@loomcast/ui/components/button";
 import { createFileRoute } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
+import { ImagePlusIcon, PlusIcon } from "lucide-react";
+import { NewPostDialog } from "@/features/composer/NewPostDialog";
 import { LibraryView } from "@/features/library/LibraryView";
 import { NewIdeaDialog } from "@/features/library/NewIdeaDialog";
 import { LibrarySearchSchema } from "@/features/library/search";
@@ -24,16 +25,24 @@ function ContentTab() {
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <h2 className="text-heading">Content</h2>
               <p className="text-control text-muted-foreground">
-                This project's videos, from first idea to published.
+                This project's videos and posts, from first idea to published.
               </p>
             </div>
             {project.status === "active" ? (
-              <NewIdeaDialog projectId={project.id}>
-                <Button className="self-start sm:self-auto">
-                  <PlusIcon aria-hidden="true" />
-                  New idea
-                </Button>
-              </NewIdeaDialog>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <NewPostDialog projectId={project.id}>
+                  <Button variant="outline">
+                    <ImagePlusIcon aria-hidden="true" />
+                    New post
+                  </Button>
+                </NewPostDialog>
+                <NewIdeaDialog projectId={project.id}>
+                  <Button>
+                    <PlusIcon aria-hidden="true" />
+                    New idea
+                  </Button>
+                </NewIdeaDialog>
+              </div>
             ) : null}
           </div>
           <LibraryView

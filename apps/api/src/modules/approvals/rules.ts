@@ -1,4 +1,4 @@
-import { OPEN_POST_STATUSES } from "@loomcast/contracts";
+import { isPublishable, OPEN_POST_STATUSES } from "@loomcast/contracts";
 import { type Database, scheduledPosts } from "@loomcast/db";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { ContentStateChange, EventBus } from "../../lib/bus";
@@ -141,7 +141,7 @@ export function createApprovalRules(deps: ApprovalRulesDeps): ApprovalRules {
         return false;
       }
       const version = await findVersion(tx, item.id, item.currentVersionId);
-      if (version === null || version.renderAssetId === null) {
+      if (version === null || !isPublishable(version)) {
         return false;
       }
       await reviews.create(

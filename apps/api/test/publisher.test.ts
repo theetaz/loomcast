@@ -26,6 +26,7 @@ import {
   buildPublishPlan,
   dryRunMediaUrl,
   PUBLISHING_PAUSED_RETRY_MS,
+  type PublishContext,
   type PublisherAdapter,
   PublishFailure,
   type PublishResult,
@@ -170,6 +171,7 @@ describe("dry-run publishing", () => {
       const expected = buildPublishPlan({
         request: {
           platform,
+          format: "reel",
           externalId: UNCONNECTED_ACCOUNT_ID,
           videoUrl: dryRunMediaUrl(postId, await sha256Of(item.renderAssetId), "mp4"),
           posterUrl: dryRunMediaUrl(postId, await sha256Of(item.posterAssetId), "jpg"),
@@ -716,6 +718,46 @@ describe("live publishing with a fake adapter", () => {
       });
       expect((await attemptsOf(postId))[0]?.finishedAt).toEqual(now());
       expect(await itemState(item.itemId)).toBe("published");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("follows the new container a status poll hands back", async () => {
+    const seen: (string | null)[] = [];
+    const statuses: StatusResult[] = [
+      { state: "pending", containerId: "c-parent" },
+      { state: "published", externalId: "m-1" },
+    ];
+    const adapter = {
+      ...fakeAdapter("instagram", {
+        publish: async () => ({ pending: true, containerId: "items:c-1,c-2" }),
+      }),
+      status: vi.fn(async (context: PublishContext): Promise<StatusResult> => {
+        seen.push(context.post.externalContainerId);
+        return statuses.shift() ?? { state: "pending" };
+      }),
+    };
+    const live = liveServer(adapter);
+    try {
+      const channel = await liveChannel();
+      const { postId } = await queuedPost(channel.id, { dryRun: false });
+      await enqueuePublish(live.scheduler, postId, now());
+      await runDue(live.scheduler);
+      h.t.clock.advance(15_000);
+      await runDue(live.scheduler);
+      expect(await postRow(postId)).toMatchObject({
+        status: "publishing",
+        externalContainerId: "c-parent",
+      });
+      h.t.clock.advance(15_000);
+      await runDue(live.scheduler);
+      expect(seen).toEqual(["items:c-1,c-2", "c-parent"]);
+      expect(await postRow(postId)).toMatchObject({
+        status: "published",
+        externalId: "m-1",
+        externalContainerId: "c-parent",
+      });
     } finally {
       await live.close();
     }

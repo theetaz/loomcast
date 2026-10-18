@@ -1,15 +1,27 @@
+import type { PostFormat } from "@loomcast/contracts";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQuery } from "@tanstack/react-query";
 import { FilmIcon } from "lucide-react";
 import { useState } from "react";
+import { FORMAT_ICONS } from "@/features/post-formats/FormatBadge";
 import { assetUrlQueryOptions } from "./queries";
 
 /**
  * A video's poster as a small 9:16 thumbnail, from a presigned URL that is refreshed before it
- * expires. Without a poster, or while it loads, a quiet placeholder keeps the row's shape. The
- * image is decorative: the row names the video.
+ * expires. Without a poster, or while it loads, a quiet placeholder keeps the row's shape; a
+ * composed post (which has no poster) shows its format's icon there. The image is decorative: the
+ * row names the video.
  */
-export function Poster({ assetId, className }: { assetId: string | null; className?: string }) {
+export function Poster({
+  assetId,
+  format,
+  className,
+}: {
+  assetId: string | null;
+  format?: PostFormat;
+  className?: string;
+}) {
+  const Placeholder = format && format !== "reel" ? FORMAT_ICONS[format] : FilmIcon;
   const url = useQuery({ ...assetUrlQueryOptions(assetId ?? ""), enabled: assetId !== null });
   const [failed, setFailed] = useState<string | null>(null);
   const src = url.data?.url;
@@ -32,7 +44,7 @@ export function Poster({ assetId, className }: { assetId: string | null; classNa
           className="size-full object-cover"
         />
       ) : (
-        <FilmIcon aria-hidden="true" className="size-3.5 text-text-4" />
+        <Placeholder aria-hidden="true" className="size-3.5 text-text-4" />
       )}
     </span>
   );

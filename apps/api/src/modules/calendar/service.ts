@@ -4,7 +4,12 @@ import {
   type CreatePostRequest,
   MIN_SCHEDULE_LEAD_MS,
   OPEN_POST_STATUSES,
+  PLATFORM_LABELS,
+  type Platform,
+  POST_FORMAT_LABELS,
+  type PostFormat,
   type PublishingMode,
+  platformRefusal,
   RESCHEDULABLE_POST_STATUSES,
   type ReschedulePostRequest,
   type ScheduledPost,
@@ -13,6 +18,7 @@ import {
   type ContentItemRow,
   channels,
   contentItems,
+  contentVersions,
   type Database,
   type ScheduledPostRow,
   scheduledPosts,
@@ -28,7 +34,7 @@ import { hasQueuedPost } from "../approvals/rules";
 import { produceAt, produceTaskKey } from "../cadence/plan";
 import { auditActor, type ContentService, type PipelineActor, SYSTEM_ACTOR } from "../content";
 import { lockItem } from "../content/queries";
-import { invalidTransition } from "../content/support";
+import { inTransaction, invalidTransition } from "../content/support";
 import type { Scheduler } from "../scheduler";
 import {
   APPROVED_ITEM_STATES,
@@ -57,7 +63,15 @@ export interface CalendarServiceDeps {
 
 export interface CalendarService {
   get(query: CalendarQuery): Promise<CalendarResponse>;
-  create(input: CreatePostRequest, actor: PipelineActor): Promise<ScheduledPost>;
+  /**
+   * Schedules an approved item on a channel. With `options.tx` it runs in the caller's
+   * transaction, so several posts (and the approval before them) commit or fail together.
+   */
+  create(
+    input: CreatePostRequest,
+    actor: PipelineActor,
+    options?: { tx?: Transaction },
+  ): Promise<ScheduledPost>;
   reschedule(
     id: string,
     input: ReschedulePostRequest,
@@ -75,6 +89,15 @@ function postNotEditable(status: ScheduledPostRow["status"]): HttpError {
     "This post is publishing, published or cancelled and cannot change.",
     { status },
   );
+}
+
+/** 422 when a channel's platform does not publish the item's post format. */
+export function formatNotSupported(
+  platform: Platform,
+  format: PostFormat,
+  message = `${PLATFORM_LABELS[platform]} does not publish ${POST_FORMAT_LABELS[format].toLowerCase()}s.`,
+): HttpError {
+  return new HttpError(422, "format_not_supported", message, { platform, format });
 }
 
 function isReschedulable(status: ScheduledPostRow["status"]): boolean {
@@ -216,14 +239,19 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
       return { posts, slots };
     },
 
-    async create(input, actor) {
-      return transaction(db, async (tx) => {
+    async create(input, actor, options = {}) {
+      return inTransaction(db, options.tx, async (tx) => {
         const item = await lockItem(tx, input.itemId);
         if (item === null) {
           throw notFound("No content item has that id.");
         }
         const [channel] = await tx
-          .select({ id: channels.id, status: channels.status, dryRun: channels.dryRun })
+          .select({
+            id: channels.id,
+            platform: channels.platform,
+            status: channels.status,
+            dryRun: channels.dryRun,
+          })
           .from(channels)
           .where(eq(channels.id, input.channelId))
           .limit(1);
@@ -236,6 +264,16 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         if (channel.status === "disabled") {
           throw conflict("The channel is disabled.", { reason: "channel_disabled" });
         }
+        const [version] = await tx
+          .select({ format: contentVersions.format, media: contentVersions.media })
+          .from(contentVersions)
+          .where(eq(contentVersions.id, item.currentVersionId))
+          .limit(1);
+        const format = version?.format ?? "reel";
+        const refusal = platformRefusal(channel.platform, { format, media: version?.media ?? [] });
+        if (refusal !== null) {
+          throw formatNotSupported(channel.platform, format, refusal);
+        }
         const scheduledAt = requireLead(input.scheduledAt);
         const [post] = await tx
           .insert(scheduledPosts)
@@ -247,6 +285,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
             scheduledAt,
             status: "queued",
             dryRun: newPostDryRun(channel, deps.config.publishing.mode),
+            options: input.options ?? {},
           })
           .onConflictDoNothing({
             target: [scheduledPosts.itemId, scheduledPosts.channelId],

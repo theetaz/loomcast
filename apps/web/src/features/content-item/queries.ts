@@ -219,6 +219,20 @@ export function useReviewItem(itemId: string) {
   });
 }
 
+/** Sends the current version to review: a composed post whose media fit, or a finished render. */
+export function useSubmitItem(itemId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (versionId: string) =>
+      api.request("content.submit", { params: { id: itemId }, body: { versionId } }),
+    onSuccess: (item) => {
+      upsertContentItem(queryClient, item);
+      void queryClient.invalidateQueries({ queryKey: ["reviews", "queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+    },
+  });
+}
+
 export function useArchive(itemId: string) {
   const queryClient = useQueryClient();
   return useMutation({

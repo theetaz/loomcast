@@ -3,7 +3,8 @@ import { z } from "zod";
 
 // Kept apart from the page: route options load with the app, the page loads on demand.
 
-export const ITEM_TABS = ["script", "storyboard", "voice", "video"] as const;
+/** `post` is the only tab of a composed post (photo, carousel, story, text or uploaded video). */
+export const ITEM_TABS = ["script", "storyboard", "voice", "video", "post"] as const;
 export type ItemTab = (typeof ITEM_TABS)[number];
 
 /**

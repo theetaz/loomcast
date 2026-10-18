@@ -1,6 +1,7 @@
 import { type JsonObject, PermalinkSchema } from "@loomcast/contracts";
 import { createThreadsGraphClient, type GraphClient, parseGraph } from "../../../../lib/meta-graph";
 import { PublishFailure } from "../../errors";
+import { videoFacts } from "../../media";
 import {
   buildThreadsFinish,
   buildThreadsPublish,
@@ -76,7 +77,7 @@ export function createThreadsAdapter(options: MetaAdapterOptions): PublisherAdap
     async validate(context): Promise<AdapterIssue[]> {
       const request = await context.publishRequest();
       return [
-        ...validateThreadsRequest(request, context.media),
+        ...validateThreadsRequest(request, videoFacts(context.media)),
         ...context.caption().issues.map((issue) => ({ field: "caption", message: issue.message })),
       ];
     },
@@ -86,7 +87,7 @@ export function createThreadsAdapter(options: MetaAdapterOptions): PublisherAdap
       const request = await context.publishRequest();
       const plan = buildThreadsPublish({
         request,
-        media: { bytes: context.media.bytes, mime: context.media.mime },
+        media: videoFacts(context.media),
         accessToken,
       });
       context.record({ request: plan as unknown as JsonObject });

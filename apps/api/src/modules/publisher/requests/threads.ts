@@ -1,4 +1,4 @@
-import type { PublishRequest } from "@loomcast/contracts";
+import type { PublishRequest, VideoPublishRequest } from "@loomcast/contracts";
 import { limitCaption } from "../caption";
 import {
   type BuildOptions,
@@ -11,6 +11,8 @@ import {
   type PublishPlan,
   type RequestIssue,
   segment,
+  videoOnlyIssues,
+  videoPlanInput,
 } from "./types";
 
 // Threads video posts: a VIDEO container from the public URL, polled until FINISHED, then
@@ -41,7 +43,7 @@ export const threadsRequests = {
   },
 
   /** `POST /{threads-user-id}/threads {media_type: "VIDEO", video_url, text}`. */
-  createContainer(request: PublishRequest, options: BuildOptions): PlatformRequest {
+  createContainer(request: VideoPublishRequest, options: BuildOptions): PlatformRequest {
     return {
       step: "create_container",
       method: "POST",
@@ -93,7 +95,8 @@ export const threadsRequests = {
 };
 
 /** What `publish` sends: the quota check, then the container. Then it waits (pending). */
-export function buildThreadsPublish(input: PlanInput): PublishPlan {
+export function buildThreadsPublish(plan: PlanInput): PublishPlan {
+  const input = videoPlanInput(plan);
   return {
     platform: "threads",
     pending: true,
@@ -117,6 +120,11 @@ export function buildThreadsFinish(
   ];
 }
 
-export function validateThreadsRequest(request: PublishRequest, media: MediaFacts): RequestIssue[] {
-  return checkMedia(request, media, THREADS_VIDEO_LIMITS);
+export function validateThreadsRequest(
+  request: PublishRequest,
+  media: MediaFacts | null,
+): RequestIssue[] {
+  return videoOnlyIssues(request, media, (video, facts) =>
+    checkMedia(video, facts, THREADS_VIDEO_LIMITS),
+  );
 }

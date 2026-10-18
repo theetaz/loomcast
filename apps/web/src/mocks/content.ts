@@ -15,6 +15,7 @@ import {
   MAX_PAGE_LIMIT,
   nextProductionStep,
   type PipelineState,
+  type PostMediaEntry,
   PRODUCTION_STATES,
   PRODUCTION_STEPS,
   type ProduceTarget,
@@ -104,6 +105,8 @@ export function mockVersion(
     script,
     storyboard: script && artifacts.hasStoryboard ? mockStoryboard(script) : null,
     caption: null,
+    format: "reel",
+    media: [],
     ...overrides,
   };
 }
@@ -131,6 +134,7 @@ export function mockContentItem(
           ? state
           : (PRODUCTION_STATES[Math.min(index, Math.max(0, top - 1))] ?? "idea"),
       createdAt: at,
+      ...(overrides.format ? { format: overrides.format } : {}),
     }),
   );
   const current = versions.at(-1) as ContentVersion;
@@ -142,6 +146,7 @@ export function mockContentItem(
     state,
     currentVersionId: current.id,
     versionNo,
+    format: current.format,
     durationMs: current.renderAssetId ? 42_000 : null,
     posterAssetId: current.posterAssetId,
     targetAt: null,
@@ -155,6 +160,50 @@ export function mockContentItem(
     ...overrides,
   };
   return { item, versions };
+}
+
+/**
+ * A composed post (a photo, carousel, story, text post or uploaded video): one version past the
+ * idea that carries `media` instead of a script, a voice and a render. The media's assets come
+ * from `ensureItemAssets` when the item page asks for them.
+ */
+export function mockComposedItem(
+  overrides: Partial<ContentItem> &
+    Pick<ContentItem, "projectId" | "title" | "format"> & {
+      media?: PostMediaEntry[];
+      caption?: string | null;
+    },
+): { item: ContentItem; versions: ContentVersion[] } {
+  const { media = [], caption = null, ...rest } = overrides;
+  const { item, versions } = mockContentItem({ versionNo: 2, ...rest });
+  for (const version of versions) {
+    Object.assign(version, {
+      format: overrides.format,
+      hasScript: false,
+      hasStoryboard: false,
+      script: null,
+      storyboard: null,
+      voiceAssetId: null,
+      renderAssetId: null,
+      posterAssetId: null,
+      media: version.versionNo === 1 ? [] : media,
+      caption: version.versionNo === 1 ? null : caption,
+      createdVia: version.versionNo === 1 ? "system" : "ui",
+    } satisfies Partial<ContentVersion>);
+  }
+  return { item: { ...item, durationMs: null, posterAssetId: null }, versions };
+}
+
+/** Media entries for a composed post, with new asset ids. */
+export function mockMedia(
+  types: readonly PostMediaEntry["type"][],
+  altText?: (index: number) => string,
+): PostMediaEntry[] {
+  return types.map((type, index) => ({
+    assetId: mockId(),
+    type,
+    ...(altText && type === "image" ? { altText: altText(index) } : {}),
+  }));
 }
 
 function summary(version: ContentVersion): ContentVersionSummary {
@@ -451,6 +500,7 @@ export function createContentHandlers(db: MockDb) {
       const { item, versions } = mockContentItem({
         projectId: project.id,
         title: input.title,
+        ...(input.format ? { format: input.format } : {}),
         pitch: input.pitch || null,
         topic: input.topic ?? null,
         seriesId: input.seriesId ?? null,
@@ -654,6 +704,43 @@ export function demoContent(
   add(rust.id, "Panics in production: a story", "archived", 2, 9 * 24 * 60, {
     seriesId: errors.id,
   });
+
+  // Composed posts: photos, a carousel, a story and a text post, made from uploaded files.
+  const compose = (
+    title: string,
+    format: ContentItem["format"],
+    state: PipelineState,
+    updatedMinutesAgo: number,
+    extra: { media?: PostMediaEntry[]; caption?: string } = {},
+  ) => {
+    const { item, versions } = mockComposedItem({
+      projectId: rust.id,
+      title,
+      format,
+      state,
+      createdBy: userId,
+      createdAt: ago(updatedMinutesAgo + 300),
+      updatedAt: ago(updatedMinutesAgo),
+      ...extra,
+    });
+    contentItems.push(item);
+    contentVersions.push(...versions);
+  };
+  compose("Ferris at RustConf, in five photos", "carousel", "approved", 50, {
+    media: mockMedia(
+      ["image", "image", "image", "image", "image"],
+      (index) => `Photo ${index + 1} of the RustConf hallway track, with Ferris on a laptop.`,
+    ),
+    caption: "Five moments from RustConf. Which talk should we explain next?",
+  });
+  compose("One cargo flag a day: --timings", "image", "review", 75, {
+    media: mockMedia(["image"], () => "A cargo build timing chart with one slow crate."),
+    caption: "cargo build --timings shows which crate slows the build down.",
+  });
+  compose("New explainer tonight", "text", "render", 15, {
+    caption: "A new 60-second explainer lands tonight: why Rust has no null.",
+  });
+  compose("Behind the scenes at the studio", "story", "idea", 200);
 
   if (agents) {
     const patterns = mockSeries({

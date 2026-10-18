@@ -19,7 +19,7 @@ const PLAN_BUILDERS: { readonly [P in Platform]: (input: PlanInput) => PublishPl
 };
 
 const VALIDATORS: {
-  readonly [P in Platform]: (request: PublishRequest, media: MediaFacts) => RequestIssue[];
+  readonly [P in Platform]: (request: PublishRequest, media: MediaFacts | null) => RequestIssue[];
 } = {
   instagram: validateInstagramRequest,
   facebook: validateFacebookRequest,
@@ -32,7 +32,13 @@ export function buildPublishPlan(input: PlanInput): PublishPlan {
   return PLAN_BUILDERS[input.request.platform](input);
 }
 
-/** What the platform would refuse in `request` (pure; no network). */
-export function validatePublishRequest(request: PublishRequest, media: MediaFacts): RequestIssue[] {
+/**
+ * What the platform would refuse in `request` (pure; no network). `media` holds the facts of a
+ * video post's video; composed posts carry theirs in `request.media`.
+ */
+export function validatePublishRequest(
+  request: PublishRequest,
+  media: MediaFacts | null,
+): RequestIssue[] {
   return VALIDATORS[request.platform](request, media);
 }

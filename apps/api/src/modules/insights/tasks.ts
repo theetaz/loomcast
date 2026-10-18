@@ -1,5 +1,12 @@
 import type { PublishError } from "@loomcast/contracts";
-import { channels, contentItems, type Database, postMetrics, scheduledPosts } from "@loomcast/db";
+import {
+  channels,
+  contentItems,
+  contentVersions,
+  type Database,
+  postMetrics,
+  scheduledPosts,
+} from "@loomcast/db";
 import { and, eq, gte } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
 import { afterCommit, transaction } from "../../lib/db";
@@ -18,13 +25,15 @@ import { toPostMetrics } from "../analytics/mappers";
 import type { MetaPlatforms } from "../publisher/adapters/facebook";
 import { rateLimitedRetryMs, recordChannelUsage, throttleOf } from "../publisher/rate-limit";
 import { type Scheduler, TaskFailure, type TaskResult } from "../scheduler";
-import { insightsRequest, normalizeInsights, supportsInsights } from "./normalize";
+import { insightsExpired, insightsRequest, normalizeInsights, supportsInsights } from "./normalize";
 
 // The `insights.pull` handler. Each run captures one snapshot of a live post's insights into a
 // new `post_metrics` row and publishes `post.metrics.updated`. A run does nothing for a post that
-// is no longer live, a channel without working credentials, or a time an earlier overdue run
-// already covered. While the channel is near its platform rate limit the run moves to the end of
-// the reported window; a rate-limit error holds the channel back for the back-off as well.
+// is no longer live, a format the platform reports nothing for (`insightsRequest`), a story past
+// its 24-hour insights window, a channel without working credentials, or a time an earlier
+// overdue run already covered. While the channel is near its platform rate limit the run moves to
+// the end of the reported window; a rate-limit error holds the channel back for the back-off as
+// well.
 
 export interface InsightsDeps {
   db: Database;
@@ -66,6 +75,8 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
           status: scheduledPosts.status,
           dryRun: scheduledPosts.dryRun,
           externalId: scheduledPosts.externalId,
+          publishedAt: scheduledPosts.publishedAt,
+          format: contentVersions.format,
           itemId: scheduledPosts.itemId,
           projectId: contentItems.projectId,
           channelId: channels.id,
@@ -79,6 +90,7 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
         .from(scheduledPosts)
         .innerJoin(channels, eq(channels.id, scheduledPosts.channelId))
         .innerJoin(contentItems, eq(contentItems.id, scheduledPosts.itemId))
+        .leftJoin(contentVersions, eq(contentVersions.id, scheduledPosts.versionId))
         .where(eq(scheduledPosts.id, payload.postId));
       if (
         row === undefined ||
@@ -88,6 +100,16 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
         !supportsInsights(row.platform)
       ) {
         log.info("the post has no insights to pull");
+        return;
+      }
+      const format = row.format ?? "reel";
+      const call = insightsRequest(row.platform, row.externalId, format);
+      if (call === null) {
+        log.info({ format }, "the platform reports no insights for this format");
+        return;
+      }
+      if (insightsExpired(format, row.publishedAt, now())) {
+        log.info({ format }, "the post's insights have expired");
         return;
       }
       const sealed = sealedSecretOf(row);
@@ -133,7 +155,6 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
         return;
       }
 
-      const call = insightsRequest(row.platform, row.externalId);
       const client = call.api === "threads" ? threads : graph;
       let response: GraphResponse<unknown>;
       try {

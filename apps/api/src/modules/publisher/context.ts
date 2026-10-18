@@ -1,4 +1,9 @@
-import { type JsonObject, type PublishRequest, PublishRequestSchema } from "@loomcast/contracts";
+import {
+  formatMediaIssues,
+  type JsonObject,
+  type PublishRequest,
+  PublishRequestSchema,
+} from "@loomcast/contracts";
 import { channels, type Database } from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import { HttpError } from "../../lib/errors";
@@ -10,15 +15,19 @@ import type { AssetsService } from "../assets/service";
 import { dryRunMediaUrl } from "./adapters/dry-run";
 import { buildCaption, type CaptionParts, type FittedCaption } from "./caption";
 import { PublishFailure } from "./errors";
+import { videoOf } from "./media";
 import { redactRequest } from "./redact";
 import { UNCONNECTED_ACCOUNT_ID } from "./requests/types";
 import type {
   ChannelCredentials,
   PublishChannel,
   PublishContext,
+  PublishFile,
   PublishMedia,
   PublishPost,
 } from "./types";
+
+export { videoFacts, videoOf } from "./media";
 
 /** Size of a render that reports none: the 9:16 frame (`STORYBOARD_ASPECT`) formats render at. */
 export const DEFAULT_RENDER_WIDTH = 1_080;
@@ -140,11 +149,21 @@ export function createPublishContext(services: ContextServices, input: ContextIn
     return readCredentials(services, channel.id);
   });
 
-  const videoUrl = memo(async () =>
+  const publicUrl = (file: Pick<PublishFile, "assetId" | "sha256" | "mime">): Promise<string> =>
     dryRun
-      ? dryRunMediaUrl(post.id, media.sha256, extensionForMime(media.mime))
-      : promote(services, media.renderAssetId),
-  );
+      ? Promise.resolve(dryRunMediaUrl(post.id, file.sha256, extensionForMime(file.mime)))
+      : promote(services, file.assetId);
+
+  const videoUrl = memo(async () => publicUrl(videoOf(media)));
+
+  const itemUrls = memo(async () => {
+    const urls: string[] = [];
+    // One at a time: each copy is a new public object, so a failure stops before the rest.
+    for (const item of media.items) {
+      urls.push(await publicUrl(item));
+    }
+    return urls;
+  });
 
   const posterUrl = memo(async (): Promise<string | null> => {
     if (media.posterAssetId === null) {
@@ -165,32 +184,73 @@ export function createPublishContext(services: ContextServices, input: ContextIn
   };
 
   const publishRequest = memo(async (): Promise<PublishRequest> => {
-    if (media.durationMs === null || media.durationMs < 1) {
-      throw PublishFailure.of("invalid_media", "The render has no duration.", {
-        retryable: false,
-      });
-    }
     const externalId = channel.externalId ?? (dryRun ? UNCONNECTED_ACCOUNT_ID : null);
     if (externalId === null) {
       throw PublishFailure.of("not_configured", "The channel has no platform account.", {
         retryable: false,
       });
     }
-    const poster = await posterUrl();
-    const parsed = PublishRequestSchema.safeParse({
+    const base = {
       platform: channel.platform,
       externalId,
-      videoUrl: await videoUrl(),
-      ...(poster === null ? {} : { posterUrl: poster }),
       caption: fitted().text,
-      durationMs: media.durationMs,
-      width: media.width ?? DEFAULT_RENDER_WIDTH,
-      height: media.height ?? DEFAULT_RENDER_HEIGHT,
-    });
+      ...(Object.keys(post.options).length === 0 ? {} : { options: post.options }),
+    };
+    let candidate: unknown;
+    switch (media.format) {
+      case "reel":
+      case "video": {
+        const video = videoOf(media);
+        if (video.durationMs === null || video.durationMs < 1) {
+          throw PublishFailure.of("invalid_media", "The video has no duration.", {
+            retryable: false,
+          });
+        }
+        const poster = await posterUrl();
+        candidate = {
+          ...base,
+          format: media.format,
+          videoUrl: await videoUrl(),
+          ...(poster === null ? {} : { posterUrl: poster }),
+          durationMs: video.durationMs,
+          width: video.width ?? DEFAULT_RENDER_WIDTH,
+          height: video.height ?? DEFAULT_RENDER_HEIGHT,
+        };
+        break;
+      }
+      case "image":
+      case "carousel":
+      case "story": {
+        const issues = formatMediaIssues({ format: media.format, media: media.items });
+        if (issues.length > 0) {
+          throw PublishFailure.of("invalid_media", issues.join(" "), { retryable: false });
+        }
+        const urls = await itemUrls();
+        candidate = {
+          ...base,
+          format: media.format,
+          media: media.items.map((item, index) => ({
+            type: item.type,
+            url: urls[index],
+            mime: item.mime,
+            bytes: item.bytes,
+            width: item.width,
+            height: item.height,
+            durationMs: item.durationMs,
+            ...(item.altText === undefined || item.altText === "" ? {} : { altText: item.altText }),
+          })),
+        };
+        break;
+      }
+      case "text":
+        candidate = { ...base, format: "text" };
+        break;
+    }
+    const parsed = PublishRequestSchema.safeParse(candidate);
     if (!parsed.success) {
       const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
       throw PublishFailure.of(
-        fields.some((field) => field === "videoUrl" || field === "posterUrl")
+        fields.some((field) => /^(videoUrl|posterUrl|media\.\d+\.url)$/.test(field))
           ? "not_configured"
           : "invalid_media",
         `The post cannot be sent as it is (${fields.join(", ")}).`,
@@ -208,6 +268,7 @@ export function createPublishContext(services: ContextServices, input: ContextIn
     media,
     secrets,
     getPublicVideoUrl: videoUrl,
+    getPublicItemUrls: itemUrls,
     getPublicPosterUrl: posterUrl,
     caption: fitted,
     publishRequest,

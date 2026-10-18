@@ -1,4 +1,5 @@
 import { dryRunPermalink, type JsonObject, type Platform } from "@loomcast/contracts";
+import { videoFacts } from "../media";
 import { REDACTED, redactRequest } from "../redact";
 import { buildPublishPlan, validatePublishRequest } from "../requests";
 import type { PublisherAdapter, PublishResult } from "../types";
@@ -31,7 +32,7 @@ export function createDryRunAdapter(platform: Platform): PublisherAdapter {
     async validate(context) {
       const request = await context.publishRequest();
       return [
-        ...validatePublishRequest(request, context.media),
+        ...validatePublishRequest(request, videoFacts(context.media)),
         ...context.caption().issues.map((issue) => ({ field: "caption", message: issue.message })),
       ];
     },
@@ -43,7 +44,7 @@ export function createDryRunAdapter(platform: Platform): PublisherAdapter {
       const request = await context.publishRequest();
       const plan = buildPublishPlan({
         request,
-        media: { bytes: context.media.bytes, mime: context.media.mime },
+        media: videoFacts(context.media),
         accessToken: REDACTED,
       });
       const permalink = dryRunPermalink(platform, context.post.id);
