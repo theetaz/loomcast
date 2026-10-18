@@ -1,5 +1,6 @@
 import {
   ACTOR_KINDS,
+  API_CHANNEL_ACCESS,
   ASSET_KINDS,
   ASSET_STATUSES,
   CHANNEL_STATUSES,
@@ -60,3 +61,4 @@ export const postStatus = pgEnum("post_status", POST_STATUSES);
 export const postFormat = pgEnum("post_format", POST_FORMATS);
 export const taskStatus = pgEnum("task_status", TASK_STATUSES);
 export const oauthProvider = pgEnum("oauth_provider", OAUTH_PROVIDERS);
+export const apiChannelAccess = pgEnum("api_channel_access", API_CHANNEL_ACCESS);

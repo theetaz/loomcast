@@ -80,9 +80,16 @@ const PAGES: readonly PageMeta[] = [
   {
     slug: "settings",
     title: "Settings",
-    summary: "Devices, access tokens, members, channels and the scheduler.",
+    summary: "Devices, access tokens, API clients, members, channels and the scheduler.",
     group: "Using Loomcast",
     keywords: ["settings", "members", "tokens", "mcp", "invite"],
+  },
+  {
+    slug: "api-clients",
+    title: "API clients",
+    summary: "Let another backend schedule posts on chosen channels, and decide how far it may go.",
+    group: "Using Loomcast",
+    keywords: ["api", "rest", "key", "backend", "integration", "client", "publish", "write"],
   },
   {
     slug: "studio-agent",

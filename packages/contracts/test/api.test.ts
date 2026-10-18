@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  API_KEY_RE,
   ApiErrorSchema,
   buildPath,
   ChangePasswordRequestSchema,
@@ -150,7 +151,12 @@ describe("token DTOs", () => {
 });
 
 describe("token formats", () => {
-  const patterns = { mcp: MCP_TOKEN_RE, device: DEVICE_TOKEN_RE, job: JOB_TOKEN_RE };
+  const patterns = {
+    mcp: MCP_TOKEN_RE,
+    device: DEVICE_TOKEN_RE,
+    job: JOB_TOKEN_RE,
+    api: API_KEY_RE,
+  };
 
   it("has a distinct prefix for every token kind", () => {
     expect(Object.keys(TOKEN_PREFIXES).sort()).toEqual([...TOKEN_KINDS].sort());

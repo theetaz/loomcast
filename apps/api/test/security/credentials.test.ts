@@ -1,6 +1,7 @@
 import { buildPath, type PathParams, type RouteName, routes } from "@loomcast/contracts";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createApiClientsService } from "../../src/modules/api-clients";
 import {
   type BridgeServer,
   FakeAgent,
@@ -10,11 +11,12 @@ import {
   UpgradeRefused,
 } from "../bridge-support";
 import { issueJobToken, issueToken } from "../mcp-support";
+import { insertChannel, testKeyring } from "../publisher-support";
 import { createTestApp, insertUser, login, send, testIp } from "../support";
 
 /**
- * Cookies and bearer tokens never stand in for each other: `/mcp` and `/bridge` read only bearer
- * tokens, and the cookie routes read only the session cookie.
+ * Cookies and bearer tokens never stand in for each other: `/mcp`, `/bridge` and `/api/v1` read
+ * only bearer tokens (of their own kinds), and the cookie routes read only the session cookie.
  */
 
 const SAMPLE_ID = "00000000-0000-4000-8000-000000000000";
@@ -141,5 +143,64 @@ describe("cookie routes read the session cookie only", () => {
         expect(response.status, `${name} with a ${kind} token`).toBe(401);
       }
     }
+  });
+});
+
+describe("the machine API reads API keys only", () => {
+  const machineRoutes = (Object.keys(routes) as RouteName[]).filter(
+    (name) => routes[name].auth === "api_key",
+  );
+  const sessionRoutes = (Object.keys(routes) as RouteName[]).filter(
+    (name) => routes[name].auth === "session",
+  );
+
+  it("refuses MCP, job and device tokens on /api/v1 and API keys on the cookie routes", async () => {
+    const { app, deps } = createTestApp(testDb.db);
+    const fixtures = await seedProject(testDb.db);
+    const owner = await insertUser(testDb.db, { role: "owner" });
+    const channel = await insertChannel(testDb.db, testKeyring(), { platform: "facebook" });
+    const client = await createApiClientsService(deps).create(
+      {
+        name: "Backend",
+        projectId: fixtures.projectId,
+        grants: [{ channelId: channel.id, access: "publish" }],
+      },
+      owner.id,
+    );
+    const mcp = await issueToken(deps, fixtures.userId, ["mcp:read", "mcp:write"]);
+    const device = await issueToken(deps, fixtures.userId, ["bridge"], "device");
+    const job = await issueJobToken(testDb.db, {
+      userId: fixtures.userId,
+      projectId: fixtures.projectId,
+      scopes: ["mcp:read", "mcp:write"],
+    });
+    const others = { mcp: mcp.secret, device: device.secret, job: job.secret };
+
+    for (const name of machineRoutes) {
+      const route = routes[name];
+      for (const [index, [kind, secret]] of Object.entries(others).entries()) {
+        // One address per kind keeps the failures under the auth-failure limit.
+        const response = await send(app, route.method, samplePath(route.path), {
+          ip: testIp(20 + index),
+          origin: null,
+          body: route.method === "GET" ? undefined : {},
+          headers: { Authorization: `Bearer ${secret}` },
+        });
+        expect(response.status, `${name} with a ${kind} token`).toBe(401);
+      }
+    }
+    for (const name of sessionRoutes) {
+      const route = routes[name];
+      const response = await send(app, route.method, samplePath(route.path), {
+        body: route.method === "GET" || route.method === "DELETE" ? undefined : {},
+        headers: { Authorization: `Bearer ${client.secret}` },
+      });
+      expect(response.status, `${name} with an API key`).toBe(401);
+    }
+    const mcpCall = await send(app, "POST", "/mcp", {
+      body: MCP_PING,
+      headers: { Accept: MCP_ACCEPT, Authorization: `Bearer ${client.secret}` },
+    });
+    expect(mcpCall.status).toBe(401);
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "@loomcast/contracts";
 import { HttpResponse, http, sse } from "msw";
 import { createAnalyticsHandlers } from "./analytics";
+import { createApiClientHandlers } from "./api-clients";
 import { createApprovalHandlers } from "./approvals";
 import { createCalendarHandlers } from "./calendar";
 import { createChannelHandlers } from "./channels";
@@ -206,6 +207,7 @@ export function createHandlers(db: MockDb) {
       return new HttpResponse(null, { status: 204 });
     }),
 
+    ...createApiClientHandlers(db),
     ...createConversationHandlers(db),
     ...createKbHandlers(db),
     ...createUserHandlers(db),

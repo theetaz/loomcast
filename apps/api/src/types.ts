@@ -31,7 +31,7 @@ export interface VerifiedToken {
    */
   scopes: TokenScope[];
   user: Pick<AuthUser, "id" | "email" | "name" | "role">;
-  /** Set for job tokens only: the one project the token is bound to. */
+  /** Set for job and API tokens only: the one project the token is bound to. */
   projectId?: string | null;
   /** Set for job tokens only: the job the token was minted for. */
   jobId?: string | null;
@@ -43,7 +43,7 @@ export interface AppVariables {
   /** Set by the session guard on cookie routes. */
   user: AuthUser | undefined;
   session: AuthSession | undefined;
-  /** Set by `requireBearer` on `/mcp` and `/bridge`. */
+  /** Set by `requireBearer` on `/mcp`, `/bridge` and `/api/v1`. */
   token: VerifiedToken | undefined;
 }
 

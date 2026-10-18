@@ -3,20 +3,14 @@ import {
   type ContentVersion,
   formatMediaIssues,
   mediaTypeOfMime,
-  type PipelineState,
-  PLATFORM_LABELS,
-  type PostFormat,
   type PostMediaEntry,
-  PRODUCTION_STATES,
-  platformRefusal,
   postFormatCatalog,
   postTools,
-  type ScheduledPost,
 } from "@loomcast/contracts";
-import { type AssetRow, channels, type Database, scheduledPosts } from "@loomcast/db";
-import { and, eq, inArray, ne } from "drizzle-orm";
-import { type Executor, type Transaction, transaction } from "../../../lib/db";
+import type { AssetRow, Database } from "@loomcast/db";
+import { type Executor, transaction } from "../../../lib/db";
 import { validationFailed } from "../../../lib/errors";
+import { refusedChannels, scheduleComposed, throwRefusals } from "../../calendar/compose";
 import type { CalendarService } from "../../calendar/service";
 import { type ContentService, staleVersion } from "../../content";
 import { lockItem } from "../../content/queries";
@@ -29,7 +23,7 @@ export interface PostToolsDeps {
   db: Database;
   content: Pick<ContentService, "create" | "createVersion" | "getItem" | "getVersion" | "submit">;
   reviews: Pick<ReviewsService, "create">;
-  calendar: Pick<CalendarService, "create">;
+  calendar: Pick<CalendarService, "create" | "plan">;
   assets: { getRow(id: string, executor?: Executor): Promise<AssetRow | null> };
 }
 
@@ -52,59 +46,6 @@ function nextStep(item: ContentItem, version: ContentVersion): string {
 
 function composed(item: ContentItem, version: ContentVersion) {
   return { item, version, issues: formatMediaIssues(version), next: nextStep(item, version) };
-}
-
-/**
- * The reasons the item cannot go out on each channel, in the order given: an unknown or disabled
- * channel, a platform that does not publish the format, or an open post of the item already
- * there. Checked before anything changes, so a refusal names every channel at once.
- */
-async function refusedChannels(
-  tx: Transaction,
-  itemId: string,
-  version: { format: PostFormat; media: readonly Pick<PostMediaEntry, "type">[] },
-  channelIds: readonly string[],
-): Promise<{ path: string; message: string; format: boolean }[]> {
-  const rows = await tx
-    .select({
-      id: channels.id,
-      platform: channels.platform,
-      status: channels.status,
-      displayName: channels.displayName,
-    })
-    .from(channels)
-    .where(inArray(channels.id, [...channelIds]));
-  const open = await tx
-    .select({ channelId: scheduledPosts.channelId })
-    .from(scheduledPosts)
-    .where(
-      and(
-        eq(scheduledPosts.itemId, itemId),
-        inArray(scheduledPosts.channelId, [...channelIds]),
-        ne(scheduledPosts.status, "cancelled"),
-      ),
-    );
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  const taken = new Set(open.map((row) => row.channelId));
-  const refused: { path: string; message: string; format: boolean }[] = [];
-  for (const [index, id] of channelIds.entries()) {
-    const path = `channelIds.${index}`;
-    const channel = byId.get(id);
-    if (channel === undefined) {
-      refused.push({ path, message: "No channel has that id", format: false });
-      continue;
-    }
-    const name = `${channel.displayName} (${PLATFORM_LABELS[channel.platform]})`;
-    const refusal = platformRefusal(channel.platform, version);
-    if (refusal !== null) {
-      refused.push({ path, message: `${name}: ${refusal.replace(/\.$/, "")}`, format: true });
-    } else if (channel.status === "disabled") {
-      refused.push({ path, message: `${name}: the channel is disabled`, format: false });
-    } else if (taken.has(id)) {
-      refused.push({ path, message: `${name}: the item already has a post here`, format: false });
-    }
-  }
-  return refused;
 }
 
 /**
@@ -248,65 +189,23 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
         if (version === null) {
           throw new Error("content item without its current version");
         }
-        const refused = await refusedChannels(tx, item.id, version, input.channelIds);
-        if (refused.length > 0) {
-          if (refused.every((issue) => issue.format)) {
-            throw new McpToolError(
-              "format_not_supported",
-              `No post was scheduled. ${refused.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}.`,
-            );
-          }
-          throw validationFailed(
-            refused.map(({ path, message }) => ({ path, message })),
-            "No post was scheduled: some channels were refused.",
-          );
-        }
-
-        let state: PipelineState = item.state;
-        if ((PRODUCTION_STATES as readonly PipelineState[]).includes(state)) {
-          const issues = formatMediaIssues(version);
-          if (issues.length > 0) {
-            throw new McpToolError(
-              "missing_artifact",
-              `The post is not ready: ${issues.join(" ")}`,
-            );
-          }
-          state = (await content.submit(item.id, { versionId }, actor, { tx })).state;
-        }
-        let reviewId: string | null = null;
-        if (state === "review") {
-          const decided = await reviews.create(item.id, { versionId, decision: "approve" }, actor, {
-            tx,
-          });
-          if (decided === null) {
-            throw new McpToolError("not_found", "No content item has that id.");
-          }
-          reviewId = decided.review.id;
-        }
-
-        const posts: ScheduledPost[] = [];
-        for (const channelId of input.channelIds) {
-          posts.push(
-            await calendar.create(
-              {
-                itemId: item.id,
-                channelId,
-                scheduledAt: input.scheduledAt,
-                ...(input.options === undefined ? {} : { options: input.options }),
-              },
-              actor,
-              { tx },
-            ),
-          );
-        }
-        const after = await content.getItem(item.id, tx);
-        return {
-          itemId: item.id,
-          versionId,
-          state: after?.state ?? state,
-          reviewId,
-          posts,
-        };
+        throwRefusals(await refusedChannels(tx, item.id, version, input.channelIds));
+        const scheduled = await scheduleComposed(
+          tx,
+          { content, reviews, calendar },
+          {
+            item,
+            version,
+            targets: input.channelIds.map((channelId) => ({
+              channelId,
+              ...(input.options === undefined ? {} : { options: input.options }),
+            })),
+            scheduledAt: input.scheduledAt,
+            approve: {},
+          },
+          actor,
+        );
+        return { itemId: item.id, versionId, ...scheduled };
       });
     },
     summary: ({ itemId, state, posts }) =>

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema } from "../common";
 import { type OAuthProvider, OAuthProviderSchema } from "../enums";
+import { PostFormatsOutputSchema } from "../mcp/post-tools";
 import { SkillNameSchema } from "../pipeline/skills";
 import {
   AnalyticsOverviewQuerySchema,
@@ -10,6 +11,23 @@ import {
   SeriesAnalyticsQuerySchema,
   SeriesAnalyticsSchema,
 } from "./analytics";
+import {
+  ApiClientSchema,
+  CreateApiClientRequestSchema,
+  CreateApiClientResponseSchema,
+  UpdateApiClientRequestSchema,
+} from "./api-clients";
+import {
+  ApiPostMetricsSchema,
+  ApiPostSchema,
+  ApiPostWithUploadsSchema,
+  ApiV1ChannelSchema,
+  ApiV1MeSchema,
+  CreateApiPostRequestSchema,
+  FinalizeApiPostRequestSchema,
+  ListApiPostsQuerySchema,
+  RescheduleApiPostRequestSchema,
+} from "./api-v1";
 import {
   AssetDetailSchema,
   AssetSchema,
@@ -136,8 +154,10 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 /**
  * `session`: cookie session, plus the CSRF checks on unsafe methods.
  * `none`: public (rate-limited where it matters).
+ * `api_key`: the machine API under `/api/v1`: an API client's key (`Authorization: Bearer
+ * lc_api_…`) only. Cookies are never read there and no CSRF check applies.
  */
-export type RouteAuth = "session" | "none";
+export type RouteAuth = "session" | "none" | "api_key";
 
 export interface RouteDefinition {
   readonly method: HttpMethod;
@@ -1163,6 +1183,135 @@ export const routes = {
     params: IdParamsSchema,
     response: null,
     status: 204,
+  }),
+
+  /** Owner only. Every API client, revoked ones included, newest first. */
+  "apiClients.list": route({
+    method: "GET",
+    path: "/api/api-clients",
+    auth: "session",
+    response: listSchema(ApiClientSchema),
+    status: 200,
+  }),
+  /** Owner only. The key is in this response only. */
+  "apiClients.create": route({
+    method: "POST",
+    path: "/api/api-clients",
+    auth: "session",
+    body: CreateApiClientRequestSchema,
+    response: CreateApiClientResponseSchema,
+    status: 201,
+  }),
+  /** Owner only. Renames a client or replaces its grants; `409 conflict` once revoked. */
+  "apiClients.update": route({
+    method: "PATCH",
+    path: "/api/api-clients/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    body: UpdateApiClientRequestSchema,
+    response: ApiClientSchema,
+    status: 200,
+  }),
+  /** Owner only. The key stops working at once. */
+  "apiClients.revoke": route({
+    method: "DELETE",
+    path: "/api/api-clients/:id",
+    auth: "session",
+    params: IdParamsSchema,
+    response: null,
+    status: 204,
+  }),
+
+  // The machine API, for API clients' keys only. `docs/api.md` describes every route.
+  "v1.me": route({
+    method: "GET",
+    path: "/api/v1/me",
+    auth: "api_key",
+    response: ApiV1MeSchema,
+    status: 200,
+  }),
+  "v1.channels": route({
+    method: "GET",
+    path: "/api/v1/channels",
+    auth: "api_key",
+    response: listSchema(ApiV1ChannelSchema),
+    status: 200,
+  }),
+  "v1.formats": route({
+    method: "GET",
+    path: "/api/v1/formats",
+    auth: "api_key",
+    response: PostFormatsOutputSchema,
+    status: 200,
+  }),
+  /** Takes an `Idempotency-Key` header. Needs `write` on every channel. */
+  "v1.posts.create": route({
+    method: "POST",
+    path: "/api/v1/posts",
+    auth: "api_key",
+    body: CreateApiPostRequestSchema,
+    response: ApiPostWithUploadsSchema,
+    status: 201,
+  }),
+  "v1.posts.list": route({
+    method: "GET",
+    path: "/api/v1/posts",
+    auth: "api_key",
+    query: ListApiPostsQuerySchema,
+    response: cursorPageSchema(ApiPostSchema),
+    status: 200,
+  }),
+  "v1.posts.get": route({
+    method: "GET",
+    path: "/api/v1/posts/:id",
+    auth: "api_key",
+    params: IdParamsSchema,
+    response: ApiPostSchema,
+    status: 200,
+  }),
+  /** Fresh upload URLs for the files that are not uploaded yet. */
+  "v1.posts.uploads": route({
+    method: "POST",
+    path: "/api/v1/posts/:id/uploads",
+    auth: "api_key",
+    params: IdParamsSchema,
+    response: ApiPostWithUploadsSchema,
+    status: 200,
+  }),
+  /** Verifies the uploads, then submits and schedules the post. Finalizing twice is a no-op. */
+  "v1.posts.finalize": route({
+    method: "POST",
+    path: "/api/v1/posts/:id/finalize",
+    auth: "api_key",
+    params: IdParamsSchema,
+    body: FinalizeApiPostRequestSchema,
+    response: ApiPostSchema,
+    status: 200,
+  }),
+  "v1.posts.reschedule": route({
+    method: "PATCH",
+    path: "/api/v1/posts/:id",
+    auth: "api_key",
+    params: IdParamsSchema,
+    body: RescheduleApiPostRequestSchema,
+    response: ApiPostSchema,
+    status: 200,
+  }),
+  "v1.posts.cancel": route({
+    method: "POST",
+    path: "/api/v1/posts/:id/cancel",
+    auth: "api_key",
+    params: IdParamsSchema,
+    response: ApiPostSchema,
+    status: 200,
+  }),
+  "v1.posts.metrics": route({
+    method: "GET",
+    path: "/api/v1/posts/:id/metrics",
+    auth: "api_key",
+    params: IdParamsSchema,
+    response: ApiPostMetricsSchema,
+    status: 200,
   }),
 } as const;
 

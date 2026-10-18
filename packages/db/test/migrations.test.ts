@@ -12,6 +12,9 @@ import { createTestDb, type TestDb } from "../src/testing";
 import { apiTokenValues, insertProject, insertUser } from "./fixtures";
 
 const TABLES = [
+  "api_idempotency_keys",
+  "api_posts",
+  "api_token_channels",
   "api_tokens",
   "assets",
   "audit_log",

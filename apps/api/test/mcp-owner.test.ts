@@ -396,6 +396,9 @@ describe("owner publishing over MCP", () => {
         create: () => {
           throw new Error("must not be called");
         },
+        plan: () => {
+          throw new Error("must not be called");
+        },
         reschedule: () => {
           throw new Error("must not be called");
         },

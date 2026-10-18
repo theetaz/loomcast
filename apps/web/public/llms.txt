@@ -1,0 +1,168 @@
+# Loomcast
+
+> Loomcast schedules and publishes posts on the owner's Facebook Pages and Instagram professional accounts (and Reels on Threads and X). Another backend calls its REST API under `/api/v1` on this host with an API client's key to create posts (photo, carousel, story, Reel, video or text), upload their files, and read back each channel's status, permalink, errors and metrics. Assistants can use the MCP server at `/mcp` instead. Everything below is relative to the host that served this file, `https://<host>`.
+
+Key facts:
+
+- Base URL: `https://<host>/api/v1`. JSON only (`Content-Type: application/json` on bodies, at most 1 MiB). Server-to-server: no CORS, no cookies.
+- Auth: `Authorization: Bearer lc_api_<43 letters and digits>`. The owner creates the key (an "API client") in Settings → API clients; it is shown once. A client belongs to one project and is granted channels, each at `read`, `write` or `publish`.
+- Rate limit: 120 requests per client, refilling over 60 seconds. `429 rate_limited` with `Retry-After` (seconds). Headers `RateLimit-Limit`, `RateLimit-Remaining`.
+- Timestamps are ISO 8601 with offset (`2026-11-02T09:00:00.000Z`). Ids are UUIDs. Answers carry `Cache-Control: no-store`.
+- No webhooks: poll `GET /api/v1/posts/{id}`.
+
+## Access levels
+
+- `read`: list the channel; read its posts' status, permalinks, errors and metrics.
+- `write`: also create and schedule posts there. Each post waits for the owner's approval (status `pending_approval`) and goes out only once approved; a target still waiting at its time becomes `missed`.
+- `publish`: also approved on the owner's behalf: scheduled at once (status `scheduled`).
+- Levels are cumulative. A post on several channels needs `write` on all; it is auto-approved only with `publish` on all and no channel with `requiresApproval: true`.
+- Channels in dry run (`dryRun: true`, the default for new channels, or the whole server in dry-run mode) publish nothing: the post becomes `published` with a `dryrun://<platform>/<postId>` permalink.
+- Visibility: a client sees posts it created (all targets) and every post on a channel it is granted (only those targets; `externalRef` hidden, `own: false`). It can change only its own posts (`403` otherwise). Posts it cannot see are `404`. A channel not granted reads like an unknown one: `400 validation_failed` with "No channel with that id is granted to this API client". A granted channel at too low a level: `403 forbidden`.
+
+## Endpoints
+
+- `GET /api/v1/me` → `{client: {id, name, prefix, createdAt, expiresAt}, project: {id, slug, name}, grants: [{channelId, access}], rateLimit: {requests: 120, perSeconds: 60}}`
+- `GET /api/v1/channels` → `{items: [{id, platform: "facebook"|"instagram"|"threads"|"x", name, username, status: "active"|"disconnected"|"needs_reauth"|"disabled", dryRun, requiresApproval, access, formats: [format]}]}`
+- `GET /api/v1/formats` → `{formats: [{format, label, render, min, max, types: ["image"|"video"], platforms}], platforms: [{platform, label, formats}], mediaTypes: [{type, mimes}], photoOnlyCarouselPlatforms: ["facebook"], options: [{platform, field, type, formats, description}]}`
+- `POST /api/v1/posts` (optional header `Idempotency-Key`) → `201` Post plus `uploads`. Needs `write` on every channel.
+- `GET /api/v1/posts?channelId=&status=&from=&to=&limit=1..100&cursor=` → `{items: [Post], nextCursor: string|null}`, newest first. `from`/`to` filter on `scheduledAt` (`from` inclusive, `to` exclusive). `channelId` must be granted.
+- `GET /api/v1/posts/{id}` → Post.
+- `POST /api/v1/posts/{id}/uploads` → Post plus fresh `uploads` for files not uploaded or verified yet (URLs live 15 minutes). Own posts only.
+- `POST /api/v1/posts/{id}/finalize` (no body or `{}`) → Post. Verifies every file, writes the version, submits it, approves it when allowed, and creates one target per channel, all in one transaction. Finalizing again returns the post unchanged. Own posts only.
+- `PATCH /api/v1/posts/{id}` body `{scheduledAt}` → Post. Moves every target not yet out (`planned`, `queued`, `failed`, `missed`) to the new time, at least 2 minutes ahead; before finalize it changes the requested time. Own posts only.
+- `POST /api/v1/posts/{id}/cancel` → Post. Withdraws every target not yet out; with none publishing or published the post becomes `cancelled` and leaves the owner's approvals. Published posts are never deleted. Idempotent. Own posts only.
+- `GET /api/v1/posts/{id}/metrics` → `{id, targets: [{channelId, platform, postId, metrics: {capturedAt, views, likes, comments, shares, saves, reach, avgWatchMs} | null}]}` for published targets; null until the first insights capture and for dry-run posts.
+
+## Create request
+
+```json
+{
+  "format": "reel" | "video" | "image" | "carousel" | "story" | "text",
+  "title": "optional, 1-200 chars, shown in Loomcast only; defaults to the caption's first line",
+  "caption": "optional, up to 2200 chars; required for text; stories show none",
+  "media": [{
+    "filename": "1-255 chars, no folders",
+    "mime": "image/jpeg" | "image/png" | "image/webp" | "video/mp4" | "video/quicktime",
+    "bytes": 482113,
+    "sha256": "64 hex chars of the file's SHA-256",
+    "width": 1080, "height": 1350,
+    "durationMs": 20000,
+    "altText": "optional, up to 1000 chars, photos"
+  }],
+  "channels": [{ "channelId": "uuid", "options": { "instagram": {}, "facebook": {} } }],
+  "scheduledAt": "at least 2 minutes ahead",
+  "externalRef": "optional, 1-200 chars, returned as given"
+}
+```
+
+- `media`: 0 to 10 files, in display order, each file (by `sha256`) once. Videos must give `width`, `height` and `durationMs`; photos may give `width` and `height` and must not give `durationMs`. Strict objects: unknown fields are refused.
+- `channels`: 1 to 50, each once.
+- Options: `instagram.shareToFeed` (boolean, reel), `instagram.collaborators` (up to 3 usernames; reel, image, carousel), `instagram.locationId` (digits, a Facebook Page id; reel, image, carousel), `instagram.thumbOffsetMs` (integer, reel cover frame), `facebook.link` (http(s) URL; text, shown as a link card), `facebook.title` (up to 255 chars; video).
+- Checked before anything is stored: access on every channel; the platform publishes the format (Facebook carousels: photos only); the files fit the format; the lead time. A text post has no files and is submitted and scheduled within this request (answer `scheduled` or `pending_approval`, `uploads: []`).
+
+## Post resource
+
+```json
+{
+  "id": "uuid",
+  "externalRef": "string|null",
+  "own": true,
+  "format": "image",
+  "title": "string",
+  "caption": "string|null",
+  "status": "awaiting_media|pending_approval|scheduled|publishing|published|partially_published|failed|cancelled",
+  "scheduledAt": "earliest time of targets not yet out, else of targets; the requested time before finalize",
+  "media": [{ "mediaId": "uuid|null", "type": "image|video", "altText": "string|null", "status": "pending|ready|failed" }],
+  "targets": [{
+    "channelId": "uuid", "platform": "instagram",
+    "postId": "uuid|null (null before finalize)",
+    "status": "planned|queued|publishing|published|failed|cancelled|missed|null",
+    "scheduledAt": "timestamp", "permalink": "string|null", "externalId": "string|null",
+    "lastError": { "code": "string", "message": "string", "retryable": false, "platformCode": "optional", "retryAfterMs": 0 },
+    "publishedAt": "timestamp|null", "dryRun": true
+  }],
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp, moves with every change to the post or a target",
+  "uploads": [{ "mediaId": "uuid", "url": "presigned URL", "method": "PUT", "headers": { "Content-Type": "...", "Content-Length": "...", "x-amz-checksum-sha256": "base64 SHA-256" }, "expiresAt": "timestamp" }]
+}
+```
+
+`uploads` appears only on the answers of create and `/uploads`.
+
+Post status: `awaiting_media` (created, not finalized) → `pending_approval` (a target is `planned`, waiting for the owner) or `scheduled` (a target is `queued`) → `publishing` (a target is going out or processing) → `published` (every target not cancelled is published), `partially_published` (some published, others failed or missed) or `failed` (none published). `cancelled`: withdrawn, rejected by the owner, or every target cancelled. A `queued` target may carry `lastError.code: "rate_limited"` while it waits for a publishing window; it still goes out.
+
+## Upload flow
+
+1. Compute each file's SHA-256 (hex) and size; create the post with them.
+2. For each `uploads[i]`: `PUT` the exact bytes to `url` with exactly `headers` (all are signed): `Content-Type` = declared MIME, `Content-Length` = declared size, `x-amz-checksum-sha256` = base64 of the raw SHA-256 digest. The store refuses other bytes. URLs expire after 15 minutes; `POST /posts/{id}/uploads` gives new ones.
+3. `POST /posts/{id}/finalize`. It checks each file is stored, its size and SHA-256, and that its leading bytes match the declared MIME (JPEG, PNG, WebP, MP4/QuickTime). Errors: `409 upload_missing` (`details: {index, mediaId, reason: "not_uploaded"|"failed_verification"}`; re-upload via `/uploads`), `422 media_type_mismatch` (cancel and create the post again with the right `mime`).
+4. If `scheduledAt` passed meanwhile (less than 2 minutes ahead), finalize fails with `400 validation_failed` on `scheduledAt`: `PATCH` a new time and finalize again.
+
+## Formats and platform limits
+
+Formats (files carried; platforms): `reel` 1 video (facebook, instagram, threads, x); `video` 1 video (facebook); `image` 1 photo (facebook, instagram); `carousel` 2-10 photos or videos, photos only on facebook (facebook, instagram); `story` 1 photo or video (facebook, instagram); `text` no files, caption and optional link (facebook).
+
+Checked when the post goes out; a violation fails the target with `lastError.code: "invalid_media"`:
+
+- Instagram Reel: MP4/MOV, up to 300 MB, 3 s to 15 min, at most 1920 px wide, aspect 0.01:1 to 10:1.
+- Instagram photo and carousel photo: JPEG only, up to 8 MB, at least 320 px wide, aspect 4:5 to 1.91:1.
+- Instagram carousel video: MP4/MOV, up to 100 MB, 3 to 60 s. Carousel: 2 to 10 items.
+- Instagram story: photo JPEG up to 8 MB; video MP4/MOV up to 100 MB, 3 to 60 s, aspect 0.1:1 to 10:1. No caption.
+- Instagram captions: up to 2,200 chars, 30 hashtags, 20 mentions.
+- Facebook Reel: MP4/MOV up to 1 GB, 3 to 90 s, 9:16, at least 540x960.
+- Facebook video: MP4/MOV up to 1 GB, 1 s to 20 min.
+- Facebook photo, carousel photo, story photo: JPEG or PNG (not WebP), up to 4 MB.
+- Facebook story video: MP4/MOV up to 1 GB, 3 to 60 s, 9:16, at least 540x960.
+- Facebook text post: needs a caption or `facebook.link`. Captions up to 2,200 chars. Longer captions are cut at a word boundary.
+- A photo meant for both Instagram and Facebook: JPEG, at most 4 MB, at least 320 px wide, aspect 4:5 to 1.91:1.
+
+## Errors
+
+Body: `{"error": {"code": "string", "message": "string", "details": optional}}`. Codes:
+
+- 400 `bad_request` (not JSON), `validation_failed` (`details: [{path, message}]`)
+- 401 `unauthorized` (missing, unknown, expired or revoked key; any non-API token; cookies)
+- 403 `forbidden` (level too low: `details: [{path, channelId, access, required}]`; another client's post; the client's owner is no longer the owner)
+- 404 `not_found`
+- 409 `conflict` (`details.reason: "cancelled"`), `idempotency_conflict`, `upload_missing`, `post_not_editable`, `invalid_transition`
+- 413 `payload_too_large`, 415 `unsupported_media_type`
+- 422 `format_not_supported` (message lists `channels.N.channelId`), `missing_artifact`, `media_type_mismatch`
+- 429 `rate_limited` (`Retry-After`), also after 30 failed keys a minute from one address
+- 500 `internal`, 503 `storage_unavailable`
+
+## Idempotency
+
+`Idempotency-Key` on `POST /api/v1/posts`: 1-200 visible ASCII chars, kept 24 hours per client. Same key and same body (canonical JSON) → `201` with the same post, fresh uploads and header `Idempotent-Replayed: true`. Same key, different body → `409 idempotency_conflict`. Failed requests store nothing. Other writes are idempotent by themselves.
+
+## Polling
+
+Poll `GET /posts/{id}` every 30-60 s from `scheduledAt` until no target is `queued` or `publishing` (videos may process for minutes); list with `status`, `from` and `to` for many posts. Stay under 120 requests a minute.
+
+## Example: photo on Instagram and Facebook
+
+```bash
+curl -s -X POST https://<host>/api/v1/posts \
+  -H "Authorization: Bearer $LOOMCAST_API_KEY" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: article-1842-v1" \
+  -d '{"format":"image","caption":"Version 2.4 is out.","media":[{"filename":"release.jpg","mime":"image/jpeg","bytes":482113,"sha256":"<hex>","width":1080,"height":1350,"altText":"The release notes"}],"channels":[{"channelId":"<instagram>"},{"channelId":"<facebook>"}],"scheduledAt":"2026-11-02T09:00:00.000Z","externalRef":"article-1842"}'
+# PUT the bytes to uploads[0].url with uploads[0].headers:
+curl -s -X PUT "<uploads[0].url>" -H "Content-Type: image/jpeg" -H "Content-Length: 482113" \
+  -H "x-amz-checksum-sha256: <base64>" --data-binary @release.jpg
+curl -s -X POST https://<host>/api/v1/posts/<id>/finalize -H "Authorization: Bearer $LOOMCAST_API_KEY"
+curl -s https://<host>/api/v1/posts/<id> -H "Authorization: Bearer $LOOMCAST_API_KEY"
+```
+
+Facebook link post (no upload, scheduled in one call): `{"format":"text","caption":"How we cut render times.","channels":[{"channelId":"<facebook>","options":{"facebook":{"link":"https://example.com/post"}}}],"scheduledAt":"..."}`.
+
+## MCP instead of REST
+
+- Endpoint `https://<host>/mcp`, streamable HTTP, stateless JSON-RPC over `POST` (`Accept: application/json, text/event-stream`), 120 requests a minute per token.
+- Auth: an MCP access token `Authorization: Bearer lc_mcp_...` from Settings → Access tokens (scopes `mcp:read`, `mcp:write`, `mcp:admin`). API keys do not work on `/mcp`; MCP tokens do not work on `/api/v1`.
+- Posting needs the owner's token with `mcp:admin`; it acts as the owner on every channel, and its posts are approved as the owner's review.
+- Flow: `post.formats` → `channel.list` → `post.create {projectId, title, format, caption?}` → `content.upload_asset {kind: "media", itemId, filename, mime, bytes, sha256}` → PUT the bytes → `content.finalize_asset {assetId}` → `post.compose {itemId, media: [{assetId, altText?}], caption?}` → `post.schedule {itemId, channelIds, scheduledAt, options?}`. Follow up with `calendar.list_posts`, `calendar.reschedule_post`, `calendar.cancel_post`.
+
+## Optional
+
+- [Machine API reference](https://github.com/theetaz/loomcast/blob/main/docs/api.md): the full REST reference with every field, error and example.
+- [MCP server reference](https://github.com/theetaz/loomcast/blob/main/docs/mcp.md): every MCP tool with its input and output schema.
+- [Owner's guide to API clients](https://github.com/theetaz/loomcast/blob/main/docs/guide/api-clients.md): how the owner creates clients and picks levels.

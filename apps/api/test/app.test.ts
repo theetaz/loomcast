@@ -99,6 +99,24 @@ describe("default deny", () => {
     }
   });
 
+  it("answers 401 for every machine API route of the contracts without a key", async () => {
+    const { app } = createTestApp(testDb.db);
+    for (const [name, route] of Object.entries(routes)) {
+      if (route.auth !== "api_key") {
+        continue;
+      }
+      const params = Object.fromEntries(
+        [...route.path.matchAll(/:([A-Za-z]+)/g)].map((match) => [match[1], SAMPLE_ID]),
+      ) as PathParams<string>;
+      const response = await send(app, route.method, buildPath(route.path, params), {
+        origin: null,
+        body: route.method === "GET" ? undefined : {},
+      });
+      expect(response.status, name).toBe(401);
+      expect(response.headers.get("www-authenticate"), name).toContain("Bearer");
+    }
+  });
+
   it("answers 401, not 404, for unknown API paths", async () => {
     const { app } = createTestApp(testDb.db);
     expect((await send(app, "GET", "/api/nope")).status).toBe(401);
@@ -223,6 +241,7 @@ describe("web app in production", () => {
     await writeFile(join(webDir, "index.html"), "<!doctype html><title>Loomcast</title>");
     await writeFile(join(webDir, "assets", "app-abc123.js"), "console.log('app');");
     await writeFile(join(webDir, "theme-init.js"), "void 0;");
+    await writeFile(join(webDir, "llms.txt"), "# Loomcast\n");
   });
 
   afterAll(async () => {
@@ -245,6 +264,15 @@ describe("web app in production", () => {
     const script = await app.request("/theme-init.js");
     expect(script.status).toBe(200);
     expect(script.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("serves llms.txt at the root as plain text, not the app shell", async () => {
+    const app = productionApp();
+    const response = await app.request("/llms.txt");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toBe("# Loomcast\n");
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 
   it("falls back to index.html for client routes", async () => {

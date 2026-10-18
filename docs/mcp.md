@@ -48,7 +48,8 @@ Authorization: Bearer <access token>
   | `mcp:admin` | Administration and owner tools such as `admin.create_user`, `content.review` and `calendar.schedule_post`. Only the owner's tokens carry it |
 
 - **Cookies are ignored.** A signed-in browser session does not authorize `/mcp`, and the REST
-  API under `/api` never accepts access tokens.
+  API under `/api` never accepts access tokens. Other backends that schedule posts use the
+  machine API under `/api/v1` with an API client's key instead; see [api.md](api.md).
 - **Failures.** A missing, malformed, expired or revoked token gets `401` with a
   `WWW-Authenticate: Bearer` header. Revoking a token in Settings takes effect on its next request.
   Device tokens (`lc_dev_…`) are not accepted.
@@ -856,7 +857,7 @@ Get a content item with one version (the current one by default), its script and
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -879,7 +880,7 @@ Get a content item with one version (the current one by default), its script and
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |
@@ -1288,7 +1289,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -1311,7 +1312,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |
@@ -1360,7 +1361,7 @@ Owner only. Create a composed post in a project: a photo (image), carousel, stor
 | `item.targetAt` | string (date-time) \| null | yes |  |
 | `item.autopilotTarget` | "script" \| "storyboard" \| "voice" \| "render" \| "review" \| null | yes |  |
 | `item.lastError` | object \| null | yes |  |
-| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" | yes |  |
+| `item.createdVia` | "ui" \| "mcp" \| "producer" \| "system" \| "api" | yes |  |
 | `item.createdBy` | string (uuid) \| null | yes |  |
 | `item.createdAt` | string (date-time) | yes |  |
 | `item.updatedAt` | string (date-time) | yes |  |
@@ -1383,7 +1384,7 @@ Owner only. Create a composed post in a project: a photo (image), carousel, stor
 | `version.renderAssetId` | string (uuid) \| null | yes |  |
 | `version.posterAssetId` | string (uuid) \| null | yes |  |
 | `version.notes` | string \| null | yes |  |
-| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" | yes |  |
+| `version.createdVia` | "ui" \| "mcp" \| "job" \| "system" \| "api" | yes |  |
 | `version.createdByUser` | string (uuid) \| null | yes |  |
 | `version.jobId` | string (uuid) \| null | yes |  |
 | `version.createdAt` | string (date-time) | yes |  |

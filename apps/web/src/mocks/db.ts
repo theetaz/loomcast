@@ -1,5 +1,6 @@
 import {
   type AccessToken,
+  type ApiClient,
   type AssetDetail,
   type Channel,
   type Competitor,
@@ -52,6 +53,8 @@ export interface MockDb {
   devices: Device[];
   /** Access tokens as listed; secrets are never kept. */
   tokens: AccessToken[];
+  /** API clients, revoked ones included; keys are never kept. */
+  apiClients: ApiClient[];
   /** Pairing codes handed out, newest last. */
   pairingCodes: PairingCode[];
   /**
@@ -133,6 +136,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     projects: [],
     devices: [],
     tokens: [],
+    apiClients: [],
     pairingCodes: [],
     conversations: [],
     messages: [],

@@ -28,7 +28,7 @@ import type { SessionsService } from "./sessions";
  * tokens go with the devices they paired, which are revoked too, so their live bridge
  * connections close at once instead of on the next reconnect.
  */
-const TOKEN_KINDS_REVOKED_ON_DISABLE = ["mcp", "job", "device"] as const;
+const TOKEN_KINDS_REVOKED_ON_DISABLE = ["mcp", "job", "device", "api"] as const;
 
 export function toUserSummary(row: UserRow): UserSummary {
   return {

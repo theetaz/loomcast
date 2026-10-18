@@ -25,6 +25,14 @@ export const API_ERROR_CODES = [
   "post_not_editable",
   /** The pending channel connection expired or was already accepted (410). */
   "connection_expired",
+  /** The channel's platform does not publish the post's format (422). */
+  "format_not_supported",
+  /** The `Idempotency-Key` was used before with a different request body (409). */
+  "idempotency_conflict",
+  /** A file's bytes are not what its declared MIME type says (422). */
+  "media_type_mismatch",
+  /** A file has not been uploaded yet, or failed verification (409). */
+  "upload_missing",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
