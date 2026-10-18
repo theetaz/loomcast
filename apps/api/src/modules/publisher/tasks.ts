@@ -967,6 +967,20 @@ export function registerPublisherTasks(deps: PublisherDeps): void {
         return;
       }
       if (status.state === "pending") {
+        const { containerId } = status;
+        if (containerId !== undefined && containerId !== post.externalContainerId) {
+          // The adapter moved on to a new container: later polls (and retries) check that one.
+          await db
+            .update(scheduledPosts)
+            .set({ externalContainerId: containerId, updatedAt: at })
+            .where(
+              and(
+                eq(scheduledPosts.id, post.id),
+                eq(scheduledPosts.status, "publishing"),
+                eq(scheduledPosts.attempts, open.attempt),
+              ),
+            );
+        }
         const elapsed = at.getTime() - since;
         if (elapsed < POST_STATUS_TIMEOUT_MS) {
           const next = Math.min(

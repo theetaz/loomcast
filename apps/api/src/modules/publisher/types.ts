@@ -152,6 +152,11 @@ export interface StatusResult {
   state: "pending" | "published" | "failed";
   permalink?: string;
   externalId?: string;
+  /**
+   * The container to poll from now on, when `status` created a new one (an Instagram carousel's
+   * container, once its items finished processing). Stored as the post's `externalContainerId`.
+   */
+  containerId?: string;
   /** Set when `state` is `failed`. */
   error?: PublishError;
 }

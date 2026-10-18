@@ -20,6 +20,7 @@ import {
   captionLength,
   FACEBOOK_PHOTO_LIMITS,
   FACEBOOK_VIDEO_STORY_LIMITS,
+  itemContainerPlaceholder,
   limitCaption,
   PLACEHOLDERS,
   PLATFORM_CAPTION_LIMITS,
@@ -495,5 +496,243 @@ describe("facebook formats", () => {
     expect(fields(text("Words only"))).toEqual([]);
     expect(fields(text("", "https://example.test/post"))).toEqual([]);
     expect(fields(text(" "))).toEqual(["caption"]);
+  });
+});
+
+describe("instagram formats", () => {
+  const account = "1784140000000";
+  const photo = (overrides: Partial<PublishMediaItem> = {}): PublishMediaItem => ({
+    type: "image",
+    url: `https://media.example.test/p/${randomUUID()}/photo.jpg`,
+    mime: "image/jpeg",
+    bytes: 2 * 1_048_576,
+    width: 1_080,
+    height: 1_350,
+    durationMs: null,
+    ...overrides,
+  });
+  const clip = (overrides: Partial<PublishMediaItem> = {}): PublishMediaItem => ({
+    type: "video",
+    url: `https://media.example.test/p/${randomUUID()}/clip.mp4`,
+    mime: "video/mp4",
+    bytes: 20 * 1_048_576,
+    width: 1_080,
+    height: 1_920,
+    durationMs: 15_000,
+    ...overrides,
+  });
+  const composed = (
+    format: MediaPublishRequest["format"],
+    items: PublishMediaItem[],
+    overrides: Partial<MediaPublishRequest> = {},
+  ): MediaPublishRequest => ({
+    platform: "instagram",
+    format,
+    externalId: account,
+    caption: "Ownership in sixty seconds",
+    media: items,
+    ...overrides,
+  });
+  const plan = (input: MediaPublishRequest | VideoPublishRequest) =>
+    buildInstagramPublish({
+      request: input,
+      media: input.format === "reel" ? media : null,
+      accessToken: token,
+    });
+
+  it("builds a photo container with alt text, collaborators and a location", () => {
+    const item = photo({ altText: "A crab holding a borrow checker" });
+    const steps = plan(
+      composed("image", [item], {
+        options: { instagram: { collaborators: ["rustlang"], locationId: "110123" } },
+      }),
+    ).steps;
+    expect(steps.map((step) => step.step)).toEqual(["publishing_limit", "create_container"]);
+    expect(steps[1]).toEqual({
+      step: "create_container",
+      method: "POST",
+      api: "graph",
+      path: `/${account}/media`,
+      headers: { Authorization: `Bearer ${token}` },
+      bodyEncoding: "json",
+      body: {
+        image_url: item.url,
+        caption: "Ownership in sixty seconds",
+        alt_text: "A crab holding a borrow checker",
+        collaborators: ["rustlang"],
+        location_id: "110123",
+      },
+    });
+  });
+
+  it("builds a carousel: item containers, then the carousel container naming them", () => {
+    const items = [photo({ altText: "First" }), clip()];
+    const result = plan(
+      composed("carousel", items, { options: { instagram: { collaborators: ["a.b"] } } }),
+    );
+    expect(result.pending).toBe(true);
+    expect(result.steps.map((step) => step.step)).toEqual([
+      "publishing_limit",
+      "create_item_container",
+      "create_item_container",
+      "create_carousel_container",
+    ]);
+    expect(result.steps[1]?.body).toEqual({
+      is_carousel_item: true,
+      image_url: items[0]?.url,
+      alt_text: "First",
+    });
+    expect(result.steps[2]?.body).toEqual({
+      is_carousel_item: true,
+      media_type: "VIDEO",
+      video_url: items[1]?.url,
+    });
+    expect(result.steps[3]?.body).toEqual({
+      media_type: "CAROUSEL",
+      children: `${itemContainerPlaceholder(0)},${itemContainerPlaceholder(1)}`,
+      caption: "Ownership in sixty seconds",
+      collaborators: ["a.b"],
+    });
+    expect(itemContainerPlaceholder(1)).toBe("{item-container-id-2}");
+  });
+
+  it("builds stories without a caption", () => {
+    const still = photo({ width: 1_080, height: 1_920 });
+    expect(plan(composed("story", [still])).steps[1]?.body).toEqual({
+      media_type: "STORIES",
+      image_url: still.url,
+    });
+    const moving = clip();
+    expect(plan(composed("story", [moving])).steps[1]?.body).toEqual({
+      media_type: "STORIES",
+      video_url: moving.url,
+    });
+  });
+
+  it("sends the Reels options: share_to_feed, thumb_offset without a poster, collaborators", () => {
+    const reel = request("instagram", {
+      options: {
+        instagram: {
+          shareToFeed: false,
+          thumbOffsetMs: 2_500,
+          collaborators: ["rustlang"],
+          locationId: "42",
+        },
+      },
+    });
+    expect(plan(reel).steps[1]?.body).toEqual({
+      media_type: "REELS",
+      video_url: reel.videoUrl,
+      caption: reel.caption,
+      share_to_feed: false,
+      thumb_offset: 2_500,
+      collaborators: ["rustlang"],
+      location_id: "42",
+    });
+    const withPoster = { ...reel, posterUrl: "https://media.example.test/poster.jpg" };
+    const body = plan(withPoster).steps[1]?.body;
+    expect(body).toMatchObject({ cover_url: withPoster.posterUrl });
+    expect(body).not.toHaveProperty("thumb_offset");
+  });
+
+  it("refuses formats Instagram does not publish", () => {
+    expect(validatePublishRequest({ ...request("instagram"), format: "video" }, media)).toEqual([
+      { field: "format", message: "Instagram does not publish videos." },
+    ]);
+    expect(
+      validatePublishRequest(
+        { platform: "instagram", format: "text", externalId: account, caption: "Hi" },
+        null,
+      ),
+    ).toEqual([{ field: "format", message: "Instagram does not publish text posts." }]);
+  });
+
+  it("accepts JPEG photos within the limits and asks for a JPEG otherwise", () => {
+    expect(validatePublishRequest(composed("image", [photo()]), null)).toEqual([]);
+    expect(validatePublishRequest(composed("image", [photo({ mime: "image/png" })]), null)).toEqual(
+      [
+        {
+          field: "media.0",
+          message:
+            "Instagram publishes JPEG photos only; the photo is image/png. Upload it as a JPEG.",
+        },
+      ],
+    );
+    const messages = (item: PublishMediaItem) =>
+      validatePublishRequest(composed("image", [item]), null).map((issue) => issue.message);
+    expect(messages(photo({ bytes: 9 * 1_048_576 }))).toEqual(["The photo is larger than 8 MB."]);
+    expect(messages(photo({ width: 1_080, height: 1_920 }))).toEqual([
+      "The photo is 1080×1920; Instagram takes photos from 4:5 (portrait) to 1.91:1 (landscape).",
+    ]);
+    expect(messages(photo({ width: 200, height: 200 }))).toEqual([
+      "The photo must be at least 320 pixels wide.",
+    ]);
+    // 4:5 exactly and 1.91:1 pass; unknown dimensions are not checked.
+    expect(messages(photo({ width: 1_080, height: 566 }))).toEqual([]);
+    expect(messages(photo({ width: null, height: null }))).toEqual([]);
+    expect(
+      validatePublishRequest(composed("image", [clip()]), null).map((issue) => issue.message),
+    ).toEqual(["An Instagram photo post carries a photo."]);
+  });
+
+  it("checks carousel item counts and each item's limits", () => {
+    expect(validatePublishRequest(composed("carousel", [photo(), clip()]), null)).toEqual([]);
+    expect(validatePublishRequest(composed("carousel", [photo()]), null)).toEqual([
+      { field: "media", message: "An Instagram carousel carries 2 to 10 photos or videos." },
+    ]);
+    expect(
+      validatePublishRequest(
+        composed("carousel", [photo({ mime: "image/webp" }), clip({ durationMs: 90_000 })]),
+        null,
+      ),
+    ).toEqual([
+      {
+        field: "media.0",
+        message:
+          "Instagram publishes JPEG photos only; photo 1 is image/webp. Upload it as a JPEG.",
+      },
+      { field: "media.1", message: "Video 2 runs 90 s; it must run 3 s to 60 s." },
+    ]);
+  });
+
+  it("checks story limits and refuses story options Instagram ignores", () => {
+    expect(validatePublishRequest(composed("story", [clip()]), null)).toEqual([]);
+    expect(
+      validatePublishRequest(
+        composed("story", [clip({ durationMs: 61_000, bytes: 101 * 1_048_576 })]),
+        null,
+      ).map((issue) => issue.message),
+    ).toEqual([
+      "The video is larger than 100 MB.",
+      "The video runs 61 s; it must run 3 s to 60 s.",
+    ]);
+    // A tall photo is fine in a story; a caption is never sent, so its mentions are not counted.
+    const mentions = Array.from({ length: 21 }, (_, index) => `@user${index}`).join(" ");
+    expect(
+      validatePublishRequest(
+        composed("story", [photo({ width: 1_080, height: 1_920 })], { caption: mentions }),
+        null,
+      ),
+    ).toEqual([]);
+    expect(
+      validatePublishRequest(
+        composed("story", [photo()], {
+          options: { instagram: { collaborators: ["a"], locationId: "1" } },
+        }),
+        null,
+      ).map((issue) => issue.field),
+    ).toEqual(["options", "options"]);
+    expect(
+      validatePublishRequest(composed("carousel", [photo(), photo()], { caption: mentions }), null),
+    ).toEqual([{ field: "caption", message: "The caption mentions more than 20 accounts." }]);
+  });
+
+  it("refuses a Reel cover frame past the end of the video", () => {
+    expect(
+      validatePublishRequest(
+        request("instagram", { options: { instagram: { thumbOffsetMs: 50_000 } } }),
+        media,
+      ),
+    ).toEqual([{ field: "options", message: "The cover frame is past the end of the video." }]);
   });
 });

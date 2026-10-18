@@ -1,9 +1,14 @@
-import type { JsonObject } from "@loomcast/contracts";
+import type { JsonObject, PostFormat } from "@loomcast/contracts";
 import { z } from "zod";
 import type { GraphClient } from "../../../../lib/meta-graph";
 import { PublishFailure, publishError } from "../../errors";
 import { videoFacts } from "../../media";
-import { buildInstagramFinish, buildInstagramPublish, instagramRequests } from "../../requests";
+import {
+  buildInstagramFinish,
+  buildInstagramPublish,
+  instagramRequests,
+  type PlatformRequest,
+} from "../../requests";
 import type {
   AdapterIssue,
   PublishContext,
@@ -19,31 +24,68 @@ import {
   lazyGraphClient,
   sendStep,
 } from "./graph";
-import { recentMediaRequest } from "./media";
+import { recentMediaRequest, recentStoriesRequest } from "./media";
 import { checkQuota, quotaRecord } from "./quota";
-import { validateInstagramReel } from "./validate";
+import { validateInstagramPost } from "./validate";
 
-// The live Instagram Reels adapter (Instagram API with Facebook Login, Graph API v26.0):
-// - `publish` checks the account's 24-hour quota, copies the render to public storage and
-//   creates a Reels container from its URL (`POST /{ig-user-id}/media`, `media_type=REELS`,
-//   `share_to_feed=true`), then reports the post pending with the container id;
+// The live Instagram adapter (Instagram API with Facebook Login, Graph API v26.0) for Reels,
+// photos, carousels and stories:
+// - `publish` checks the account's 24-hour quota, copies the media to public storage and creates
+//   the containers from their URLs (`POST /{ig-user-id}/media`): one for a Reel
+//   (`media_type=REELS`), a photo (`image_url`) or a story (`media_type=STORIES`), then reports
+//   the post pending with the container id. A carousel gets one container per item
+//   (`is_carousel_item=true`); the post is pending with the staged id `items:<id>,<id>,...`
+//   (`stagedCarouselId`) until the items are processed;
 // - `status` reads the container (`GET /{container-id}?fields=status_code,status`): IN_PROGRESS
 //   stays pending; FINISHED is published once (`POST /{ig-user-id}/media_publish`) and its
-//   permalink read (`GET /{media-id}?fields=permalink`); ERROR and EXPIRED fail as
-//   `invalid_media` with Meta's status text; PUBLISHED returns the media already published.
+//   permalink read (`GET /{media-id}?fields=permalink`; a story may have none); ERROR and EXPIRED
+//   fail as `invalid_media` with Meta's status text; PUBLISHED returns the media already
+//   published. For a staged carousel it reads every item container instead and, once all are
+//   FINISHED, creates the carousel container (`media_type=CAROUSEL`, `children`) and hands its
+//   id back (`StatusResult.containerId`), so later polls follow the carousel container. A
+//   carousel counts as one post against the quota.
 // Every request is built by `requests/instagram.ts`, so it matches what a dry run records.
 
 /** Containers whose `media_publish` this process sent, and the media id it returned. */
 const MAX_REMEMBERED_PUBLISHES = 500;
+
+/** Prefix of a post's container id while its carousel items process. */
+const STAGED_PREFIX = "items:";
+
+/** The container id a carousel post holds while its item containers process. */
+export function stagedCarouselId(itemContainerIds: readonly string[]): string {
+  return `${STAGED_PREFIX}${itemContainerIds.join(",")}`;
+}
+
+/** The item container ids of a staged carousel id; null for any other container id. */
+export function stagedItemIds(containerId: string): string[] | null {
+  if (!containerId.startsWith(STAGED_PREFIX)) {
+    return null;
+  }
+  const ids = containerId
+    .slice(STAGED_PREFIX.length)
+    .split(",")
+    .filter((id) => id !== "");
+  return ids.length === 0 ? null : ids;
+}
 
 const ContainerSchema = z.object({
   id: z.string().optional(),
   status_code: z.string().optional(),
   status: z.string().optional(),
 });
+type Container = z.infer<typeof ContainerSchema>;
 
 const IdSchema = z.object({ id: z.coerce.string().min(1) });
 const PermalinkSchema = z.object({ permalink: z.string().optional() });
+
+/** What `media_product_type` the published media of each format has. */
+const PRODUCT_TYPES: Partial<Record<PostFormat, string>> = {
+  reel: "REELS",
+  image: "FEED",
+  carousel: "FEED",
+  story: "STORY",
+};
 
 export interface InstagramAdapterOptions {
   /** The Graph client; defaults to the server's Meta app from the environment, built on first use. */
@@ -61,13 +103,26 @@ interface LiveCall {
 }
 
 /** The text of a container's `status`, without URLs; its 2207xxx subcode as the platform code. */
-function containerFailure(code: string, status: string | undefined): StatusResult {
+function containerFailure(
+  code: string,
+  status: string | undefined,
+  format: PostFormat,
+  item?: number,
+): StatusResult {
   const text = (status ?? "").replace(/https?:\/\/\S+/gi, "[url]").trim();
   const subcode = /\b(2207\d{3})\b/.exec(text)?.[1];
+  const what =
+    item !== undefined
+      ? `item ${item + 1} of the carousel`
+      : format === "reel"
+        ? "the video"
+        : format === "image"
+          ? "the photo"
+          : "the media";
   const message =
     code === "EXPIRED"
-      ? `The Instagram container expired before it was published${text === "" ? "." : `: ${text}`}`
-      : `Instagram could not process the video${text === "" ? "." : `: ${text}`}`;
+      ? `The Instagram container ${item === undefined ? "" : `of ${what} `}expired before it was published${text === "" ? "." : `: ${text}`}`
+      : `Instagram could not process ${what}${text === "" ? "." : `: ${text}`}`;
   return {
     state: "failed",
     error: publishError("invalid_media", message, {
@@ -77,10 +132,21 @@ function containerFailure(code: string, status: string | undefined): StatusResul
   };
 }
 
+/** A container id from a create answer; a missing id is worth another try. */
+function createdId(data: unknown, what: string): string {
+  const parsed = IdSchema.safeParse(data);
+  if (!parsed.success) {
+    throw PublishFailure.of("transient", `Instagram created the ${what} without returning its id.`);
+  }
+  return parsed.data.id;
+}
+
 export function createInstagramAdapter(options: InstagramAdapterOptions = {}): PublisherAdapter {
   const client = lazyGraphClient(options.client ?? (() => graphClientFromEnv()));
   /** `media_publish` per container: in flight or done, so a container is never published twice. */
   const publishes = new Map<string, Promise<string>>();
+  /** The carousel container per staged id, so concurrent polls create one. */
+  const carousels = new Map<string, Promise<string>>();
 
   async function liveCall(context: PublishContext): Promise<LiveCall> {
     if (context.dryRun) {
@@ -110,22 +176,28 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
   /**
    * The media of a container that is already PUBLISHED but whose media id this process does not
    * know (the server restarted after `media_publish`, or the call timed out after Meta took it).
-   * The container does not name its media, so the account's recent Reels are matched by caption
-   * and time. Null when none matches.
+   * The container does not name its media, so the account's recent media of the post's product
+   * type are matched by caption and time: Reels and feed posts from `/media`, stories (which take
+   * no caption) from `/stories`, where the one story since the attempt began matches. Null when
+   * none matches, or when several stories could be the post.
    */
   async function findPublished(
     call: LiveCall,
     context: PublishContext,
   ): Promise<{ id: string; permalink?: string } | null> {
+    const format = context.media.format;
+    const story = format === "story";
+    const product = PRODUCT_TYPES[format];
     const response = await sendStep<unknown>(
       call.client,
-      recentMediaRequest(call.igUserId, call),
+      story ? recentStoriesRequest(call.igUserId, call) : recentMediaRequest(call.igUserId, call),
       call,
     );
     const caption = context.caption().text.trim();
     // A container lives 24 hours, so its media cannot be older than that before this attempt.
     const since = context.post.attemptStartedAt.getTime() - 25 * 60 * 60_000;
     const items = z.object({ data: z.array(z.unknown()).default([]) }).safeParse(response.data);
+    const matches: { id: string; permalink?: string }[] = [];
     for (const entry of items.success ? items.data.data : []) {
       const media = z
         .object({
@@ -139,17 +211,20 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
       if (!media.success) {
         continue;
       }
-      const { id, permalink, timestamp, media_product_type: product } = media.data;
+      const { id, permalink, timestamp, media_product_type: type } = media.data;
       const at = timestamp === undefined ? Number.NaN : Date.parse(timestamp);
       if (
-        (product === undefined || product === "REELS") &&
-        (media.data.caption ?? "").trim() === caption &&
+        (type === undefined || type === product) &&
+        (story || (media.data.caption ?? "").trim() === caption) &&
         (Number.isNaN(at) || at >= since)
       ) {
-        return permalink === undefined ? { id } : { id, permalink };
+        matches.push(permalink === undefined ? { id } : { id, permalink });
+        if (!story) {
+          break;
+        }
       }
     }
-    return null;
+    return matches.length === 1 ? (matches[0] ?? null) : null;
   }
 
   /** The result of a container that is already PUBLISHED. */
@@ -212,38 +287,49 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
   }
 
   /**
-   * Sends `media_publish` for `containerId` at most once per process: a concurrent or repeated
-   * call waits for (or reuses) the first one. A failed call is forgotten, so it may be retried.
+   * Runs `send` for `key` at most once per process: a concurrent or repeated call waits for (or
+   * reuses) the first one. A failed call is forgotten, so it may be retried.
    */
-  function publishOnce(call: LiveCall, containerId: string): Promise<string> {
-    const existing = publishes.get(containerId);
+  function once(
+    calls: Map<string, Promise<string>>,
+    key: string,
+    send: () => Promise<string>,
+  ): Promise<string> {
+    const existing = calls.get(key);
     if (existing !== undefined) {
       return existing;
     }
-    const [, publishStep] = buildInstagramFinish(call.igUserId, containerId, call);
-    if (publishStep === undefined) {
-      throw new Error("the Instagram finish plan has no media_publish step");
-    }
-    const sent = sendStep<unknown>(call.client, publishStep, { ...call, raw: true }).then(
-      (response) => IdSchema.parse(response.data).id,
-    );
-    publishes.set(containerId, sent);
+    const sent = send();
+    calls.set(key, sent);
     sent.catch(() => {
-      if (publishes.get(containerId) === sent) {
-        publishes.delete(containerId);
+      if (calls.get(key) === sent) {
+        calls.delete(key);
       }
     });
-    if (publishes.size > MAX_REMEMBERED_PUBLISHES) {
-      const oldest = publishes.keys().next().value;
-      if (oldest !== undefined && oldest !== containerId) {
-        publishes.delete(oldest);
+    if (calls.size > MAX_REMEMBERED_PUBLISHES) {
+      const oldest = calls.keys().next().value;
+      if (oldest !== undefined && oldest !== key) {
+        calls.delete(oldest);
       }
     }
     return sent;
   }
 
-  /** Reads the container's status. */
-  async function containerStatus(call: LiveCall, containerId: string) {
+  /** Sends `media_publish` for `containerId` at most once per process (see `once`). */
+  function publishOnce(call: LiveCall, containerId: string): Promise<string> {
+    return once(publishes, containerId, () => {
+      const [, publishStep] = buildInstagramFinish(call.igUserId, containerId, call);
+      if (publishStep === undefined) {
+        throw new Error("the Instagram finish plan has no media_publish step");
+      }
+      return sendStep<unknown>(call.client, publishStep, { ...call, raw: true }).then(
+        (response) => IdSchema.parse(response.data).id,
+      );
+    });
+  }
+
+  /** Reads a container's status. */
+  async function containerStatus(call: LiveCall, containerId: string): Promise<Container> {
     const [statusStep] = buildInstagramFinish(call.igUserId, containerId, call);
     if (statusStep === undefined) {
       throw new Error("the Instagram finish plan has no status step");
@@ -253,26 +339,117 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
     return parsed.success ? parsed.data : {};
   }
 
+  /**
+   * The status of a staged carousel: pending while an item processes, failed when one failed,
+   * and, once every item is FINISHED, pending on the new carousel container.
+   */
+  async function stagedStatus(
+    call: LiveCall,
+    context: PublishContext,
+    stagedId: string,
+    itemIds: readonly string[],
+  ): Promise<StatusResult> {
+    const codes: (string | null)[] = [];
+    for (const [index, itemId] of itemIds.entries()) {
+      const item = await containerStatus(call, itemId);
+      const code = item.status_code ?? null;
+      codes.push(code);
+      if (code === "ERROR" || code === "EXPIRED") {
+        context.record({
+          response: {
+            item_container_ids: [...itemIds],
+            item_status_codes: codes,
+            status: item.status ?? null,
+          },
+        });
+        return containerFailure(code, item.status, "carousel", index);
+      }
+    }
+    if (codes.some((code) => code !== "FINISHED")) {
+      context.record({
+        response: { item_container_ids: [...itemIds], item_status_codes: codes },
+      });
+      return { state: "pending" };
+    }
+    const parent = instagramRequests.createCarouselContainer(
+      {
+        externalId: call.igUserId,
+        caption: context.caption().text,
+        ...(Object.keys(context.post.options).length === 0
+          ? {}
+          : { options: context.post.options }),
+      },
+      itemIds,
+      call,
+    );
+    const containerId = await once(carousels, stagedId, async () => {
+      const created = await sendStep<unknown>(call.client, parent, call);
+      return createdId(created.data, "carousel container");
+    });
+    context.record({
+      response: {
+        item_container_ids: [...itemIds],
+        item_status_codes: codes,
+        container_id: containerId,
+      },
+    });
+    return { state: "pending", containerId };
+  }
+
+  /** Sends the create steps of `plan` and returns the container id the post waits on. */
+  async function createContainers(
+    call: LiveCall,
+    context: PublishContext,
+    steps: readonly PlatformRequest[],
+  ): Promise<{ containerId: string; record: JsonObject }> {
+    if (context.media.format === "carousel") {
+      const itemSteps = steps.filter((step) => step.step === "create_item_container");
+      if (itemSteps.length === 0) {
+        throw new Error("the Instagram carousel plan has no item containers");
+      }
+      const itemIds: string[] = [];
+      // One at a time, in order: the carousel shows its items in the order of `children`.
+      for (const step of itemSteps) {
+        const created = await sendStep<unknown>(call.client, step, call);
+        itemIds.push(createdId(created.data, `container of item ${itemIds.length + 1}`));
+      }
+      return {
+        containerId: stagedCarouselId(itemIds),
+        record: { item_container_ids: itemIds },
+      };
+    }
+    const createStep = steps.find((step) => step.step === "create_container");
+    if (createStep === undefined) {
+      throw new Error("the Instagram publish plan has no create_container step");
+    }
+    const created = await sendStep<unknown>(call.client, createStep, call);
+    const containerId = createdId(created.data, "container");
+    return { containerId, record: { container_id: containerId } };
+  }
+
   return {
     platform: "instagram",
 
     async validate(context): Promise<AdapterIssue[]> {
-      return validateInstagramReel(context);
+      return validateInstagramPost(context);
     },
 
     async publish(context): Promise<PublishResult> {
       const call = await liveCall(context);
 
       // A post whose earlier container was published (the outcome was lost) is not posted again.
+      // A staged carousel was never published: its items are left to expire.
       if (context.post.externalId !== null || context.post.externalContainerId !== null) {
         const previous = context.post.externalContainerId;
         const code =
           previous === null
             ? "PUBLISHED"
-            : await containerStatus(call, previous).then(
-                (status) => status.status_code,
-                () => undefined,
-              );
+            : stagedItemIds(previous) !== null
+              ? undefined
+              : await containerStatus(call, previous).then(
+                  (status) => status.status_code,
+                  () => undefined,
+                );
         if (code === "PUBLISHED") {
           const result = await alreadyPublished(call, context, previous ?? "");
           return {
@@ -284,7 +461,7 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
         }
       }
 
-      // The quota is checked before the render is copied to public storage: every copy is new,
+      // The quota is checked before the media are copied to public storage: every copy is new,
       // so a post waiting out the quota would otherwise leave a public copy per attempt.
       const limitStep = instagramRequests.publishingLimit(call.igUserId, call);
       context.record({
@@ -307,22 +484,9 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
         accessToken: call.accessToken,
       });
       context.record({ request: plan as unknown as JsonObject });
-      const createStep = plan.steps[1];
-      if (createStep === undefined) {
-        throw new Error("the Instagram publish plan has no create_container step");
-      }
-      const created = await sendStep<unknown>(call.client, createStep, call);
-      const container = IdSchema.safeParse(created.data);
-      if (!container.success) {
-        throw PublishFailure.of(
-          "transient",
-          "Instagram created the container without returning its id.",
-        );
-      }
-      context.record({
-        response: { ...quotaRecord(quota), container_id: container.data.id },
-      });
-      return { pending: true, containerId: container.data.id };
+      const created = await createContainers(call, context, plan.steps);
+      context.record({ response: { ...quotaRecord(quota), ...created.record } });
+      return { pending: true, containerId: created.containerId };
     },
 
     async status(context): Promise<StatusResult> {
@@ -335,6 +499,10 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
         throw PublishFailure.of("permanent", "The post has no Instagram container to check.", {
           retryable: false,
         });
+      }
+      const itemIds = stagedItemIds(containerId);
+      if (itemIds !== null) {
+        return stagedStatus(call, context, containerId, itemIds);
       }
 
       const container = await containerStatus(call, containerId);
@@ -352,7 +520,7 @@ export function createInstagramAdapter(options: InstagramAdapterOptions = {}): P
               status: container.status ?? null,
             },
           });
-          return containerFailure(code, container.status);
+          return containerFailure(code, container.status, context.media.format);
         case "PUBLISHED":
           return alreadyPublished(call, context, containerId);
         case "FINISHED": {

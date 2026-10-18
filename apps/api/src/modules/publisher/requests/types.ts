@@ -70,6 +70,14 @@ export function photoPlaceholder(index: number): string {
   return `{photo-id-${index + 1}}`;
 }
 
+/**
+ * Stand-in for the id of the `index`th (from 0) item container of an Instagram carousel:
+ * `{item-container-id-1}`, `{item-container-id-2}`, and so on.
+ */
+export function itemContainerPlaceholder(index: number): string {
+  return `{item-container-id-${index + 1}}`;
+}
+
 /** The account id a request shows for a channel that is not connected yet (dry-run only). */
 export const UNCONNECTED_ACCOUNT_ID = "{account-id}";
 

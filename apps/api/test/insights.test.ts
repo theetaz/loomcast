@@ -1,17 +1,34 @@
-import { INSIGHTS_SCHEDULE_OFFSETS_MS, type JsonObject, type Platform } from "@loomcast/contracts";
-import { channels, postMetrics, scheduledPosts, scheduledTasks } from "@loomcast/db";
+import {
+  INSIGHTS_SCHEDULE_OFFSETS_MS,
+  type JsonObject,
+  type Platform,
+  type PostFormat,
+} from "@loomcast/contracts";
+import {
+  channels,
+  contentVersions,
+  postMetrics,
+  scheduledPosts,
+  scheduledTasks,
+} from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { transaction } from "../src/lib/db";
 import { appSecretProof } from "../src/lib/meta-graph";
 import {
   enqueueInsightsPulls,
+  FACEBOOK_POST_INSIGHTS_METRICS,
   FACEBOOK_REELS_INSIGHTS_METRICS,
+  FACEBOOK_VIDEO_INSIGHTS_METRICS,
+  INSTAGRAM_FEED_INSIGHTS_METRICS,
   INSTAGRAM_INSIGHTS_METRICS,
+  INSTAGRAM_STORY_INSIGHTS_METRICS,
   insightsDedupeKey,
+  insightsExpired,
   insightsRequest,
   normalizeInsights,
   registerInsightsTasks,
+  STORY_INSIGHTS_WINDOW_MS,
   stripCredentials,
   THREADS_INSIGHTS_METRICS,
 } from "../src/modules/insights";
@@ -176,6 +193,100 @@ describe("normalization per platform", () => {
   });
 });
 
+describe("insights per post format", () => {
+  it("asks Instagram for the metrics of each media product type", () => {
+    for (const format of ["image", "carousel"] as const) {
+      expect(insightsRequest("instagram", "179", format)).toEqual({
+        api: "graph",
+        path: "/179/insights",
+        query: { metric: INSTAGRAM_FEED_INSIGHTS_METRICS.join(",") },
+      });
+    }
+    expect(insightsRequest("instagram", "179", "story")).toEqual({
+      api: "graph",
+      path: "/179/insights",
+      query: { metric: INSTAGRAM_STORY_INSIGHTS_METRICS.join(",") },
+    });
+    expect(insightsRequest("instagram", "179", "reel")?.query.metric).toBe(
+      INSTAGRAM_INSIGHTS_METRICS.join(","),
+    );
+    // Feed posts and stories report no watch time and no plays.
+    expect(INSTAGRAM_FEED_INSIGHTS_METRICS).not.toContain("ig_reels_avg_watch_time");
+    expect(INSTAGRAM_STORY_INSIGHTS_METRICS).not.toContain("saved");
+  });
+
+  it("asks Facebook for video or post insights by format, and skips stories", () => {
+    expect(insightsRequest("facebook", "88", "video")).toEqual({
+      api: "graph",
+      path: "/88/video_insights",
+      query: { metric: FACEBOOK_VIDEO_INSIGHTS_METRICS.join(","), period: "lifetime" },
+    });
+    for (const format of ["image", "carousel", "text"] as const) {
+      expect(insightsRequest("facebook", "1_2", format)).toEqual({
+        api: "graph",
+        path: "/1_2/insights",
+        query: { metric: FACEBOOK_POST_INSIGHTS_METRICS.join(","), period: "lifetime" },
+      });
+    }
+    expect(insightsRequest("facebook", "88", "story")).toBeNull();
+    expect(insightsRequest("threads", "1", "image")).toBeNull();
+  });
+
+  it("reads Instagram story replies as comments", () => {
+    const body = insightsBody({ views: 300, reach: 250, replies: 4, shares: 2 });
+    expect(normalizeInsights("instagram", body)).toMatchObject({
+      views: 300,
+      reach: 250,
+      comments: 4,
+      shares: 2,
+      likes: null,
+      saves: null,
+      avgWatchMs: null,
+    });
+  });
+
+  it("reads Facebook video and post insights", () => {
+    const video = insightsBody({
+      total_video_views: 500,
+      total_video_impressions_unique: 420,
+      total_video_avg_time_watched: 6_200,
+      total_video_reactions_by_type_total: { like: 20, love: 5 },
+      total_video_stories_by_action_type: { share: 3, like: 25, comment: 7 },
+    });
+    expect(normalizeInsights("facebook", video)).toMatchObject({
+      views: 500,
+      reach: 420,
+      avgWatchMs: 6_200,
+      likes: 25,
+      comments: 7,
+      shares: 3,
+    });
+    const post = insightsBody({
+      post_media_view: 900,
+      post_total_media_view_unique: 610,
+      post_reactions_by_type_total: { like: 40, wow: 2 },
+    });
+    expect(normalizeInsights("facebook", post)).toMatchObject({
+      views: 900,
+      reach: 610,
+      likes: 42,
+      comments: null,
+      shares: null,
+      saves: null,
+      avgWatchMs: null,
+    });
+  });
+
+  it("expires story insights 24 hours after the story went live", () => {
+    const publishedAt = new Date("2026-10-18T08:00:00Z");
+    const at = (ms: number) => new Date(publishedAt.getTime() + ms);
+    expect(insightsExpired("story", publishedAt, at(6 * 60 * 60_000))).toBe(false);
+    expect(insightsExpired("story", publishedAt, at(STORY_INSIGHTS_WINDOW_MS))).toBe(true);
+    expect(insightsExpired("image", publishedAt, at(30 * STORY_INSIGHTS_WINDOW_MS))).toBe(false);
+    expect(insightsExpired("story", null, at(STORY_INSIGHTS_WINDOW_MS))).toBe(false);
+  });
+});
+
 // Scheduler integration --------------------------------------------------------------------------
 
 let h: PipelineHarness;
@@ -266,7 +377,13 @@ function insightsServer(fetch: ReturnType<typeof scripted>["fetch"]): Harness {
 /** A live post published on a connected channel of `platform`, and its pull due now. */
 async function livePost(
   platform: Platform,
-  options: { dryRun?: boolean; status?: "published" | "queued" } = {},
+  options: {
+    dryRun?: boolean;
+    status?: "published" | "queued";
+    format?: PostFormat;
+    /** How long before now the post went live; 0 by default. */
+    publishedAgoMs?: number;
+  } = {},
 ) {
   const channel = await insertChannel(h.db, keyring, {
     platform,
@@ -289,9 +406,18 @@ async function livePost(
     .set({
       status: options.status ?? "published",
       externalId: mediaId,
-      publishedAt: options.status === "queued" ? null : h.t.clock.now(),
+      publishedAt:
+        options.status === "queued"
+          ? null
+          : new Date(h.t.clock.now().getTime() - (options.publishedAgoMs ?? 0)),
     })
     .where(eq(scheduledPosts.id, postId));
+  if (options.format !== undefined) {
+    await h.db
+      .update(contentVersions)
+      .set({ format: options.format })
+      .where(eq(contentVersions.id, item.versionId));
+  }
   await h.deps.scheduler.enqueue(
     "insights.pull",
     { postId },
@@ -515,6 +641,57 @@ describe("insights.pull", () => {
       expect(fake.calls).toEqual([]);
       const tasks = await tasksOf("insights.pull");
       expect(tasks.map((task) => task.status)).toEqual(["succeeded", "succeeded", "succeeded"]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("asks for a post's format metrics and stores a Facebook photo capture", async () => {
+    const story = insightsBody({ views: 120, reach: 100, replies: 3 });
+    const photo = insightsBody({ post_media_view: 70, post_reactions_by_type_total: { like: 6 } });
+    const fake = scripted([{ body: story }, { body: photo }]);
+    const server = insightsServer(fake.fetch);
+    try {
+      const ig = await livePost("instagram", { format: "story", publishedAgoMs: 60 * 60_000 });
+      await runDue(server.scheduler);
+      const fb = await livePost("facebook", { format: "image" });
+      await runDue(server.scheduler);
+
+      const [storyCall, photoCall] = fake.calls;
+      expect(storyCall?.url.pathname).toBe(`/${GRAPH_VERSION}/${ig.mediaId}/insights`);
+      expect(storyCall?.url.searchParams.get("metric")).toBe(
+        INSTAGRAM_STORY_INSIGHTS_METRICS.join(","),
+      );
+      expect(photoCall?.url.pathname).toBe(`/${GRAPH_VERSION}/${fb.mediaId}/insights`);
+      expect(photoCall?.url.searchParams.get("metric")).toBe(
+        FACEBOOK_POST_INSIGHTS_METRICS.join(","),
+      );
+      expect(await capturesOf(ig.postId)).toEqual([
+        expect.objectContaining({ views: 120, reach: 100, comments: 3, likes: null }),
+      ]);
+      expect(await capturesOf(fb.postId)).toEqual([
+        expect.objectContaining({ views: 70, likes: 6, comments: null }),
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("skips expired stories and formats without insights", async () => {
+    const fake = scripted([]);
+    const server = insightsServer(fake.fetch);
+    try {
+      const old = await livePost("instagram", {
+        format: "story",
+        publishedAgoMs: STORY_INSIGHTS_WINDOW_MS,
+      });
+      const fbStory = await livePost("facebook", { format: "story" });
+      await runDue(server.scheduler);
+      expect(fake.calls).toEqual([]);
+      expect(await capturesOf(old.postId)).toEqual([]);
+      expect(await capturesOf(fbStory.postId)).toEqual([]);
+      const tasks = await tasksOf("insights.pull");
+      expect(tasks.map((task) => task.status)).toEqual(["succeeded", "succeeded"]);
     } finally {
       await server.close();
     }

@@ -1,13 +1,31 @@
-import type { JsonObject, Platform, PostMetricCounts } from "@loomcast/contracts";
+import type { JsonObject, Platform, PostFormat, PostMetricCounts } from "@loomcast/contracts";
 
-// The insights call of each platform and how its answer becomes one `post_metrics` row. Metric
-// names follow Meta's references (Graph API v26.0, Threads API v1.0):
+// The insights call of each platform and post format, and how its answer becomes one
+// `post_metrics` row. Metric names follow Meta's references (Graph API v26.0, Threads API v1.0):
 // - Instagram Reels: `GET /{ig-media-id}/insights?metric=views,reach,likes,comments,shares,saved,
 //   total_interactions,ig_reels_avg_watch_time` (`plays` is gone; average watch time in ms);
+// - Instagram photos and carousels (FEED): the same without `ig_reels_avg_watch_time`, which only
+//   Reels report; a carousel is asked as a whole (its items have no insights);
+// - Instagram stories (STORY): `views,reach,replies,shares,total_interactions`; stories report no
+//   likes or saves, and their insights are kept for 24 hours only (`STORY_INSIGHTS_WINDOW_MS`),
+//   so later pulls are skipped (IG Media insights reference, confirmed 2026-10-18:
+//   https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights);
 // - Facebook Page Reels: `GET /{video-id}/video_insights?metric=...&period=lifetime` with
 //   `fb_reels_total_plays` (plays including replays, falling back to `blue_reels_play_count`),
 //   `post_impressions_unique` (reach), `post_video_avg_time_watched` (ms per play),
 //   `post_video_likes_by_reaction_type` and `post_video_social_actions` (comments, shares);
+// - Facebook videos (not Reels): the same edge with the `total_video_*` metrics: views, unique
+//   impressions (reach), average watch time (ms), reactions by type and stories by action type
+//   (comments, shares) (Video Insights reference, confirmed 2026-10-18:
+//   https://developers.facebook.com/docs/graph-api/reference/video/video_insights/);
+// - Facebook photos, multi-photo and text posts: `GET /{page-post-id}/insights?metric=
+//   post_media_view,post_total_media_view_unique,post_reactions_by_type_total&period=lifetime`
+//   (views, unique viewers as reach, reactions). `post_impressions_unique` and the other
+//   impression metrics are discontinued after v25, and comments and shares are fields of the post
+//   rather than insights, so they stay null (Page insights reference, confirmed 2026-10-18:
+//   https://developers.facebook.com/docs/graph-api/reference/insights). The post's `externalId`
+//   must be the Page post id (`{page-id}_{post-id}`);
+// - Facebook stories: skipped, as no insights call for Page stories could be confirmed;
 // - Threads: `GET /{threads-media-id}/insights?metric=views,likes,replies,reposts,quotes,shares`.
 // Every answer is `{data: [{name, period, values: [{value}]}]}`; a metric with a breakdown answers
 // `total_value: {value}` instead, which is read the same way.
@@ -31,6 +49,26 @@ export const INSTAGRAM_INSIGHTS_METRICS = [
   "ig_reels_avg_watch_time",
 ] as const;
 
+/** Instagram photos and carousels (FEED media). */
+export const INSTAGRAM_FEED_INSIGHTS_METRICS = [
+  "views",
+  "reach",
+  "likes",
+  "comments",
+  "shares",
+  "saved",
+  "total_interactions",
+] as const;
+
+/** Instagram stories (STORY media). */
+export const INSTAGRAM_STORY_INSIGHTS_METRICS = [
+  "views",
+  "reach",
+  "replies",
+  "shares",
+  "total_interactions",
+] as const;
+
 export const FACEBOOK_REELS_INSIGHTS_METRICS = [
   "blue_reels_play_count",
   "fb_reels_total_plays",
@@ -38,6 +76,22 @@ export const FACEBOOK_REELS_INSIGHTS_METRICS = [
   "post_video_avg_time_watched",
   "post_video_likes_by_reaction_type",
   "post_video_social_actions",
+] as const;
+
+/** Facebook videos that are not Reels. */
+export const FACEBOOK_VIDEO_INSIGHTS_METRICS = [
+  "total_video_views",
+  "total_video_impressions_unique",
+  "total_video_avg_time_watched",
+  "total_video_reactions_by_type_total",
+  "total_video_stories_by_action_type",
+] as const;
+
+/** Facebook photo, multi-photo and text posts (Page post insights). */
+export const FACEBOOK_POST_INSIGHTS_METRICS = [
+  "post_media_view",
+  "post_total_media_view_unique",
+  "post_reactions_by_type_total",
 ] as const;
 
 export const THREADS_INSIGHTS_METRICS = [
@@ -49,6 +103,9 @@ export const THREADS_INSIGHTS_METRICS = [
   "shares",
 ] as const;
 
+/** How long a story's insights are kept after it goes live. */
+export const STORY_INSIGHTS_WINDOW_MS = 24 * 60 * 60_000;
+
 /** One insights call: the API it goes to, the path after the version, and its query. */
 export interface InsightsCall {
   api: "graph" | "threads";
@@ -56,29 +113,88 @@ export interface InsightsCall {
   query: Record<string, string>;
 }
 
-/** The insights call for the platform's media id of a published post. */
-export function insightsRequest(platform: InsightsPlatform, mediaId: string): InsightsCall {
+/**
+ * The insights call for the platform's media id of a published post of `format` (a Reel when
+ * not given). Null when the platform reports nothing for the format, such as a Facebook story.
+ */
+export function insightsRequest(
+  platform: InsightsPlatform,
+  mediaId: string,
+  format: PostFormat = "reel",
+): InsightsCall | null {
   const id = encodeURIComponent(mediaId);
+  const metric = (names: readonly string[]) => names.join(",");
   switch (platform) {
     case "instagram":
-      return {
-        api: "graph",
-        path: `/${id}/insights`,
-        query: { metric: INSTAGRAM_INSIGHTS_METRICS.join(",") },
-      };
+      switch (format) {
+        case "reel":
+          return {
+            api: "graph",
+            path: `/${id}/insights`,
+            query: { metric: metric(INSTAGRAM_INSIGHTS_METRICS) },
+          };
+        case "image":
+        case "carousel":
+          return {
+            api: "graph",
+            path: `/${id}/insights`,
+            query: { metric: metric(INSTAGRAM_FEED_INSIGHTS_METRICS) },
+          };
+        case "story":
+          return {
+            api: "graph",
+            path: `/${id}/insights`,
+            query: { metric: metric(INSTAGRAM_STORY_INSIGHTS_METRICS) },
+          };
+        default:
+          return null;
+      }
     case "facebook":
-      return {
-        api: "graph",
-        path: `/${id}/video_insights`,
-        query: { metric: FACEBOOK_REELS_INSIGHTS_METRICS.join(","), period: "lifetime" },
-      };
+      switch (format) {
+        case "reel":
+          return {
+            api: "graph",
+            path: `/${id}/video_insights`,
+            query: { metric: metric(FACEBOOK_REELS_INSIGHTS_METRICS), period: "lifetime" },
+          };
+        case "video":
+          return {
+            api: "graph",
+            path: `/${id}/video_insights`,
+            query: { metric: metric(FACEBOOK_VIDEO_INSIGHTS_METRICS), period: "lifetime" },
+          };
+        case "image":
+        case "carousel":
+        case "text":
+          return {
+            api: "graph",
+            path: `/${id}/insights`,
+            query: { metric: metric(FACEBOOK_POST_INSIGHTS_METRICS), period: "lifetime" },
+          };
+        default:
+          return null;
+      }
     case "threads":
-      return {
-        api: "threads",
-        path: `/${id}/insights`,
-        query: { metric: THREADS_INSIGHTS_METRICS.join(",") },
-      };
+      return format === "reel"
+        ? {
+            api: "threads",
+            path: `/${id}/insights`,
+            query: { metric: metric(THREADS_INSIGHTS_METRICS) },
+          }
+        : null;
   }
+}
+
+/**
+ * Whether a post's insights can no longer be read at `at`: a story's are gone 24 hours after it
+ * went live.
+ */
+export function insightsExpired(format: PostFormat, publishedAt: Date | null, at: Date): boolean {
+  return (
+    format === "story" &&
+    publishedAt !== null &&
+    at.getTime() - publishedAt.getTime() >= STORY_INSIGHTS_WINDOW_MS
+  );
 }
 
 /** A capture ready for `post_metrics`: the counts and the answer without credentials. */
@@ -202,8 +318,10 @@ function watchMs(value: unknown): number | null {
 
 /**
  * Normalizes an insights answer of `platform` into the contract's counts. A metric the platform
- * did not report stays null. Threads `shares` adds reposts, quotes and shares; Threads reports no
- * saves, reach or watch time.
+ * did not report stays null. The metrics of every format of a platform are read, since each
+ * call asks for one format's (`insightsRequest`): an Instagram story's `replies` count as its
+ * comments; a Facebook video, photo or text post reads its own views, reach and reactions.
+ * Threads `shares` adds reposts, quotes and shares; Threads reports no saves, reach or watch time.
  */
 export function normalizeInsights(platform: InsightsPlatform, body: unknown): NormalizedInsights {
   const values = metricValues(body);
@@ -214,7 +332,7 @@ export function normalizeInsights(platform: InsightsPlatform, body: unknown): No
       return {
         views: get("views"),
         likes: get("likes"),
-        comments: get("comments"),
+        comments: get("comments") ?? get("replies"),
         shares: get("shares"),
         saves: get("saved"),
         reach: get("reach"),
@@ -222,15 +340,28 @@ export function normalizeInsights(platform: InsightsPlatform, body: unknown): No
         raw,
       };
     case "facebook": {
-      const social = values.get("post_video_social_actions");
+      const social =
+        values.get("post_video_social_actions") ?? values.get("total_video_stories_by_action_type");
       return {
-        views: get("fb_reels_total_plays") ?? get("blue_reels_play_count"),
-        likes: sumOf(values.get("post_video_likes_by_reaction_type")),
+        views:
+          get("fb_reels_total_plays") ??
+          get("blue_reels_play_count") ??
+          get("total_video_views") ??
+          get("post_media_view"),
+        likes:
+          sumOf(values.get("post_video_likes_by_reaction_type")) ??
+          sumOf(values.get("total_video_reactions_by_type_total")) ??
+          sumOf(values.get("post_reactions_by_type_total")),
         comments: keyCount(social, "comment"),
         shares: keyCount(social, "share"),
         saves: null,
-        reach: get("post_impressions_unique"),
-        avgWatchMs: watchMs(values.get("post_video_avg_time_watched")),
+        reach:
+          get("post_impressions_unique") ??
+          get("total_video_impressions_unique") ??
+          get("post_total_media_view_unique"),
+        avgWatchMs: watchMs(
+          values.get("post_video_avg_time_watched") ?? values.get("total_video_avg_time_watched"),
+        ),
         raw,
       };
     }
