@@ -12,10 +12,10 @@ import {
   kbEntry,
   message,
   post,
-  project,
   review,
   skillVersion,
   versionSummary,
+  workspace,
 } from "./fixtures";
 
 const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
@@ -33,10 +33,10 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
     type: "device.status",
     payload: { deviceId: ids.device, online: true, lastSeenAt: at },
   },
-  "project.created": { type: "project.created", payload: { project } },
-  "project.updated": {
-    type: "project.updated",
-    payload: { project: { ...project, status: "archived", archivedAt: at } },
+  "workspace.created": { type: "workspace.created", payload: { workspace } },
+  "workspace.updated": {
+    type: "workspace.updated",
+    payload: { workspace: { ...workspace, status: "archived", archivedAt: at } },
   },
   "kb.entry.created": { type: "kb.entry.created", payload: { entry: kbEntry } },
   "kb.entry.updated": {
@@ -45,7 +45,7 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
   },
   "kb.entry.deleted": {
     type: "kb.entry.deleted",
-    payload: { entryId: ids.entry, projectId: ids.project },
+    payload: { entryId: ids.entry, workspaceId: ids.workspace },
   },
   "content.item.created": {
     type: "content.item.created",
@@ -54,10 +54,10 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
   "content.item.updated": { type: "content.item.updated", payload: { item: contentItem } },
   "content.version.created": {
     type: "content.version.created",
-    payload: { projectId: ids.project, version: versionSummary },
+    payload: { workspaceId: ids.workspace, version: versionSummary },
   },
   "asset.updated": { type: "asset.updated", payload: { asset } },
-  "review.created": { type: "review.created", payload: { projectId: ids.project, review } },
+  "review.created": { type: "review.created", payload: { workspaceId: ids.workspace, review } },
   "skill.published": { type: "skill.published", payload: { skill: skillVersion } },
   "post.updated": {
     type: "post.updated",
@@ -75,7 +75,7 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
     payload: {
       postId: ids.post,
       itemId: ids.item,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       channelId: ids.channel,
       platform: "instagram",
       metrics: {

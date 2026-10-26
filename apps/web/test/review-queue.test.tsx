@@ -9,33 +9,47 @@ import { at, librarySetup } from "./support/library";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
-/** The library setup plus three more items in review, spread over projects and dates. */
+/**
+ * The library setup plus three more items in review in Rust, spread over dates, and one in Agents
+ * that Rust's queue never shows.
+ */
 function queueSetup() {
   const setup = librarySetup();
   const { db, rust, agents, series } = setup;
-  const add = (overrides: Partial<ContentItem> & Pick<ContentItem, "projectId" | "title">) => {
+  const add = (overrides: Partial<ContentItem> & Pick<ContentItem, "workspaceId" | "title">) => {
     const { item, versions } = mockContentItem({ state: "review", versionNo: 5, ...overrides });
     db.contentItems.push(item);
     db.contentVersions.push(...versions);
     return item;
   };
   const undatedOld = add({
-    projectId: rust.id,
+    workspaceId: rust.id,
     title: "Undated, waiting longest",
     seriesId: series.errors.id,
     updatedAt: at(1),
   });
-  const undatedNew = add({ projectId: agents.id, title: "Undated, newer", updatedAt: at(50) });
+  const undatedNew = add({ workspaceId: rust.id, title: "Undated, newer", updatedAt: at(50) });
   const soonest = add({
-    projectId: agents.id,
+    workspaceId: rust.id,
     title: "Due first",
-    seriesId: series.patterns.id,
+    seriesId: series.errors.id,
     targetAt: "2026-10-15T09:00:00.000Z",
     updatedAt: at(40),
   });
+  const elsewhere = add({
+    workspaceId: agents.id,
+    title: "Agents video in review",
+    seriesId: series.patterns.id,
+    targetAt: "2026-10-14T09:00:00.000Z",
+  });
   // `moves` (rust, 2026-10-16) comes from the library setup.
-  return { ...setup, queue: { soonest, moves: setup.items.moves, undatedOld, undatedNew } };
+  return {
+    ...setup,
+    queue: { soonest, moves: setup.items.moves, undatedOld, undatedNew, elsewhere },
+  };
 }
+
+const RUST_REVIEW = "/w/rust-in-60-seconds/review";
 
 function rowTitles() {
   const list = screen.getByRole("list", { name: "Videos in review" });
@@ -46,8 +60,8 @@ function rowTitles() {
 
 describe("review queue", () => {
   it("lists items in review, nearest date first and undated ones last", async () => {
-    const { db, queue, rust } = queueSetup();
-    renderApp("/review", db);
+    const { db, queue } = queueSetup();
+    renderApp(RUST_REVIEW, db);
     await screen.findByRole("list", { name: "Videos in review" }, { timeout: 5000 });
     expect(rowTitles()).toEqual([
       queue.soonest.title,
@@ -58,7 +72,7 @@ describe("review queue", () => {
     expect(screen.getByText("4 videos")).toBeInTheDocument();
 
     const moves = screen.getByRole("link", { name: new RegExp(queue.moves.title) });
-    expect(await within(moves).findByText(`${rust.name} · Ownership basics`)).toBeInTheDocument();
+    expect(await within(moves).findByText("Ownership basics")).toBeInTheDocument();
     expect(within(moves).getByText("v3")).toBeInTheDocument();
     expect(within(moves).getByText("1:05")).toBeInTheDocument();
     const undated = screen.getByRole("link", { name: new RegExp(queue.undatedNew.title) });
@@ -75,7 +89,7 @@ describe("review queue", () => {
 
   it("moves with j and k and opens the focused item with Enter", async () => {
     const { db, queue } = queueSetup();
-    const { user, router } = renderApp("/review", db);
+    const { user, router } = renderApp(RUST_REVIEW, db);
     await screen.findByRole("list", { name: "Videos in review" }, { timeout: 5000 });
     const link = (item: ContentItem) => screen.getByRole("link", { name: new RegExp(item.title) });
 
@@ -96,13 +110,15 @@ describe("review queue", () => {
 
     await user.keyboard("{Home}{Enter}");
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe(`/content/${queue.soonest.id}`),
+      expect(router.state.location.pathname).toBe(
+        `/w/rust-in-60-seconds/content/${queue.soonest.id}`,
+      ),
     );
   });
 
   it("ignores j and k while typing in a field", async () => {
     const { db } = queueSetup();
-    const { user } = renderApp("/review", db);
+    const { user } = renderApp(RUST_REVIEW, db);
     await screen.findByRole("list", { name: "Videos in review" }, { timeout: 5000 });
     const input = document.createElement("input");
     document.body.append(input);
@@ -113,20 +129,28 @@ describe("review queue", () => {
     input.remove();
   });
 
-  it("narrows to one project from the address", async () => {
+  it("shows only the open workspace's videos", async () => {
     const { db, queue, agents } = queueSetup();
     const requests = recordRequests();
-    renderApp(`/review?project=${agents.id}`, db);
+    renderApp(`/w/${agents.slug}/review`, db);
     await screen.findByRole("list", { name: "Videos in review" }, { timeout: 5000 });
-    expect(rowTitles()).toEqual([queue.soonest.title, queue.undatedNew.title]);
-    const call = requests.find((request) => request.path === "/api/reviews/queue");
-    expect(call?.query.get("projectId")).toBe(agents.id);
+    expect(rowTitles()).toEqual([queue.elsewhere.title]);
+    expect(screen.queryByRole("combobox", { name: "Workspace" })).not.toBeInTheDocument();
+    const calls = requests.filter((request) => request.path === "/api/reviews/queue");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((call) => call.query.get("workspaceId") === agents.id)).toBe(true);
+  });
+
+  it("opens the open workspace's queue from an old address", async () => {
+    const { db, agents } = queueSetup();
+    const { router } = renderApp(`/review?workspace=${agents.id}`, db);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/w/${agents.slug}/review`));
   });
 
   it("follows items into and out of review as they change", async () => {
     const { db, queue, items } = queueSetup();
     const stream = fakeStream(db);
-    renderApp("/review", db, [], { createEventSource: stream.factory });
+    renderApp(RUST_REVIEW, db, [], { createEventSource: stream.factory });
     await screen.findByRole("list", { name: "Videos in review" }, { timeout: 5000 });
 
     act(() => {
@@ -155,7 +179,7 @@ describe("review queue", () => {
   it("shows an empty state when nothing waits", async () => {
     const { db } = librarySetup();
     db.contentItems = db.contentItems.filter((item) => item.state !== "review");
-    renderApp("/review", db);
+    renderApp(RUST_REVIEW, db);
     expect(await screen.findByText("Nothing to review", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });

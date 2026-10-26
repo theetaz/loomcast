@@ -26,17 +26,52 @@ export const HelloOkSchema = bridgeMessage(
 );
 
 /**
+ * Workspaces were called projects, and agents and servers built before the rename name the
+ * workspace `projectId`, on the job and in its payload. Either name is accepted on the way in, and
+ * the server sends both until every agent has been updated.
+ */
+function withWorkspaceId(job: unknown): unknown {
+  if (typeof job !== "object" || job === null || Array.isArray(job)) {
+    return job;
+  }
+  const record = job as Record<string, unknown>;
+  const payload = record.payload;
+  const workspaceId = record.workspaceId ?? record.projectId;
+  return {
+    ...record,
+    workspaceId,
+    projectId: workspaceId,
+    payload: legacyWorkspacePayload(payload),
+  };
+}
+
+/** `payload` with `workspaceId` and its legacy copy `projectId`, when it names either. */
+export function legacyWorkspacePayload(payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return payload;
+  }
+  const record = payload as Record<string, unknown>;
+  const workspaceId = record.workspaceId ?? record.projectId;
+  return workspaceId === undefined ? record : { ...record, workspaceId, projectId: workspaceId };
+}
+
+/**
  * The job handed to the agent. `payload` is checked by the agent against the job type's registry
  * schema, so a bad payload is answered with `job.reject` rather than a closed socket.
  */
-export const AssignedJobSchema = z.object({
-  id: IdSchema,
-  type: JobTypeSchema,
-  attempt: z.number().int().min(1),
-  payload: JsonObjectSchema,
-  projectId: IdSchema,
-  conversationId: IdSchema.optional(),
-});
+export const AssignedJobSchema = z.preprocess(
+  withWorkspaceId,
+  z.object({
+    id: IdSchema,
+    type: JobTypeSchema,
+    attempt: z.number().int().min(1),
+    payload: JsonObjectSchema,
+    workspaceId: IdSchema,
+    /** The same as `workspaceId`, for agents built before workspaces were renamed. */
+    projectId: IdSchema.optional(),
+    conversationId: IdSchema.optional(),
+  }),
+);
 export type AssignedJob = z.infer<typeof AssignedJobSchema>;
 
 /**
@@ -52,7 +87,7 @@ export const ServerPathSchema = z
 /**
  * Credentials for one job, sent only when the job type's `mcpAccess` is not `none`.
  *
- * `mcp.token` is a job token (`lc_job_…`) scoped to the job's project with the scopes of its
+ * `mcp.token` is a job token (`lc_job_…`) scoped to the job's workspace with the scopes of its
  * `mcpAccess`, and it expires at `expiresAt` or when the job ends, whichever is first. The producer
  * session uses it instead of the device token, which it never sees.
  *

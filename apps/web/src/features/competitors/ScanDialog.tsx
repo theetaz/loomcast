@@ -24,9 +24,10 @@ import {
   SelectValue,
 } from "@loomcast/ui/components/select";
 import { Textarea } from "@loomcast/ui/components/textarea";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ChannelSettingsLink } from "@/features/channels/ChannelSettingsLink";
 import { platformLabel } from "@/features/channels/platforms";
 import { errorMessage, isApiError } from "@/lib/api";
 import { useStartScan } from "./queries";
@@ -75,9 +76,9 @@ export function scanErrorCopy(
       return (
         <>
           Ranking Reels by views needs a connected Instagram channel.{" "}
-          <Link to="/settings/channels" className="underline underline-offset-2">
+          <ChannelSettingsLink className="underline underline-offset-2">
             Connect one in channel settings
-          </Link>
+          </ChannelSettingsLink>
           , or paste links to the videos instead.
         </>
       );
@@ -93,11 +94,11 @@ export function scanErrorCopy(
 /** Wraps a trigger button. Starts a scan and opens it. */
 export function ScanDialog({
   competitor,
-  projectParam,
+  workspaceParam,
   children,
 }: {
   competitor: Competitor;
-  projectParam: string;
+  workspaceParam: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -115,7 +116,7 @@ export function ScanDialog({
         <ScanForm
           key={formKey}
           competitor={competitor}
-          projectParam={projectParam}
+          workspaceParam={workspaceParam}
           onStarted={() => setOpen(false)}
         />
       </DialogContent>
@@ -125,11 +126,11 @@ export function ScanDialog({
 
 function ScanForm({
   competitor,
-  projectParam,
+  workspaceParam,
   onStarted,
 }: {
   competitor: Competitor;
-  projectParam: string;
+  workspaceParam: string;
   onStarted: () => void;
 }) {
   const id = useId();
@@ -161,8 +162,8 @@ function ScanForm({
           description: `${scan.videoCount} ${scan.videoCount === 1 ? "video" : "videos"} of ${competitorName(competitor)} to analyse.`,
         });
         void navigate({
-          to: "/projects/$projectId/competitors/$competitorId/scans/$scanId",
-          params: { projectId: projectParam, competitorId: competitor.id, scanId: scan.id },
+          to: "/w/$workspace/competitors/$competitorId/scans/$scanId",
+          params: { workspace: workspaceParam, competitorId: competitor.id, scanId: scan.id },
         });
       },
       onError: (error) => {

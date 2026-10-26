@@ -9,7 +9,7 @@ import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@loomcast/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { FileQuestionIcon, HistoryIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
@@ -17,6 +17,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Page } from "@/components/PageHeader";
 import { ScheduleDialog } from "@/features/composer/ScheduleDialog";
 import { useContentLive } from "@/features/library/use-content-live";
+import { useCurrentWorkspace } from "@/features/workspace/current";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
 import { itemCards } from "./cards/registry";
@@ -97,10 +98,22 @@ export interface ItemPageProps {
  */
 export function ItemPage({ itemId, search, onSearchChange }: ItemPageProps) {
   useContentLive();
+  const workspace = useCurrentWorkspace();
   const query = useQuery(contentItemQueryOptions(itemId));
   useTitle(query.data?.item.title ?? "Video");
 
   if (query.isPending) return <ItemPageSkeleton />;
+  // An item lives in one workspace: a link through another one opens it there.
+  if (query.data && query.data.item.workspaceId !== workspace.id) {
+    return (
+      <Navigate
+        to="/w/$workspace/content/$itemId"
+        params={{ workspace: query.data.item.workspaceId, itemId }}
+        search={search}
+        replace
+      />
+    );
+  }
   if (query.isError) {
     return (
       <Page className="flex-1 justify-center">
@@ -111,7 +124,9 @@ export function ItemPage({ itemId, search, onSearchChange }: ItemPageProps) {
             description="It may have been removed, or the link points somewhere else."
             action={
               <Button asChild variant="outline">
-                <Link to="/library">Open the library</Link>
+                <Link to="/w/$workspace/library" params={{ workspace: workspace.slug }}>
+                  Open the library
+                </Link>
               </Button>
             }
           />

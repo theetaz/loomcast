@@ -1,4 +1,4 @@
-import type { CompetitorScan, CompetitorScanVideo, Project } from "@loomcast/contracts";
+import type { CompetitorScan, CompetitorScanVideo, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
@@ -51,13 +51,13 @@ function excerpt(caption: string | null): string {
  * and the report once it is written. It asks again every few seconds while the scan is active.
  */
 export function ScanPage({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
   competitorId,
   scanId,
 }: {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   competitorId: string;
   scanId: string;
 }) {
@@ -65,11 +65,13 @@ export function ScanPage({
   const competitor = useQuery(competitorQueryOptions(competitorId));
   const query = useQuery(competitorScanQueryOptions(scanId));
   const scan =
-    query.data && query.data.projectId === project.id && query.data.competitorId === competitorId
+    query.data &&
+    query.data.workspaceId === workspace.id &&
+    query.data.competitorId === competitorId
       ? query.data
       : null;
   const name = competitor.data ? competitorName(competitor.data) : "Competitor";
-  useTitle(`Scan of ${name} · ${project.name}`);
+  useTitle(`Scan of ${name} · ${workspace.name}`);
 
   // When the scan finishes, the competitor's summary and its scans list change too.
   const wasActive = useRef<boolean | null>(null);
@@ -79,15 +81,15 @@ export function ScanPage({
     if (wasActive.current === true && !active) {
       void queryClient.invalidateQueries({ queryKey: competitorKeys.detail(competitorId) });
       void queryClient.invalidateQueries({ queryKey: competitorKeys.scans(competitorId) });
-      void queryClient.invalidateQueries({ queryKey: competitorKeys.list(project.id) });
+      void queryClient.invalidateQueries({ queryKey: competitorKeys.list(workspace.id) });
     }
     wasActive.current = active;
-  }, [active, competitorId, project.id, queryClient]);
+  }, [active, competitorId, workspace.id, queryClient]);
 
   const back = (
     <Link
-      to="/projects/$projectId/competitors/$competitorId"
-      params={{ projectId: projectParam, competitorId }}
+      to="/w/$workspace/competitors/$competitorId"
+      params={{ workspace: workspaceParam, competitorId }}
       className={backLink}
     >
       <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
@@ -138,9 +140,9 @@ export function ScanPage({
       <ScanHeader scan={scan} name={name} />
       {scan.error ? <ScanError scan={scan} /> : null}
       {scan.reportEntryId ? (
-        <ReportPreview entryId={scan.reportEntryId} projectParam={projectParam} />
+        <ReportPreview entryId={scan.reportEntryId} workspaceParam={workspaceParam} />
       ) : null}
-      <VideosTable scan={scan} projectParam={projectParam} />
+      <VideosTable scan={scan} workspaceParam={workspaceParam} />
     </div>
   );
 }
@@ -152,10 +154,10 @@ function ScanHeader({ scan, name }: { scan: CompetitorScan; name: string }) {
   return (
     <header className="flex flex-col gap-3 sm:flex-row sm:items-start">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h2 className="flex flex-wrap items-center gap-2 text-title">
+        <h1 className="flex flex-wrap items-center gap-2 text-title">
           <span className="min-w-0 break-words">Scan of {name}</span>
           <ScanStatusPill status={scan.status} />
-        </h2>
+        </h1>
         <p className="text-small text-muted-foreground">
           {SOURCE_LABELS[scan.source]} · Started{" "}
           <RelativeTime value={scan.createdAt} format="relative" />
@@ -212,7 +214,7 @@ function ScanError({ scan }: { scan: CompetitorScan }) {
   );
 }
 
-function ReportPreview({ entryId, projectParam }: { entryId: string; projectParam: string }) {
+function ReportPreview({ entryId, workspaceParam }: { entryId: string; workspaceParam: string }) {
   const id = useId();
   const query = useQuery(kbEntryQueryOptions(entryId));
   return (
@@ -226,7 +228,7 @@ function ReportPreview({ entryId, projectParam }: { entryId: string; projectPara
           {query.data?.title ?? "Report"}
         </h3>
         <Button asChild variant="outline" size="sm">
-          <Link to="/projects/$projectId/kb/$entryId" params={{ projectId: projectParam, entryId }}>
+          <Link to="/w/$workspace/kb/$entryId" params={{ workspace: workspaceParam, entryId }}>
             Open report
           </Link>
         </Button>
@@ -253,7 +255,7 @@ const linkClass = cn(
   "rounded-sm outline-none underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring",
 );
 
-function VideosTable({ scan, projectParam }: { scan: CompetitorScan; projectParam: string }) {
+function VideosTable({ scan, workspaceParam }: { scan: CompetitorScan; workspaceParam: string }) {
   const videos = [...scan.videos].sort((a, b) => a.rank - b.rank);
   return (
     <ScrollArea
@@ -294,7 +296,7 @@ function VideosTable({ scan, projectParam }: { scan: CompetitorScan; projectPara
           </thead>
           <tbody>
             {videos.map((video) => (
-              <VideoRow key={video.entryId} video={video} projectParam={projectParam} />
+              <VideoRow key={video.entryId} video={video} workspaceParam={workspaceParam} />
             ))}
           </tbody>
         </table>
@@ -309,7 +311,13 @@ function Count({ value }: { value: number | null }) {
   );
 }
 
-function VideoRow({ video, projectParam }: { video: CompetitorScanVideo; projectParam: string }) {
+function VideoRow({
+  video,
+  workspaceParam,
+}: {
+  video: CompetitorScanVideo;
+  workspaceParam: string;
+}) {
   const caption = excerpt(video.caption);
   return (
     <tr className="border-divider border-t text-control first:border-t-0">
@@ -319,8 +327,8 @@ function VideoRow({ video, projectParam }: { video: CompetitorScanVideo; project
       <td className="max-w-0 px-2 py-2">
         <div className="flex min-w-0 flex-col gap-0.5">
           <Link
-            to="/projects/$projectId/kb/$entryId"
-            params={{ projectId: projectParam, entryId: video.entryId }}
+            to="/w/$workspace/kb/$entryId"
+            params={{ workspace: workspaceParam, entryId: video.entryId }}
             className={cn(linkClass, "truncate text-foreground")}
             title={video.caption ?? undefined}
           >

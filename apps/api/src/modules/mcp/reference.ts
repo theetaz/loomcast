@@ -1,4 +1,5 @@
 import type { McpToolContract } from "@loomcast/contracts";
+import { LEGACY_WORKSPACE_TOOLS } from "./tools/workspaces";
 
 /** Where the generated reference sits in `docs/mcp.md`. */
 export const REFERENCE_START = "<!-- tool-reference:start -->";
@@ -145,14 +146,14 @@ const JOB_TOKENS: Record<McpToolContract["jobTokens"], string> = {
   deny: "not allowed",
 };
 
-const PROJECT_BINDING: Record<McpToolContract["projectBinding"], string> = {
-  input: "the input names the project",
-  none: "the input names no project",
+const WORKSPACE_BINDING: Record<McpToolContract["workspaceBinding"], string> = {
+  input: "the input names the workspace",
+  none: "the input names no workspace",
 };
 
 /**
  * The tool reference of `docs/mcp.md`, rendered from what `tools/list` advertises plus each
- * tool's contract (scope, job-token policy, project binding).
+ * tool's contract (scope, job-token policy, workspace binding).
  */
 export function renderToolReference(
   tools: readonly ListedTool[],
@@ -161,14 +162,16 @@ export function renderToolReference(
   const sections = [...tools]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((tool) => {
-      const contract = contracts[tool.name];
+      // A deprecated alias has the contract of the tool it stands for.
+      const legacy: Readonly<Record<string, string>> = LEGACY_WORKSPACE_TOOLS;
+      const contract = contracts[tool.name] ?? contracts[legacy[tool.name] ?? ""];
       const facts =
         contract === undefined
           ? []
           : [
               `- **Scope:** \`${contract.scope}\``,
               `- **Job tokens:** ${JOB_TOKENS[contract.jobTokens]}`,
-              `- **Project binding:** ${PROJECT_BINDING[contract.projectBinding]}`,
+              `- **Workspace binding:** ${WORKSPACE_BINDING[contract.workspaceBinding]}`,
             ];
       return [
         `### \`${tool.name}\``,

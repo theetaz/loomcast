@@ -29,6 +29,7 @@ import { fetchPicture, pictureResponse } from "../../lib/pictures";
 import { oauthConnectionAad } from "../../lib/vault";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
+import { requireActiveWorkspace } from "../kb/service";
 import { acceptConnection, connectionExpired, withParents } from "./accept";
 import { createOAuthProviders, type OAuthProviders } from "./providers";
 import { oauthRedirectUri } from "./redirect";
@@ -305,16 +306,18 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       throw validationFailed(unknown);
     }
     const accounts = withParents(row.candidates, input.accountIds);
-    const result = await transaction(db, (tx) =>
-      acceptConnection(tx, deps, {
+    const result = await transaction(db, async (tx) => {
+      await requireActiveWorkspace(tx, input.workspaceId);
+      return acceptConnection(tx, deps, {
         connectionId: id,
+        workspaceId: input.workspaceId,
         userId: user.id,
         provider: row.provider,
         accounts,
         ip: clientIp(c, config.trustProxy),
         now: clock.now(),
-      }),
-    );
+      });
+    });
     return c.json({ channels: result }, 200);
   });
 

@@ -1,4 +1,4 @@
-import { type ApiClient, TOKEN_NAME_MAX_LENGTH } from "@loomcast/contracts";
+import { type ApiClient, TOKEN_NAME_MAX_LENGTH, type Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import {
   Dialog,
@@ -24,7 +24,6 @@ import { TriangleAlertIcon } from "lucide-react";
 import { type FormEvent, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { channelsQueryOptions } from "@/features/channels/queries";
-import { projectsQueryOptions } from "@/features/projects/queries";
 import { CopyButton } from "@/features/settings/CopyButton";
 import { errorMessage } from "@/lib/api";
 import { draftFrom, draftGrants, type GrantDraft, GrantsEditor } from "./GrantsEditor";
@@ -44,6 +43,8 @@ export interface ApiClientDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Edits this client's name and channels; creates a new client when absent. */
   client?: ApiClient | null;
+  /** The workspace the client posts into; its channels are the ones it can be granted. */
+  workspace: Workspace;
 }
 
 /**
@@ -51,7 +52,7 @@ export interface ApiClientDialogProps {
  * one-time reveal of the key; the key lives only in this dialog's state, so it
  * is gone once the dialog closes.
  */
-export function ApiClientDialog({ open, onOpenChange, client }: ApiClientDialogProps) {
+export function ApiClientDialog({ open, onOpenChange, client, workspace }: ApiClientDialogProps) {
   const [session, setSession] = useState(0);
   const [revealing, setRevealing] = useState(false);
 
@@ -75,6 +76,7 @@ export function ApiClientDialog({ open, onOpenChange, client }: ApiClientDialogP
         <ClientFlow
           key={`${session}-${client?.id ?? "new"}`}
           client={client ?? null}
+          workspace={workspace}
           onReveal={() => setRevealing(true)}
           onSaved={() => change(false)}
         />
@@ -90,10 +92,12 @@ interface Revealed {
 
 function ClientFlow({
   client,
+  workspace,
   onReveal,
   onSaved,
 }: {
   client: ApiClient | null;
+  workspace: Workspace;
   onReveal: () => void;
   onSaved: () => void;
 }) {
@@ -102,6 +106,7 @@ function ClientFlow({
   return (
     <ClientForm
       client={client}
+      workspace={workspace}
       onCreated={(next) => {
         setRevealed(next);
         onReveal();
@@ -113,32 +118,31 @@ function ClientFlow({
 
 function ClientForm({
   client,
+  workspace,
   onCreated,
   onSaved,
 }: {
   client: ApiClient | null;
+  workspace: Workspace;
   onCreated: (revealed: Revealed) => void;
   onSaved: () => void;
 }) {
   const id = useId();
-  const projects = useQuery(projectsQueryOptions());
-  const channels = useQuery(channelsQueryOptions());
+  const workspaceId = client?.workspaceId ?? workspace.id;
+  const channels = useQuery(channelsQueryOptions(workspaceId));
   const create = useCreateApiClient();
   const update = useUpdateApiClient();
   const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(client?.name ?? "");
-  const [projectId, setProjectId] = useState(client?.projectId ?? "");
   const [expiry, setExpiry] = useState<ExpiryChoice>("never");
   const [draft, setDraft] = useState<GrantDraft>(() => draftFrom(client?.grants ?? []));
-  const [errors, setErrors] = useState<{ name?: string; project?: string; grants?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; grants?: string }>({});
   const mutation = client ? update : create;
   const pending = mutation.isPending;
 
-  const active = (projects.data ?? []).filter((project) => project.status === "active");
   const channelList = channels.data?.items ?? [];
   const ids = {
     name: `${id}-name`,
-    project: `${id}-project`,
     expiry: `${id}-expiry`,
     grants: `${id}-grants`,
   };
@@ -150,14 +154,13 @@ function ClientForm({
     const grants = draftGrants(channelList, draft);
     const next: typeof errors = {};
     if (!trimmed) next.name = "Name the client after the backend that will use it.";
-    if (!client && !projectId) next.project = "Pick the project its posts go into.";
     if (grants.length === 0) next.grants = "Give the client access to at least one channel.";
     setErrors(next);
     if (next.name) {
       nameRef.current?.focus();
       return;
     }
-    if (next.project || next.grants) return;
+    if (next.grants) return;
 
     if (client) {
       update.mutate(
@@ -173,7 +176,7 @@ function ClientForm({
     }
     const expiresAt = expiryFor(expiry);
     create.mutate(
-      { name: trimmed, projectId, grants, ...(expiresAt === undefined ? {} : { expiresAt }) },
+      { name: trimmed, workspaceId, grants, ...(expiresAt === undefined ? {} : { expiresAt }) },
       {
         onSuccess: ({ client: created, secret }) => {
           onCreated({ name: created.name, secret });
@@ -191,7 +194,7 @@ function ClientForm({
         <DialogDescription>
           {client
             ? "Change its name or the channels it may use. The change applies to its next request."
-            : "Another backend uses a client's key to schedule posts on the channels you pick. Create one per backend, so you can revoke it on its own."}
+            : `Another backend uses a client's key to schedule posts on the ${workspace.name} channels you pick. Create one per backend, so you can revoke it on its own.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -221,37 +224,6 @@ function ClientForm({
       {client ? null : (
         <div className="grid items-start gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
-            <Label htmlFor={ids.project}>Project</Label>
-            <Select
-              value={projectId}
-              onValueChange={(next) => {
-                setProjectId(next);
-                if (errors.project) setErrors({ ...errors, project: undefined });
-              }}
-              disabled={!projects.isSuccess}
-            >
-              <SelectTrigger
-                id={ids.project}
-                className="w-full"
-                aria-invalid={errors.project ? true : undefined}
-              >
-                <SelectValue placeholder="Pick a project" />
-              </SelectTrigger>
-              <SelectContent>
-                {active.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.project ? (
-              <p className="text-small text-destructive">{errors.project}</p>
-            ) : (
-              <p className="text-small text-muted-foreground">Its posts are created here.</p>
-            )}
-          </div>
-          <div className="grid gap-1.5">
             <Label htmlFor={ids.expiry}>Key expires</Label>
             <Select value={expiry} onValueChange={(next) => setExpiry(next as ExpiryChoice)}>
               <SelectTrigger id={ids.expiry} className="w-full">
@@ -275,7 +247,7 @@ function ClientForm({
           <p className="text-small text-muted-foreground">Loading channels…</p>
         ) : channelList.length === 0 ? (
           <p className="text-small text-muted-foreground">
-            Add a channel in Settings → Channels first.
+            Add a channel in the workspace settings first.
           </p>
         ) : (
           <ScrollArea viewportClassName="max-h-[320px] pr-3">

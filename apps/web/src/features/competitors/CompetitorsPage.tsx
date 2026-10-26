@@ -1,4 +1,4 @@
-import type { Competitor, Project } from "@loomcast/contracts";
+import type { Competitor, Workspace } from "@loomcast/contracts";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQuery } from "@tanstack/react-query";
@@ -12,28 +12,28 @@ import { AddCompetitorForm } from "./AddCompetitorForm";
 import { competitorsQueryOptions } from "./queries";
 import { accountFacts, competitorLabel, competitorName, ScanStatusPill } from "./status";
 
-/** The Competitors tab: the profiles the project follows, and a way to follow another. */
+/** The Competitors tab: the profiles the workspace follows, and a way to follow another. */
 export function CompetitorsPage({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
 }: {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
 }) {
-  const query = useQuery(competitorsQueryOptions(project.id));
+  const query = useQuery(competitorsQueryOptions(workspace.id));
   const competitors = query.data?.items ?? [];
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <h2 className="text-heading">Competitors</h2>
+        <h1 className="text-title">Competitors</h1>
         <p className="text-control text-muted-foreground">
           Profiles worth learning from. A scan analyses their most popular videos and writes a
           report to the knowledge base.
         </p>
       </div>
 
-      {project.status === "active" ? <AddCompetitorForm projectId={project.id} /> : null}
+      {workspace.status === "active" ? <AddCompetitorForm workspaceId={workspace.id} /> : null}
 
       <section aria-label="Competitors" className="overflow-hidden rounded-lg bg-card shadow-card">
         {query.isPending ? (
@@ -59,7 +59,7 @@ export function CompetitorsPage({
               <CompetitorRow
                 key={competitor.id}
                 competitor={competitor}
-                projectParam={projectParam}
+                workspaceParam={workspaceParam}
               />
             ))}
           </ul>
@@ -71,10 +71,10 @@ export function CompetitorsPage({
 
 function CompetitorRow({
   competitor,
-  projectParam,
+  workspaceParam,
 }: {
   competitor: Competitor;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   const facts = accountFacts(competitor.account);
   const scan = competitor.latestScan;
@@ -86,8 +86,8 @@ function CompetitorRow({
       <PlatformTile platform={competitor.platform} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Link
-          to="/projects/$projectId/competitors/$competitorId"
-          params={{ projectId: projectParam, competitorId: competitor.id }}
+          to="/w/$workspace/competitors/$competitorId"
+          params={{ workspace: workspaceParam, competitorId: competitor.id }}
           className={cn(
             "min-w-0 truncate rounded-sm font-medium text-body text-foreground outline-none",
             "hover:underline focus-visible:ring-2 focus-visible:ring-ring underline-offset-2",
@@ -116,8 +116,8 @@ function CompetitorRow({
         )}
         {competitor.latestReportEntryId ? (
           <Link
-            to="/projects/$projectId/kb/$entryId"
-            params={{ projectId: projectParam, entryId: competitor.latestReportEntryId }}
+            to="/w/$workspace/kb/$entryId"
+            params={{ workspace: workspaceParam, entryId: competitor.latestReportEntryId }}
             aria-label={`Report on ${competitorName(competitor)}`}
             className={cn(
               "inline-flex items-center gap-1 rounded-sm text-primary text-small outline-none",

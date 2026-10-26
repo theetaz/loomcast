@@ -86,7 +86,7 @@ export const SCOPE_LABELS: Record<TokenScope, string> = {
 };
 
 export const SCOPE_DESCRIPTIONS: Record<McpTokenScope, string> = {
-  "mcp:read": "List projects and read their details.",
-  "mcp:write": "Create projects and change them.",
+  "mcp:read": "List workspaces and read their details.",
+  "mcp:write": "Create workspaces and change them.",
   "mcp:admin": "Everything the owner can do. Only the owner can grant it.",
 };

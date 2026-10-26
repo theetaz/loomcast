@@ -37,32 +37,32 @@ describe("pipeline migrations on a database of the previous release", () => {
 
   it("keep existing rows and leave the new links empty", async () => {
     const db = testDb.db;
-    // Rows in the previous release's shape: the current schema names columns that do not exist
-    // yet, so they are written as SQL.
+    // Rows in the previous release's shape: the current schema names tables and columns that do
+    // not exist yet (and `workspaces` was still `projects`), so they are written as SQL.
     const user = await one<{ id: string }>(
       db,
       sql`insert into users (email, name, role) values ('upgrade@example.com', 'Upgrade', 'owner')
           returning id`,
     );
-    const project = await one<{ id: string }>(
+    const workspace = await one<{ id: string }>(
       db,
       sql`insert into projects (slug, name, created_by) values ('upgrade', 'Upgrade', ${user.id})
           returning id`,
     );
     const conversation = await one<{ id: string }>(
       db,
-      sql`insert into conversations (project_id, created_by) values (${project.id}, ${user.id})
+      sql`insert into conversations (project_id, created_by) values (${workspace.id}, ${user.id})
           returning id`,
     );
     const job = await one<{ id: string }>(
       db,
       sql`insert into jobs (type, project_id, payload, created_by)
-          values ('content.render', ${project.id}, '{}', ${user.id}) returning id`,
+          values ('content.render', ${workspace.id}, '{}', ${user.id}) returning id`,
     );
     const entry = await one<{ id: string }>(
       db,
       sql`insert into kb_entries (project_id, kind, title, created_via)
-          values (${project.id}, 'reference', 'A reference', 'ui') returning id`,
+          values (${workspace.id}, 'reference', 'A reference', 'ui') returning id`,
     );
     await db.execute(
       sql`insert into kb_references (entry_id, url, platform, transcript)
@@ -95,13 +95,18 @@ describe("pipeline migrations on a database of the previous release", () => {
     expect(jobRow.type).toBe("content.render");
 
     // The upgraded database takes the pipeline rows.
-    const { format } = await insertFormat(db, project.id, user.id);
+    const { format } = await insertFormat(db, workspace.id, user.id);
     const [created] = await db
       .insert(series)
-      .values({ projectId: project.id, name: "Upgraded", slug: "upgraded", formatId: format.id })
+      .values({
+        workspaceId: workspace.id,
+        name: "Upgraded",
+        slug: "upgraded",
+        formatId: format.id,
+      })
       .returning();
     const { item } = await insertContentItem(db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       seriesId: created?.id,
       createdBy: user.id,
     });
@@ -113,7 +118,7 @@ describe("pipeline migrations on a database of the previous release", () => {
       .insert(assets)
       .values(
         assetValues({
-          projectId: project.id,
+          workspaceId: workspace.id,
           kind: "reference_media",
           mime: "video/mp4",
           createdByJob: job.id,

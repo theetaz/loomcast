@@ -59,7 +59,7 @@ export function voiceHandler(deps: ProductionDeps): Handler<"content.voice"> {
         }
         const workspace = await ensureItemWorkspace(
           deps.workspaceRoot,
-          payload.projectId,
+          payload.workspaceId,
           item.id,
           version.versionNo,
         );

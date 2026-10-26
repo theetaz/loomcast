@@ -36,7 +36,7 @@ export const JobSummarySchema = z.object({
   id: IdSchema,
   type: JobTypeSchema,
   status: JobStatusSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   conversationId: IdSchema.nullable(),
   claimedByDevice: IdSchema.nullable(),
   attempt: z.number().int().min(0),

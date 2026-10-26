@@ -11,7 +11,7 @@ import { e2eSettings } from "../support/env.ts";
 import { type ChatTurn, echoHandler, FakeStudioAgent, pairDevice } from "../support/fake-agent.ts";
 
 /**
- * The M1 acceptance runbook, end to end: an owner made by the admin CLI signs in, creates a project,
+ * The M1 acceptance runbook, end to end: an owner made by the admin CLI signs in, creates a workspace,
  * queues a message with no studio agent, pairs a fake studio agent through the UI's pairing code,
  * watches the reply stream in, sees the device go online and offline, calls the MCP server with an
  * access token from Settings, and signs out.
@@ -23,8 +23,8 @@ test.describe.configure({ mode: "serial" });
 
 const settings = e2eSettings();
 const run = randomBytes(3).toString("hex");
-const projectName = `Smoke project ${run}`;
-const mcpProjectName = `Created over MCP ${run}`;
+const workspaceName = `Smoke workspace ${run}`;
+const mcpWorkspaceName = `Created over MCP ${run}`;
 const deviceName = `E2E Studio ${run}`;
 
 let context: BrowserContext;
@@ -40,8 +40,27 @@ function latch(): { promise: Promise<void>; open: () => void } {
   return { promise, open };
 }
 
-function workspaceLink(name: RegExp) {
-  return page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name });
+/** A link in the sidebar, such as a page of the open workspace or Account settings. */
+function sidebarLink(name: string) {
+  return page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name, exact: true });
+}
+
+/** Opens the list of every workspace from the workspace switcher in the sidebar header. */
+async function openAllWorkspaces(): Promise<void> {
+  await page.getByRole("button", { name: /Switch workspace|Choose a workspace/ }).click();
+  await page.getByRole("menuitem", { name: "All workspaces" }).click();
+  await expect(page).toHaveURL(/\/workspaces$/);
+}
+
+/** Makes `name` the open workspace with the switcher, unless the sidebar already works in it. */
+async function switchToWorkspace(name: string): Promise<void> {
+  const current = page.getByRole("button", { name: `Workspace: ${name}. Switch workspace` });
+  if (await current.isVisible()) return;
+  await page.getByRole("button", { name: /Switch workspace|Choose a workspace/ }).click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${name}`) }).click();
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
 }
 
 /**
@@ -59,16 +78,11 @@ async function openDialog(trigger: Locator, name: string): Promise<Locator> {
   return dialog;
 }
 
-/** Opens the project's Chat tab, where the conversation panel lives. */
-async function openProjectChat(): Promise<void> {
-  await workspaceLink(/^Projects/).click();
-  await page.getByRole("link", { name: new RegExp(projectName) }).click();
-  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
-  await page
-    .getByRole("tablist", { name: "Project sections" })
-    .getByRole("tab", { name: "Chat" })
-    .click();
-  await expect(page).toHaveURL(/\/projects\/[^/]+\/chat/);
+/** Opens the workspace's Chat page from the sidebar, where the conversation panel lives. */
+async function openWorkspaceChat(): Promise<void> {
+  await switchToWorkspace(workspaceName);
+  await sidebarLink("Chat").click();
+  await expect(page).toHaveURL(/\/w\/[^/]+\/chat/);
   await expect(page.getByRole("textbox", { name: "Message the studio agent" })).toBeVisible();
 }
 
@@ -120,21 +134,29 @@ test("signs in as the owner created by the admin CLI", async () => {
   await expect(page.getByText(settings.ownerEmail)).toBeVisible();
 });
 
-test("creates a project and lists it", async () => {
-  await workspaceLink(/^Projects/).click();
+test("creates a workspace, opens it and lists it", async () => {
+  await openAllWorkspaces();
   const dialog = await openDialog(
-    page.getByRole("button", { name: "New project" }).first(),
-    "New project",
+    page.getByRole("button", { name: "New workspace" }).first(),
+    "New workspace",
   );
-  await dialog.getByLabel("Name").fill(projectName);
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByLabel("Name").fill(workspaceName);
+  await dialog.getByRole("button", { name: "Create workspace" }).click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByRole("link", { name: new RegExp(projectName) })).toBeVisible();
+  // A new workspace opens on its overview and becomes the one the sidebar works in.
+  await expect(page).toHaveURL(/\/w\/[^/]+$/);
+  await expect(page.getByRole("heading", { level: 1, name: workspaceName })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Workspace: ${workspaceName}. Switch workspace` }),
+  ).toBeVisible();
+
+  await openAllWorkspaces();
+  await expect(page.getByRole("link", { name: new RegExp(workspaceName) })).toBeVisible();
 });
 
 test("queues a message while no studio agent is paired", async () => {
-  await openProjectChat();
+  await openWorkspaceChat();
   await sendMessage("Draft a hook about bridges");
 
   await expect(page.getByText("Draft a hook about bridges")).toBeVisible();
@@ -155,7 +177,7 @@ test("pairs a fake studio agent that streams the queued reply", async () => {
     turn.reply("Bridges carry more than traffic: they carry the story.");
   };
 
-  await workspaceLink(/^Settings/).click();
+  await sidebarLink("Account settings").click();
   await expect(page).toHaveURL(/\/settings\/devices/);
   const pairing = await openDialog(
     page.getByRole("button", { name: "Pair a device" }).first(),
@@ -181,7 +203,7 @@ test("pairs a fake studio agent that streams the queued reply", async () => {
   expect(agent.turns[0]?.text).toBe("Draft a hook about bridges");
   expect(agent.turns[0]?.producerSessionId).toBeUndefined();
 
-  await openProjectChat();
+  await openWorkspaceChat();
   await expect(page.getByText(/^Running/)).toBeVisible();
   streamGate.open();
   await expect(page.getByText("Bridges carry more than traffic")).toBeVisible();
@@ -216,14 +238,14 @@ test("resumes the same producer session for a follow-up message", async () => {
 
 test("shows the studio agent offline when it stops and runs the queued job when it returns", async () => {
   if (agent === null) throw new Error("no agent");
-  await workspaceLink(/^Settings/).click();
+  await sidebarLink("Account settings").click();
   const row = page.getByRole("row", { name: new RegExp(deviceName) });
   await expect(row.getByText("Online")).toBeVisible();
 
   await agent.close();
   await expect(row.getByText("Offline")).toBeVisible();
 
-  await openProjectChat();
+  await openWorkspaceChat();
   await sendMessage("Sent while the studio was away");
   await expect(page.getByText("Waiting for studio agent (offline)")).toBeVisible();
 
@@ -233,7 +255,7 @@ test("shows the studio agent offline when it stops and runs the queued job when 
 });
 
 test("serves MCP tools to an access token created in Settings", async ({ request }) => {
-  await workspaceLink(/^Settings/).click();
+  await sidebarLink("Account settings").click();
   await page.getByRole("tab", { name: "Access tokens" }).click();
   await expect(page).toHaveURL(/\/settings\/tokens/);
   const dialog = await openDialog(
@@ -251,24 +273,26 @@ test("serves MCP tools to an access token created in Settings", async ({ request
 
   const list = await mcp(request, secret, 1, "tools/list");
   const names = (list.tools as { name: string }[]).map((tool) => tool.name);
-  expect(names).toEqual(expect.arrayContaining(["project.create", "project.get", "project.list"]));
+  expect(names).toEqual(
+    expect.arrayContaining(["workspace.create", "workspace.get", "workspace.list"]),
+  );
 
   const listed = await mcp(request, secret, 2, "tools/call", {
-    name: "project.list",
+    name: "workspace.list",
     arguments: {},
   });
-  const projects = (listed.structuredContent as { projects: { name: string }[] }).projects;
-  expect(projects.map((project) => project.name)).toContain(projectName);
+  const workspaces = (listed.structuredContent as { workspaces: { name: string }[] }).workspaces;
+  expect(workspaces.map((workspace) => workspace.name)).toContain(workspaceName);
 
-  // A project created over MCP appears in the open project list without a reload.
-  await workspaceLink(/^Projects/).click();
-  await expect(page.getByRole("link", { name: new RegExp(projectName) })).toBeVisible();
+  // A workspace created over MCP appears in the open workspace list without a reload.
+  await openAllWorkspaces();
+  await expect(page.getByRole("link", { name: new RegExp(workspaceName) })).toBeVisible();
   const created = await mcp(request, secret, 3, "tools/call", {
-    name: "project.create",
-    arguments: { name: mcpProjectName },
+    name: "workspace.create",
+    arguments: { name: mcpWorkspaceName },
   });
   expect(created.isError).toBeFalsy();
-  await expect(page.getByRole("link", { name: new RegExp(mcpProjectName) })).toBeVisible();
+  await expect(page.getByRole("link", { name: new RegExp(mcpWorkspaceName) })).toBeVisible();
 
   // Cookies never authorize MCP, and the token is required.
   const anonymous = await request.post(`${settings.webUrl}/mcp`, {
@@ -283,6 +307,6 @@ test("signs out", async () => {
   await page.getByRole("menuitem", { name: "Log out" }).click();
   await expect(page).toHaveURL(/\/login/);
 
-  await page.goto("/projects");
+  await page.goto("/workspaces");
   await expect(page).toHaveURL(/\/login/);
 });

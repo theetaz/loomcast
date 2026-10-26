@@ -5,6 +5,6 @@ export const item: NavItem = {
   id: "calendar",
   label: "Calendar",
   icon: CalendarDaysIcon,
-  to: "/calendar",
-  order: 40,
+  to: "/w/$workspace/calendar",
+  order: 10,
 };

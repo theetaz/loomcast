@@ -187,7 +187,7 @@ describe("studio agent over the bridge", () => {
             type: "shell.exec",
             attempt: 1,
             payload: { command: "rm -rf ~" },
-            projectId: ids.project,
+            workspaceId: ids.workspace,
           },
           leaseMs: 600_000,
         },
@@ -202,7 +202,7 @@ describe("studio agent over the bridge", () => {
       type: "producer.chat",
       payload: {
         conversationId: ids.device,
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         messageId: ids.job,
         text: "Hello",
       },

@@ -13,6 +13,7 @@ import {
   type ScheduledTaskRow,
   scheduledPosts,
   scheduledTasks,
+  series,
   seriesChannels,
 } from "@loomcast/db";
 import { createTestDb } from "@loomcast/db/testing";
@@ -110,18 +111,18 @@ export function rulesWith(
 /** A format with `rules` and a series on it, created through the services as a user would. */
 export async function createSeries(
   h: CalendarHarness,
-  projectId: string,
+  workspaceId: string,
   rules: FormatRules,
   name = "Rust in 60",
 ): Promise<SeriesSetup> {
   const actor = { kind: "user" as const, id: h.userId, userId: h.userId };
   const format = await formatsServiceFor(h.deps).create(
-    projectId,
+    workspaceId,
     { name: `${name} format`, rules },
     actor,
   );
   const series = await seriesServiceFor(h.deps).create(
-    projectId,
+    workspaceId,
     { name, formatId: format.id },
     actor,
   );
@@ -135,11 +136,16 @@ export interface ChannelSpec {
   status?: "disconnected" | "disabled";
 }
 
-/** A planning channel (no credentials), dry-run unless `dryRun` is false. */
-export async function insertChannel(h: CalendarHarness, spec: ChannelSpec = {}): Promise<string> {
+/** A planning channel (no credentials) of `workspaceId`, dry-run unless `dryRun` is false. */
+export async function insertChannel(
+  h: CalendarHarness,
+  workspaceId: string,
+  spec: ChannelSpec = {},
+): Promise<string> {
   const [row] = await h.db
     .insert(channels)
     .values({
+      workspaceId,
       platform: spec.platform ?? "instagram",
       displayName: `Channel ${randomUUID().slice(0, 6)}`,
       status: spec.status ?? "disconnected",
@@ -160,9 +166,16 @@ export async function linkChannel(
   channelId: string,
   enabled = true,
 ): Promise<void> {
+  const [owner] = await h.db
+    .select({ workspaceId: series.workspaceId })
+    .from(series)
+    .where(eq(series.id, seriesId));
+  if (owner === undefined) {
+    throw new Error(`no series ${seriesId}`);
+  }
   await h.db
     .insert(seriesChannels)
-    .values({ seriesId, channelId, enabled })
+    .values({ workspaceId: owner.workspaceId, seriesId, channelId, enabled })
     .onConflictDoUpdate({
       target: [seriesChannels.seriesId, seriesChannels.channelId],
       set: { enabled },

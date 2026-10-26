@@ -118,7 +118,7 @@ export function createKbAnalyzeReferenceHooks(deps: { db: Database; bus: EventBu
         action: "kb.entry.update",
         targetType: "kb_entry",
         targetId: entry.id,
-        data: { projectId: entry.projectId, fields: ["analysis"], jobId: job.id },
+        data: { workspaceId: entry.workspaceId, fields: ["analysis"], jobId: job.id },
       });
       publishUpdated(tx, row);
     },

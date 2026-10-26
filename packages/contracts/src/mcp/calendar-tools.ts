@@ -5,11 +5,11 @@ import type { McpToolContract } from "./contract";
 
 /**
  * Cadence slots in `[from, to)`, at most 62 days. `seriesId` and `channelId` narrow the result;
- * `projectId` keeps it to one project. A job token always sees only its job's project.
+ * `workspaceId` keeps it to one workspace. A job token always sees only its job's workspace.
  */
 export const CalendarGetSlotsInputSchema = z
   .object({
-    projectId: IdSchema.optional(),
+    workspaceId: IdSchema.optional(),
     seriesId: IdSchema.optional(),
     channelId: IdSchema.optional(),
     from: TimestampSchema,
@@ -30,7 +30,7 @@ export const calendarTools = {
     name: "calendar.get_slots",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "List the publishing slots of series' cadences between two times (at most 62 days), per channel, with the post that holds each slot if any.",
     input: CalendarGetSlotsInputSchema,

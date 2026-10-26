@@ -53,7 +53,7 @@ test.describe.configure({ mode: "serial" });
 
 const settings = e2eSettings();
 const run = randomBytes(3).toString("hex");
-const projectName = `Calendar project ${run}`;
+const workspaceName = `Calendar workspace ${run}`;
 const formatName = `Daily explainer ${run}`;
 const autoSeriesName = `Daily shorts ${run}`;
 const autoChannelName = `E2E Reels ${run}`;
@@ -87,7 +87,8 @@ let page: Page;
 let owner: APIRequestContext;
 let device: PairedDevice | null = null;
 let agent: FakeStudioAgent | null = null;
-let projectId = "";
+let workspaceId = "";
+let workspaceSlug = "";
 let autoSeries: Series;
 let autoChannel: Channel;
 let approvalSeries: Series;
@@ -135,7 +136,7 @@ async function call<T>(
 async function postsOf(seriesId: string): Promise<ScheduledPost[]> {
   const from = new Date(Date.now() - 60 * MINUTE_MS).toISOString();
   const to = new Date(Date.now() + (CADENCE_HORIZON_DAYS + 1) * DAY_MS).toISOString();
-  const query = new URLSearchParams({ from, to, seriesIds: seriesId });
+  const query = new URLSearchParams({ from, to, workspaceId, seriesIds: seriesId });
   const { posts } = await call<CalendarResponse>("GET", `/api/calendar?${query}`);
   return posts;
 }
@@ -163,7 +164,7 @@ async function createChannel(
   displayName: string,
   requiresApproval: boolean,
 ): Promise<Channel> {
-  const channel = await call<Channel>("POST", "/api/channels", {
+  const channel = await call<Channel>("POST", `/api/workspaces/${workspaceId}/channels`, {
     data: { platform, displayName, requiresApproval },
   });
   expect(channel).toMatchObject({ dryRun: true, connected: false, requiresApproval });
@@ -252,10 +253,11 @@ test.beforeAll(async ({ browser }) => {
   page = await context.newPage();
   owner = await signedInApi();
 
-  const project = await call<{ id: string }>("POST", "/api/projects", {
-    data: { name: projectName },
+  const workspace = await call<{ id: string; slug: string }>("POST", "/api/workspaces", {
+    data: { name: workspaceName },
   });
-  projectId = project.id;
+  workspaceId = workspace.id;
+  workspaceSlug = workspace.slug;
 
   const codeResponse = await owner.post("/api/devices/pairing-codes");
   expect(codeResponse.status(), await codeResponse.text()).toBe(201);
@@ -279,16 +281,16 @@ test.beforeAll(async ({ browser }) => {
     publishMode: "auto",
     caption: { hashtags: [hashtag] },
   };
-  const format = await call<Format>("POST", `/api/projects/${projectId}/formats`, {
+  const format = await call<Format>("POST", `/api/workspaces/${workspaceId}/formats`, {
     data: { name: formatName, rules },
   });
-  autoSeries = await call<Series>("POST", `/api/projects/${projectId}/series`, {
+  autoSeries = await call<Series>("POST", `/api/workspaces/${workspaceId}/series`, {
     data: { name: autoSeriesName, formatId: format.id },
   });
   autoChannel = await createChannel("instagram", autoChannelName, false);
 
   // The same format on a channel that requires approval: its posts wait for a person.
-  approvalSeries = await call<Series>("POST", `/api/projects/${projectId}/series`, {
+  approvalSeries = await call<Series>("POST", `/api/workspaces/${workspaceId}/series`, {
     data: { name: approvalSeriesName, formatId: format.id },
   });
   approvalChannel = await createChannel("threads", approvalChannelName, true);
@@ -322,7 +324,7 @@ test("fills the calendar 14 days ahead once the series is linked to a dry-run ch
   await expect(page.getByText(settings.ownerEmail)).toBeVisible();
 
   // The series page shows the cadence of its format and its next slot.
-  await page.goto(`/projects/${projectId}/series/${autoSeries.id}`);
+  await page.goto(`/w/${workspaceSlug}/series/${autoSeries.id}`);
   await expect(page.getByRole("heading", { name: autoSeriesName })).toBeVisible();
   await expect(page.getByText("Publish automatically")).toBeVisible();
   await expect(page.getByText("1 h before each slot")).toBeVisible();
@@ -358,8 +360,11 @@ test("fills the calendar 14 days ahead once the series is linked to a dry-run ch
   }
   firstPost = posts[0] as ScheduledPost;
 
-  // The calendar shows the first post on the day it falls on in the browser's time zone.
-  await page.goto(`/calendar?series=${autoSeries.id}&date=${browserDay(slotAt)}`);
+  // The workspace's calendar shows the first post on the day it falls on in the browser's time
+  // zone (`zone=local`: the browser's clock rather than the workspace's).
+  await page.goto(
+    `/w/${workspaceSlug}/calendar?zone=local&series=${autoSeries.id}&date=${browserDay(slotAt)}`,
+  );
   await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
   await expect(chipOf(firstPost)).toBeVisible();
   await expect(chipOf(firstPost)).toHaveAccessibleName(
@@ -414,18 +419,19 @@ test("holds a video for a channel that requires approval until it is approved in
     .toBe("review");
   expectNoProductionErrors();
   expect(productionsOfItem(itemId)).toEqual(FIRST_PASS);
-  const inbox = await call<ApprovalsInbox>("GET", `/api/approvals?projectId=${projectId}`);
+  const inbox = await call<ApprovalsInbox>("GET", `/api/approvals?workspaceId=${workspaceId}`);
   expect(inbox.items.find((entry) => entry.item.id === itemId)).toMatchObject({
     deadlineAt: slotAt.toISOString(),
     posts: [{ id: approvalPost.id, status: "planned", versionId: null }],
   });
   expect(await reviewsOf(itemId)).toEqual([]);
 
+  // The sidebar works in the workspace whose calendar is open.
   await page
     .getByRole("navigation", { name: "Workspace" })
-    .getByRole("link", { name: /^Approvals/ })
+    .getByRole("link", { name: "Approvals", exact: true })
     .click();
-  await expect(page).toHaveURL(/\/approvals/);
+  await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/approvals$`));
   const waiting = page.getByRole("list", { name: "Videos waiting for approval" });
   const row = waiting.getByRole("listitem", { name: title });
   await expect(row).toContainText(approvalSeriesName);
@@ -453,16 +459,17 @@ test("moves a planned post to the next day by dragging it on the calendar", asyn
   const movedTo = new Date(Date.parse(post.scheduledAt) + DAY_MS).toISOString();
 
   await page.goto(
-    `/calendar?view=month&series=${autoSeries.id}&date=${browserDay(post.scheduledAt)}`,
+    `/w/${workspaceSlug}/calendar?view=month&zone=local&series=${autoSeries.id}&date=${browserDay(post.scheduledAt)}`,
   );
   const chip = chipOf(post);
   await expect(chip).toBeVisible();
   const target = page.locator(`[data-cell="day:${browserDay(post.scheduledAt, 1)}"]`);
-  const box = await target.boundingBox();
-  if (box === null) throw new Error("the next day is not on the board");
 
   // A pointer drag: press, move past the activation distance, cross to the next day and drop.
+  // Hovering scrolls the chip into view, so the next day's box is measured after it.
   await chip.hover();
+  const box = await target.boundingBox();
+  if (box === null) throw new Error("the next day is not on the board");
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 12 });
   await expect(target).toHaveAttribute("data-over", "true");
@@ -479,6 +486,7 @@ test("moves a planned post to the next day by dragging it on the calendar", asyn
   const query = new URLSearchParams({
     from: post.scheduledAt,
     to: new Date(Date.parse(post.scheduledAt) + MINUTE_MS).toISOString(),
+    workspaceId,
     seriesIds: autoSeries.id,
   });
   const { slots } = await call<CalendarResponse>("GET", `/api/calendar?${query}`);
@@ -490,7 +498,9 @@ test("moves a planned post to the next day by dragging it on the calendar", asyn
 test("publishes both posts in dry-run at the slot and records the exact payload", async () => {
   const wait = Math.max(0, slotAt.getTime() - Date.now()) + 90_000;
   test.setTimeout(wait + 60_000);
-  await page.goto(`/calendar?series=${autoSeries.id}&date=${browserDay(slotAt)}`);
+  await page.goto(
+    `/w/${workspaceSlug}/calendar?zone=local&series=${autoSeries.id}&date=${browserDay(slotAt)}`,
+  );
   await expect(chipOf(firstPost)).toHaveAttribute("data-status", "queued");
 
   await expect

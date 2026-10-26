@@ -232,13 +232,13 @@ describe("listing and search queries", () => {
     expect(ok(KbSearchQuerySchema, { q: "" })).toBe(false);
     expect(ok(KbSearchQuerySchema, { q: "x".repeat(201) })).toBe(false);
     expect(ok(KbSearchQuerySchema, { q: "x", limit: "51" })).toBe(false);
-    expect(ok(KbSearchQuerySchema, { q: "x", projectId: "rust" })).toBe(false);
+    expect(ok(KbSearchQuerySchema, { q: "x", workspaceId: "rust" })).toBe(false);
   });
 
   it("parses search hits", () => {
     const hit = {
       entryId: ids.entry,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       kind: "brainstorm",
       title: "Hooks",
       snippet: `three ${KB_SNIPPET_MATCH_START}hooks${KB_SNIPPET_MATCH_END} about ownership`,
@@ -356,8 +356,8 @@ describe("user and set-password DTOs", () => {
 
 describe("knowledge-base and user routes", () => {
   it("builds the knowledge-base paths", () => {
-    expect(buildPath(routes["kb.list"].path, { projectId: ids.project })).toBe(
-      `/api/projects/${ids.project}/kb`,
+    expect(buildPath(routes["kb.list"].path, { workspaceId: ids.workspace })).toBe(
+      `/api/workspaces/${ids.workspace}/kb`,
     );
     expect(buildPath(routes["kb.analyze"].path, { id: ids.entry })).toBe(
       `/api/kb/${ids.entry}/analyze`,

@@ -30,7 +30,7 @@ export type CompetitorVideoMetrics = z.infer<typeof CompetitorVideoMetricsSchema
 
 /**
  * What a `kb.competitor_report` job concludes about one competitor from its top videos. Every list
- * item is one short sentence; `opportunities` are gaps the project could fill.
+ * item is one short sentence; `opportunities` are gaps the workspace could fill.
  */
 export const CompetitorInsightsSchema = z.object({
   /** Who the competitor speaks to and how it positions itself. */

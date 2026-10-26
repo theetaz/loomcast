@@ -19,11 +19,11 @@ import { useSetSeriesFormat } from "../../queries";
 import type { SeriesCard, SeriesCardProps } from "../registry";
 import { SeriesCardFrame } from "../SeriesCardFrame";
 
-function FormatCard({ series, project, format, projectParam }: SeriesCardProps) {
+function FormatCard({ series, workspace, format, workspaceParam }: SeriesCardProps) {
   const id = useId();
-  const formats = useQuery(formatsListQueryOptions(project.id));
+  const formats = useQuery(formatsListQueryOptions(workspace.id));
   const setFormat = useSetSeriesFormat();
-  const editable = series.status !== "archived" && project.status === "active";
+  const editable = series.status !== "archived" && workspace.status === "active";
   const choices = (formats.data?.items ?? []).filter(
     (entry) => entry.archivedAt === null || entry.id === series.formatId,
   );
@@ -34,8 +34,8 @@ function FormatCard({ series, project, format, projectParam }: SeriesCardProps) 
       action={
         <Button asChild variant="ghost" size="sm">
           <Link
-            to="/projects/$projectId/series/$seriesId/format"
-            params={{ projectId: projectParam, seriesId: series.id }}
+            to="/w/$workspace/series/$seriesId/format"
+            params={{ workspace: workspaceParam, seriesId: series.id }}
           >
             <PencilIcon aria-hidden="true" />
             {editable ? "Edit rules" : "View rules"}

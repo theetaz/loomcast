@@ -26,9 +26,16 @@ export function seriesChannelLock(
  * The channels a series publishes to, each with a switch. Switching one off keeps its posts and
  * plans nothing new on it; switching one on plans the series' next slots there.
  */
-export function SeriesChannelsCard({ series }: { series: Series }) {
+export function SeriesChannelsCard({
+  series,
+  workspaceParam,
+}: {
+  series: Series;
+  /** The workspace as it appears in the address (id or slug), for links. */
+  workspaceParam: string;
+}) {
   const id = useId();
-  const channels = useQuery(channelsQueryOptions());
+  const channels = useQuery(channelsQueryOptions(series.workspaceId));
   const links = useQuery(seriesChannelsQueryOptions(series.id));
   const setLink = useSetSeriesChannel(series.id);
 
@@ -67,8 +74,12 @@ export function SeriesChannelsCard({ series }: { series: Series }) {
     return (
       <p className="text-small text-muted-foreground">
         No channels yet.{" "}
-        <Link to="/settings/channels" className="text-foreground underline underline-offset-2">
-          Add one in Settings
+        <Link
+          to="/w/$workspace/settings/channels"
+          params={{ workspace: workspaceParam }}
+          className="text-foreground underline underline-offset-2"
+        >
+          Add one in the workspace settings
         </Link>{" "}
         to plan this series' posts.
       </p>

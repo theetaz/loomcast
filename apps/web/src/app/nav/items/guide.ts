@@ -6,6 +6,6 @@ export const item: NavItem = {
   label: "Guide",
   icon: BookOpenIcon,
   to: "/guide",
-  order: -10,
+  order: 10,
   section: "footer",
 };

@@ -45,12 +45,14 @@ export function createApprovalHandlers(db: MockDb) {
       const url = new URL(request.url);
       const parsed = ApprovalsQuerySchema.safeParse(Object.fromEntries(url.searchParams));
       if (!parsed.success) return apiError(400, "validation_failed", "The request is not valid.");
-      const { projectId } = parsed.data;
+      const { workspaceId } = parsed.data;
       const byTime = (a: ScheduledPost, b: ScheduledPost) =>
         a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id);
 
       const items: ApprovalItem[] = db.contentItems
-        .filter((item) => item.state === "review" && (!projectId || item.projectId === projectId))
+        .filter(
+          (item) => item.state === "review" && (!workspaceId || item.workspaceId === workspaceId),
+        )
         .map((item) => {
           const posts = db.posts
             .filter(
@@ -74,7 +76,9 @@ export function createApprovalHandlers(db: MockDb) {
         .slice(0, MAX_ITEMS);
 
       const missed = db.posts
-        .filter((post) => post.status === "missed" && (!projectId || post.projectId === projectId))
+        .filter(
+          (post) => post.status === "missed" && (!workspaceId || post.workspaceId === workspaceId),
+        )
         .sort((a, b) => byTime(b, a))
         .slice(0, MAX_MISSED)
         .map((post) => joined(db, post));

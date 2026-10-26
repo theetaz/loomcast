@@ -1,4 +1,9 @@
-import { type CalendarSlot, MIN_SCHEDULE_LEAD_MS, type ScheduledPost } from "@loomcast/contracts";
+import {
+  type CalendarSlot,
+  MIN_SCHEDULE_LEAD_MS,
+  type ScheduledPost,
+  type Workspace,
+} from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Tabs, TabsContent } from "@loomcast/ui/components/tabs";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -51,16 +56,18 @@ function clean(search: CalendarSearch): CalendarSearch {
 }
 
 export interface CalendarPageProps {
+  workspace: Workspace;
   search: CalendarSearch;
   onSearchChange: (update: (previous: CalendarSearch) => CalendarSearch) => void;
 }
 
 /**
- * Every post on every channel in a week or month. Posts that haven't started publishing can be
- * dragged (or moved with the keyboard) to a new time; open cadence slots take an approved video.
+ * Every post on the workspace's channels in a week or month. Posts that haven't started publishing
+ * can be dragged (or moved with the keyboard) to a new time; open cadence slots take an approved
+ * video. Times follow the workspace's time zone unless another is picked.
  */
-export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
-  useTitle("Calendar");
+export function CalendarPage({ workspace, search, onSearchChange }: CalendarPageProps) {
+  useTitle(`Calendar · ${workspace.name}`);
   useCalendarLive();
   const navigate = useNavigate();
   const now = useNow();
@@ -69,22 +76,25 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
   const channelIds = useMemo(() => parseIds(search.channels), [search.channels]);
   const seriesIds = useMemo(() => parseIds(search.series), [search.series]);
 
-  const { options: seriesOptions, byId: seriesById } = useSeriesOptions(null);
-  const projectIds = useMemo(
-    () => [...new Set(seriesOptions.map((option) => option.series.projectId))],
-    [seriesOptions],
-  );
-  const formatZones = useFormatZones(projectIds);
+  const { options: seriesOptions, byId: seriesById } = useSeriesOptions(workspace.id);
+  const workspaceIds = useMemo(() => [workspace.id], [workspace.id]);
+  const formatZones = useFormatZones(workspaceIds);
   const localZone = useMemo(browserTimeZone, []);
   const seriesZone = seriesTimeZone(seriesIds, seriesOptions, formatZones);
-  const zone = search.zone === "series" && seriesZone ? seriesZone : localZone;
+  const zoneMode = search.zone ?? "workspace";
+  const zone =
+    zoneMode === "series" && seriesZone
+      ? seriesZone
+      : zoneMode === "local"
+        ? localZone
+        : workspace.timeZone;
 
   const today = todayIn(zone, now);
   const anchor = search.date ?? today;
   const period = useMemo(() => calendarPeriod(view, anchor, zone), [view, anchor, zone]);
-  const key = calendarQueryKey(period.from, period.to, channelIds, seriesIds);
+  const key = calendarQueryKey(period.from, period.to, channelIds, seriesIds, workspace.id);
   const calendar = useQuery({ ...calendarQueryOptions(key), placeholderData: keepPreviousData });
-  const channels = useQuery(channelsQueryOptions());
+  const channels = useQuery(channelsQueryOptions(workspace.id));
   const channelList = channels.data?.items ?? [];
   const channelsById = useMemo(
     () => new Map((channels.data?.items ?? []).map((channel) => [channel.id, channel])),
@@ -114,8 +124,11 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
   const [slot, setSlot] = useState<CalendarSlot | null>(null);
   const onOpenPost = useCallback(
     (post: ScheduledPost) =>
-      void navigate({ to: "/content/$itemId", params: { itemId: post.itemId } }),
-    [navigate],
+      void navigate({
+        to: "/w/$workspace/content/$itemId",
+        params: { workspace: workspace.slug, itemId: post.itemId },
+      }),
+    [navigate, workspace.slug],
   );
   const onShowDay = useCallback((day: string) => update({ view: undefined, date: day }), [update]);
 
@@ -130,9 +143,9 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
     <Page className="max-w-[1320px]">
       <PageHeader
         title="Calendar"
-        description="Every post on every channel. Drag a post to move it, or fill an open slot."
+        description="Every post on this workspace's channels. Drag a post to move it, or fill an open slot."
         actions={
-          <NewPostDialog>
+          <NewPostDialog workspaceId={workspace.id}>
             <Button>
               <ImagePlusIcon aria-hidden="true" />
               New post
@@ -162,16 +175,17 @@ export function CalendarPage({ search, onSearchChange }: CalendarPageProps) {
           series={seriesOptions}
           seriesIds={seriesIds}
           onSeriesChange={(ids) => update({ series: ids.join(",") || undefined })}
-          zoneMode={search.zone ?? "local"}
+          zoneMode={zoneMode}
+          workspaceZone={workspace.timeZone}
           localZone={localZone}
           seriesZone={seriesZone}
-          onZoneChange={(mode) => update({ zone: mode === "series" ? "series" : undefined })}
+          onZoneChange={(mode) => update({ zone: mode === "workspace" ? undefined : mode })}
           onClear={() => update({ channels: undefined, series: undefined })}
         />
         {channels.isSuccess && channelList.length === 0 ? (
           <Notice>
-            No channels yet. Posts and cadence slots appear here once a series is linked to a
-            channel.
+            This workspace has no channels yet. Posts and cadence slots appear here once a series is
+            linked to a channel.
           </Notice>
         ) : empty ? (
           <Notice>

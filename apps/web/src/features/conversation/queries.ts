@@ -9,10 +9,10 @@ import { sortConversations, sortMessages, upsertMessage } from "./messages";
 /** Upper bound on pages read for one conversation: 5,000 messages at 100 a page. */
 export const MAX_MESSAGE_PAGES = 50;
 
-export function conversationsQueryOptions(projectId: string) {
+export function conversationsQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: queryKeys.conversations.list(projectId),
-    queryFn: ({ signal }) => api.request("conversations.list", { params: { projectId }, signal }),
+    queryKey: queryKeys.conversations.list(workspaceId),
+    queryFn: ({ signal }) => api.request("conversations.list", { params: { workspaceId }, signal }),
     select: (list: List<Conversation>) => sortConversations(list.items),
   });
 }
@@ -64,28 +64,31 @@ export function cacheJob(queryClient: QueryClient, job: JobSummary) {
   );
 }
 
-/** Moves a conversation to the top of its project's list after a new message. */
+/** Moves a conversation to the top of its workspace's list after a new message. */
 export function touchConversation(
   queryClient: QueryClient,
-  projectId: string,
+  workspaceId: string,
   conversationId: string,
   at: string,
 ) {
-  queryClient.setQueryData<List<Conversation>>(queryKeys.conversations.list(projectId), (list) => {
-    if (!list?.items.some((item) => item.id === conversationId)) return list;
-    return {
-      items: list.items.map((item) =>
-        item.id === conversationId && (item.lastMessageAt ?? "") < at
-          ? { ...item, lastMessageAt: at }
-          : item,
-      ),
-    };
-  });
+  queryClient.setQueryData<List<Conversation>>(
+    queryKeys.conversations.list(workspaceId),
+    (list) => {
+      if (!list?.items.some((item) => item.id === conversationId)) return list;
+      return {
+        items: list.items.map((item) =>
+          item.id === conversationId && (item.lastMessageAt ?? "") < at
+            ? { ...item, lastMessageAt: at }
+            : item,
+        ),
+      };
+    },
+  );
 }
 
 export function addConversation(queryClient: QueryClient, conversation: Conversation) {
   queryClient.setQueryData<List<Conversation>>(
-    queryKeys.conversations.list(conversation.projectId),
+    queryKeys.conversations.list(conversation.workspaceId),
     (list) =>
       list
         ? { items: [conversation, ...list.items.filter((item) => item.id !== conversation.id)] }

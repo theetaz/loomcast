@@ -67,7 +67,7 @@ afterEach(() => {
 
 function payload(overrides: Partial<KbCompetitorReportPayload> = {}): KbCompetitorReportPayload {
   return {
-    projectId: ids.project,
+    workspaceId: ids.workspace,
     scanId: "7cd39ef0-f4b1-4d8f-80a2-9b8e1fb0d1e7",
     competitor: {
       platform: "instagram",
@@ -116,7 +116,7 @@ function reportContext(value: unknown = payload()) {
       id: ids.job,
       type: "kb.competitor_report",
       attempt: 1,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       payload: value as KbCompetitorReportPayload,
     },
     credentials: { mcp: credentials },
@@ -146,7 +146,7 @@ describe("kb.competitor_report handler", () => {
     expect(input?.brief).toBe(REPORT_BRIEF);
     expect(input?.mcp).toBe(credentials);
     expect(input?.resumeId).toBeUndefined();
-    expect(input?.cwd).toBe(realpathSync(join(root, "projects", ids.project)));
+    expect(input?.cwd).toBe(realpathSync(join(root, "projects", ids.workspace)));
     expect(events).toEqual([
       { kind: "status", data: { state: "starting" } },
       { kind: "session", data: { sessionId: SESSION_ID } },
@@ -236,11 +236,11 @@ describe("kb.competitor_report handler", () => {
     expect(runtime.inputs).toHaveLength(2);
   });
 
-  it("rejects an invalid payload or one for another project", async () => {
+  it("rejects an invalid payload or one for another workspace", async () => {
     const runtime = fakeRuntime(() => validReply);
     await expect(
       competitorReportHandler({ runtime, workspaceRoot: root })(
-        reportContext(payload({ projectId: "6bc28fde-e3a0-4c7e-bf91-8a7d0eafc0d6" })).ctx,
+        reportContext(payload({ workspaceId: "6bc28fde-e3a0-4c7e-bf91-8a7d0eafc0d6" })).ctx,
       ),
     ).rejects.toMatchObject({ code: "invalid_payload" });
     await expect(
@@ -279,13 +279,13 @@ describe("report session through the producer runtime", () => {
         });
         decisions.push([tool, decision?.behavior ?? "none"]);
       };
-      await ask("mcp__loomcast__kb_save_brainstorm", { projectId: ids.project, title: "x" });
+      await ask("mcp__loomcast__kb_save_brainstorm", { workspaceId: ids.workspace, title: "x" });
       await ask("WebFetch", { url: VIDEO_URL, prompt: "x" });
       await ask("Write", { file_path: "notes.md", content: "x" });
       await ask("Bash", { command: "yt-dlp x" });
       await ask("Read", { file_path: "/etc/hosts" });
       await ask("mcp__loomcast__kb_search", { q: "battery" });
-      await ask("mcp__loomcast__project_get", { idOrSlug: ids.project });
+      await ask("mcp__loomcast__workspace_get", { idOrSlug: ids.workspace });
       await ask("Read", { file_path: "PROJECT.md" });
       yield successResult(validReply) as SDKMessage;
     });
@@ -303,7 +303,7 @@ describe("report session through the producer runtime", () => {
       ["Bash", "deny"],
       ["Read", "deny"],
       ["mcp__loomcast__kb_search", "allow"],
-      ["mcp__loomcast__project_get", "allow"],
+      ["mcp__loomcast__workspace_get", "allow"],
       ["Read", "allow"],
     ]);
     const options = fake.calls[0]?.options;

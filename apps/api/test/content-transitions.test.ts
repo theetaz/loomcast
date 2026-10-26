@@ -30,7 +30,7 @@ import {
   insertAsset,
   insertItem,
   insertItems,
-  insertProject,
+  insertWorkspace,
   internalOf,
   type PipelineHarness,
   script,
@@ -42,12 +42,12 @@ import { errorCode } from "./support";
 const MATRIX_CONCURRENCY = 5;
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 let content: ContentService;
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
   content = contentServiceFor(h.deps);
 });
 
@@ -97,7 +97,7 @@ describe("transition()", () => {
     // render are judged on the actor alone.
     const items = await insertItems(
       h,
-      cases.map(({ from }) => ({ projectId, state: from, level: "render" as const })),
+      cases.map(({ from }) => ({ workspaceId, state: from, level: "render" as const })),
     );
     // The cases touch distinct items, so they run side by side, as many at once as the pool holds.
     const results: string[] = [];
@@ -145,7 +145,7 @@ describe("transition()", () => {
     );
     expect(needsRender.length).toBeGreaterThan(0);
     for (const row of needsRender) {
-      const inserted = await insertItem(h, { projectId, state: row.from, level: "voice" });
+      const inserted = await insertItem(h, { workspaceId, state: row.from, level: "voice" });
       const kind = row.actors[0] ?? "user";
       const result = await outcome(
         transaction(h.db, (tx) =>
@@ -157,7 +157,7 @@ describe("transition()", () => {
   });
 
   it("tells moves apart by kind when `via` is given", async () => {
-    const inserted = await insertItem(h, { projectId, state: "review", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "review", level: "render" });
     // The system may auto-approve but never take a user's approve decision.
     const asUser = await outcome(
       transaction(h.db, (tx) =>
@@ -174,7 +174,7 @@ describe("transition()", () => {
   });
 
   it("audits the move and publishes content.item.updated and state_changed after commit", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     const token = actorOf("token");
     let publishedInside = -1;
     const item = await transaction(h.db, async (tx) => {
@@ -194,7 +194,7 @@ describe("transition()", () => {
     );
     expect(change?.payload).toEqual({
       itemId: inserted.itemId,
-      projectId,
+      workspaceId,
       from: "render",
       to: "review",
       actor: { kind: "token", id: token.id },
@@ -226,7 +226,7 @@ describe("transition()", () => {
   });
 
   it("publishes nothing when the transaction rolls back", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     await expect(
       transaction(h.db, async (tx) => {
         await content.transition(tx, inserted.itemId, "review", actorOf("user"));
@@ -242,7 +242,7 @@ describe("transition()", () => {
   });
 
   it("archives and restores through the REST routes", async () => {
-    const inserted = await insertItem(h, { projectId, state: "voice", level: "voice" });
+    const inserted = await insertItem(h, { workspaceId, state: "voice", level: "voice" });
     const archived = ContentItemSchema.parse(
       await (await call(h, "POST", `/api/content/${inserted.itemId}/archive`)).json(),
     );
@@ -254,7 +254,7 @@ describe("transition()", () => {
     );
     expect(restored).toMatchObject({ state: "idea", archivedAt: null });
 
-    const scripted = await insertItem(h, { projectId, state: "script", level: "script" });
+    const scripted = await insertItem(h, { workspaceId, state: "script", level: "script" });
     const refused = await call(h, "POST", `/api/content/${scripted.itemId}/restore`);
     expect(refused.status).toBe(409);
     expect(await errorCode(refused)).toBe("invalid_transition");
@@ -262,7 +262,7 @@ describe("transition()", () => {
   });
 
   it("stops autopilot when an item is archived", async () => {
-    const inserted = await insertItem(h, { projectId, state: "script", level: "script" });
+    const inserted = await insertItem(h, { workspaceId, state: "script", level: "script" });
     await transaction(h.db, (tx) =>
       content.track(tx, inserted.itemId, { autopilotTarget: "review" }),
     );
@@ -273,7 +273,7 @@ describe("transition()", () => {
 
 describe("versions from every kind of actor", () => {
   it("lets a token write a script (an MCP submission) but never approve", async () => {
-    const inserted = await insertItem(h, { projectId, state: "idea" });
+    const inserted = await insertItem(h, { workspaceId, state: "idea" });
     const token = actorOf("token");
     const result = await transaction(h.db, (tx) =>
       content.createVersion(tx, inserted.itemId, { script: script() }, token, {
@@ -283,7 +283,7 @@ describe("versions from every kind of actor", () => {
     expect(result.item.state).toBe("script");
     expect(result.version).toMatchObject({ createdVia: "mcp", stage: "script" });
 
-    const review = await insertItem(h, { projectId, state: "review", level: "render" });
+    const review = await insertItem(h, { workspaceId, state: "review", level: "render" });
     const approve = await outcome(
       transaction(h.db, (tx) => content.transition(tx, review.itemId, "approved", token)),
     );
@@ -291,7 +291,7 @@ describe("versions from every kind of actor", () => {
   });
 
   it("refuses a token's caption change in review, which only a user may make", async () => {
-    const review = await insertItem(h, { projectId, state: "review", level: "render" });
+    const review = await insertItem(h, { workspaceId, state: "review", level: "render" });
     const result = await outcome(
       transaction(h.db, (tx) =>
         content.createVersion(tx, review.itemId, { caption: "x" }, actorOf("token")),
@@ -301,15 +301,15 @@ describe("versions from every kind of actor", () => {
   });
 
   it("lets the system write versions and move approved items to scheduled", async () => {
-    const inserted = await insertItem(h, { projectId, state: "storyboard", level: "storyboard" });
-    const voice = await insertAsset(h.db, { projectId, itemId: inserted.itemId, kind: "voice" });
+    const inserted = await insertItem(h, { workspaceId, state: "storyboard", level: "storyboard" });
+    const voice = await insertAsset(h.db, { workspaceId, itemId: inserted.itemId, kind: "voice" });
     const result = await transaction(h.db, (tx) =>
       content.createVersion(tx, inserted.itemId, { voiceAssetId: voice }, SYSTEM_ACTOR),
     );
     expect(result.item.state).toBe("voice");
     expect(result.version.createdVia).toBe("system");
 
-    const approved = await insertItem(h, { projectId, state: "approved", level: "render" });
+    const approved = await insertItem(h, { workspaceId, state: "approved", level: "render" });
     const scheduled = await transaction(h.db, (tx) =>
       content.transition(tx, approved.itemId, "scheduled", SYSTEM_ACTOR, { via: "schedule" }),
     );
@@ -324,10 +324,10 @@ describe("createVersionFromJob()", () => {
       .values({
         type,
         status: "running",
-        projectId,
+        workspaceId,
         createdBy: h.userId,
         payload: {
-          projectId,
+          workspaceId,
           itemId,
           versionId,
           format: { formatVersionId: null, rules: structuredClone(DEFAULT_FORMAT_RULES) },
@@ -339,10 +339,18 @@ describe("createVersionFromJob()", () => {
   }
 
   it("stores a render result once, however often the completion is replayed", async () => {
-    const inserted = await insertItem(h, { projectId, state: "voice", level: "voice" });
+    const inserted = await insertItem(h, { workspaceId, state: "voice", level: "voice" });
     const job = await insertJob(inserted.itemId, inserted.versionId);
-    const render = await insertAsset(h.db, { projectId, itemId: inserted.itemId, kind: "render" });
-    const poster = await insertAsset(h.db, { projectId, itemId: inserted.itemId, kind: "poster" });
+    const render = await insertAsset(h.db, {
+      workspaceId,
+      itemId: inserted.itemId,
+      kind: "render",
+    });
+    const poster = await insertAsset(h.db, {
+      workspaceId,
+      itemId: inserted.itemId,
+      kind: "poster",
+    });
     const store = () =>
       transaction(h.db, (tx) =>
         content.createVersionFromJob(
@@ -387,8 +395,8 @@ describe("createVersionFromJob()", () => {
   });
 
   it("refuses a result for another item and a stale base", async () => {
-    const inserted = await insertItem(h, { projectId, state: "script", level: "script" });
-    const other = await insertItem(h, { projectId, state: "script", level: "script" });
+    const inserted = await insertItem(h, { workspaceId, state: "script", level: "script" });
+    const other = await insertItem(h, { workspaceId, state: "script", level: "script" });
     const job = await insertJob(inserted.itemId, inserted.versionId, "content.storyboard");
     const wrongItem = await outcome(
       transaction(h.db, (tx) =>
@@ -425,7 +433,7 @@ describe("createVersionFromJob()", () => {
   });
 
   it("clears the last error on a successful step", async () => {
-    const inserted = await insertItem(h, { projectId, state: "script", level: "script" });
+    const inserted = await insertItem(h, { workspaceId, state: "script", level: "script" });
     const job = await insertJob(inserted.itemId, inserted.versionId, "content.storyboard");
     await transaction(h.db, (tx) =>
       content.track(tx, inserted.itemId, {

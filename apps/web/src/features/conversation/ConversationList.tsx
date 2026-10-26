@@ -17,8 +17,8 @@ import { RelativeTime } from "@/components/RelativeTime";
 import { conversationTitle } from "./messages";
 
 export interface ConversationListProps {
-  /** The project's id or slug as it appears in the address. */
-  projectParam: string;
+  /** The workspace's id or slug as it appears in the address. */
+  workspaceParam: string;
   conversations: readonly Conversation[];
   selectedId: string | undefined;
   onSelect: (id: string) => void;
@@ -27,9 +27,9 @@ export interface ConversationListProps {
   loading: boolean;
 }
 
-/** The left column from 768px up: the project's conversations, latest first. */
+/** The left column from 768px up: the workspace's conversations, latest first. */
 export function ConversationColumn({
-  projectParam,
+  workspaceParam,
   conversations,
   selectedId,
   onNew,
@@ -77,8 +77,8 @@ export function ConversationColumn({
                 return (
                   <li key={conversation.id}>
                     <Link
-                      to="/projects/$projectId"
-                      params={{ projectId: projectParam }}
+                      to="/w/$workspace/chat"
+                      params={{ workspace: workspaceParam }}
                       search={{ conversation: conversation.id }}
                       aria-current={active ? "page" : undefined}
                       className={cn(

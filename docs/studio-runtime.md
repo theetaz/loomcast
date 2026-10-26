@@ -40,7 +40,7 @@ files of their own item (see the [studio agent README](../apps/studio-agent/READ
 ## Competitor videos on the Mac
 
 A `kb.analyze_reference` job with `fetchPublicVideo` downloads one public video into
-`~/Loomcast/projects/<projectId>/references/<entryId>/media-<jobId>/` (mode 0700). `yt-dlp` runs
+`~/Loomcast/projects/<workspaceId>/references/<entryId>/media-<jobId>/` (mode 0700). `yt-dlp` runs
 without a shell, config files, cookies or post-processing hooks, with only `PATH`, `HOME`, `LANG`
 and the proxy variables in its environment, and is stopped after 5 minutes. ffprobe checks the
 file (one file, at most 300 MB and 10 minutes, with a video stream); ffmpeg counts the cuts and
@@ -93,7 +93,7 @@ format editor. Without one, production stops before the voice step (`voice_not_c
 A job works in the folder of the version it starts from:
 
 ```text
-~/Loomcast/projects/<projectId>/items/<itemId>/v<n>/
+~/Loomcast/projects/<workspaceId>/items/<itemId>/v<n>/
   script.json  storyboard.json  voice.mp3  alignment.json  render/  out/final.mp4  poster.jpg
 ```
 

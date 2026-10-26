@@ -25,7 +25,7 @@ import type { McpCredentials } from "../handlers";
 
 /**
  * What production jobs read from and write to the platform. Every call goes through the
- * platform's MCP server with the job token, so a job reaches only its own project, and every
+ * platform's MCP server with the job token, so a job reaches only its own workspace, and every
  * answer is checked against the contracts before it is used.
  */
 export interface PlatformClient {

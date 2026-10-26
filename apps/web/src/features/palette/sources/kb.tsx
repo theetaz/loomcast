@@ -1,36 +1,39 @@
 import { useQuery } from "@tanstack/react-query";
 import { LibraryIcon, LoaderCircleIcon, TriangleAlertIcon } from "lucide-react";
 import { KIND_META } from "@/features/kb/kinds";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { workspacesQueryOptions } from "@/features/workspaces/queries";
 import { errorMessage } from "@/lib/api";
 import { Snippet } from "@/lib/snippet";
 import type { PaletteItem, PaletteSource } from "../types";
 import { useKbSearch } from "../use-kb-search";
 
-/** Knowledge-base entries of every project, searched on the server as the user types. */
+/**
+ * Knowledge-base entries, searched on the server as the user types: the open workspace's only, or
+ * every workspace's outside one.
+ */
 export const source: PaletteSource = {
   id: "kb",
   heading: "Knowledge base",
   order: 20,
   icon: LibraryIcon,
-  useItems: ({ query }) => {
-    const search = useKbSearch(query);
-    const { data: projects = [] } = useQuery(projectsQueryOptions());
-    const byId = new Map(projects.map((project) => [project.id, project]));
+  useItems: ({ query, workspace: current }) => {
+    const search = useKbSearch(query, current?.id ?? null);
+    const { data: workspaces = [] } = useQuery(workspacesQueryOptions());
+    const byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
     const items: PaletteItem[] = search.hits.map((hit) => {
       const kind = KIND_META[hit.kind];
-      const project = byId.get(hit.projectId);
-      const projectParam = project?.slug ?? hit.projectId;
+      const workspace = byId.get(hit.workspaceId);
+      const workspaceParam = workspace?.slug ?? hit.workspaceId;
       return {
         id: `kb:${hit.entryId}`,
         label: hit.title,
         icon: kind.icon,
         iconClassName: kind.tone,
         secondary: hit.snippet ? <Snippet text={hit.snippet} /> : undefined,
-        meta: project?.name,
-        href: `/projects/${projectParam}/kb/${hit.entryId}`,
-        recentDetail: project ? `${kind.label} in ${project.name}` : kind.label,
+        meta: current ? undefined : workspace?.name,
+        href: `/w/${workspaceParam}/kb/${hit.entryId}`,
+        recentDetail: workspace ? `${kind.label} in ${workspace.name}` : kind.label,
       };
     });
 

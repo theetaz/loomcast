@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { linksError } from "@/features/competitors/ScanDialog";
-import { COMPETITORS_PROJECT_SLUG, competitorsSetup } from "./support/competitors";
+import { COMPETITORS_WORKSPACE_SLUG, competitorsSetup } from "./support/competitors";
 import { recordRequests } from "./support/kb";
 import { renderApp } from "./support/render";
 
@@ -11,7 +11,7 @@ import { renderApp } from "./support/render";
 vi.mock("@/features/competitors/polling", () => ({ SCAN_POLL_MS: 50 }));
 
 const NOW = "2026-10-14T08:00:00.000Z";
-const BASE = `/projects/${COMPETITORS_PROJECT_SLUG}/competitors`;
+const BASE = `/w/${COMPETITORS_WORKSPACE_SLUG}/competitors`;
 
 beforeEach(() => {
   // Only the clock is fixed; timers stay real for the router, MSW and user-event.
@@ -43,7 +43,7 @@ describe("competitors list", () => {
     expect(within(fastrust).getByText("Partly done")).toHaveAttribute("data-tone", "amber");
     expect(within(fastrust).getByRole("link", { name: "Report on @fastrust" })).toHaveAttribute(
       "href",
-      `/projects/${COMPETITORS_PROJECT_SLUG}/kb/${report.id}`,
+      `/w/${COMPETITORS_WORKSPACE_SLUG}/kb/${report.id}`,
     );
 
     const page = within(list).getByRole("listitem", { name: "rustaceans (Facebook)" });
@@ -51,7 +51,12 @@ describe("competitors list", () => {
     const threads = within(list).getByRole("listitem", { name: "@ferris_daily (Threads)" });
     expect(within(threads).getByText("Analyzing")).toHaveAttribute("data-tone", "violet");
 
-    expect(screen.getByRole("tab", { name: "Competitors", selected: true })).toBeVisible();
+    // The sidebar marks Competitors as the open page of the workspace.
+    const nav = screen.getByRole("navigation", { name: "Workspace" });
+    expect(within(nav).getByRole("link", { name: "Competitors" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   it("explains the feature when nothing is followed yet", async () => {
@@ -62,7 +67,7 @@ describe("competitors list", () => {
   });
 
   it("adds a competitor from an Instagram handle", async () => {
-    const { db, project } = competitorsSetup();
+    const { db, workspace } = competitorsSetup();
     const requests = recordRequests();
     const { user } = renderApp(BASE, db);
     await screen.findByRole("list", { name: "Followed competitors" });
@@ -77,7 +82,7 @@ describe("competitors list", () => {
         (request) => request.method === "POST" && request.path.endsWith("/competitors"),
       ),
     ).toMatchObject({
-      path: `/api/projects/${project.id}/competitors`,
+      path: `/api/workspaces/${workspace.id}/competitors`,
       body: { url: "@nasa" },
     });
     expect(db.competitors.some((item) => item.handle === "nasa")).toBe(true);
@@ -108,7 +113,7 @@ describe("competitors list", () => {
     );
   });
 
-  it("says when the project already follows the profile", async () => {
+  it("says when the workspace already follows the profile", async () => {
     const { db } = competitorsSetup();
     const { user } = renderApp(BASE, db);
     await screen.findByRole("list", { name: "Followed competitors" });
@@ -117,7 +122,7 @@ describe("competitors list", () => {
     await user.click(screen.getByRole("button", { name: "Add competitor" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "This project already follows @FastRust on Instagram.",
+      "This workspace already follows @FastRust on Instagram.",
     );
     expect(db.competitors).toHaveLength(3);
   });
@@ -236,7 +241,7 @@ describe("scan dialog", () => {
     expect(alert).toHaveTextContent(/needs a connected Instagram channel/);
     expect(within(alert).getByRole("link", { name: /channel settings/ })).toHaveAttribute(
       "href",
-      "/settings/channels",
+      `/w/${COMPETITORS_WORKSPACE_SLUG}/settings/channels`,
     );
   });
 
@@ -273,7 +278,7 @@ describe("scan detail", () => {
     expect(within(first).getByText("Analyzed")).toHaveAttribute("data-tone", "green");
     expect(
       within(first).getByRole("link", { name: "This one line breaks every Rust beginner." }),
-    ).toHaveAttribute("href", `/projects/${COMPETITORS_PROJECT_SLUG}/kb/${videos.done[0]?.id}`);
+    ).toHaveAttribute("href", `/w/${COMPETITORS_WORKSPACE_SLUG}/kb/${videos.done[0]?.id}`);
     const original = within(first).getByRole("link", { name: /Original video/ });
     expect(original).toHaveAttribute("href", "https://www.instagram.com/reel/AAA111/");
     expect(original).toHaveAttribute("target", "_blank");
@@ -290,7 +295,7 @@ describe("scan detail", () => {
     expect(await screen.findByRole("heading", { name: report.title })).toBeVisible();
     expect(screen.getByRole("link", { name: "Open report" })).toHaveAttribute(
       "href",
-      `/projects/${COMPETITORS_PROJECT_SLUG}/kb/${report.id}`,
+      `/w/${COMPETITORS_WORKSPACE_SLUG}/kb/${report.id}`,
     );
     expect(screen.queryByRole("button", { name: "Cancel scan" })).not.toBeInTheDocument();
   });

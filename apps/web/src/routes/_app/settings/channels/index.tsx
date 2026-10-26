@@ -1,14 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ChannelsSettings } from "@/features/channels/ChannelsSettings";
-import { useTitle } from "@/lib/use-title";
+import { redirectIntoWorkspace } from "@/features/workspace/legacy";
 
-// An index route, so the connect page can live beside it at `/settings/channels/connect`.
+/** Channels belong to a workspace now: opens its channel settings. */
 export const Route = createFileRoute("/_app/settings/channels/")({
-  staticData: { breadcrumb: "Channels" },
-  component: ChannelsPage,
+  beforeLoad: ({ context, location }) =>
+    redirectIntoWorkspace(context.queryClient, location, "/settings/channels"),
 });
-
-function ChannelsPage() {
-  useTitle("Channels");
-  return <ChannelsSettings />;
-}

@@ -61,7 +61,7 @@ export function TokensSettings() {
           <EmptyState
             icon={KeyRoundIcon}
             title="No access tokens"
-            description="Create a token for each tool that should create or read projects over MCP."
+            description="Create a token for each tool that should create or read workspaces over MCP."
             action={
               <CreateTokenDialog>
                 <Button>

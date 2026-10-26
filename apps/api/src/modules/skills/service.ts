@@ -17,11 +17,11 @@ import {
 import {
   type Database,
   nextSkillVersion,
-  projects,
   type SkillRow,
   type SkillVersionRow,
   skills,
   skillVersions,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -160,15 +160,15 @@ async function versionById(executor: Executor, id: string): Promise<SkillVersion
 }
 
 /**
- * The project a `skills.sync` job is queued under. Skills are global, but every job belongs to a
- * project: the most recently updated active one. Null when there is none.
+ * The workspace a `skills.sync` job is queued under. Skills are global, but every job belongs to a
+ * workspace: the most recently updated active one. Null when there is none.
  */
-async function syncProject(tx: Transaction): Promise<string | null> {
+async function syncWorkspace(tx: Transaction): Promise<string | null> {
   const [row] = await tx
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.status, "active"))
-    .orderBy(desc(projects.updatedAt), asc(projects.id))
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.status, "active"))
+    .orderBy(desc(workspaces.updatedAt), asc(workspaces.id))
     .limit(1);
   return row?.id ?? null;
 }
@@ -177,7 +177,7 @@ export function createSkillsService(deps: SkillsServiceDeps): SkillsService {
   const { db, bus, jobs } = deps;
   const log = deps.logger.child({ module: "skills" });
 
-  /** Queues the sync of a new current version, when there is a user and a project to own it. */
+  /** Queues the sync of a new current version, when there is a user and a workspace to own it. */
   async function enqueueSync(
     tx: Transaction,
     name: string,
@@ -188,15 +188,15 @@ export function createSkillsService(deps: SkillsServiceDeps): SkillsService {
       log.info({ skill: name }, "no user to own a skills.sync job; studio agents sync later");
       return null;
     }
-    const projectId = await syncProject(tx);
-    if (projectId === null) {
-      log.info({ skill: name }, "no active project to queue skills.sync under");
+    const workspaceId = await syncWorkspace(tx);
+    if (workspaceId === null) {
+      log.info({ skill: name }, "no active workspace to queue skills.sync under");
       return null;
     }
     const { job } = await jobs.enqueue(tx, {
       type: "skills.sync",
       payload: { names: [name] },
-      projectId,
+      workspaceId,
       idempotencyKey,
       createdBy: actor.userId,
     });

@@ -6,7 +6,7 @@ import {
   type BridgeServer,
   FakeAgent,
   pairDevice,
-  seedProject,
+  seedWorkspace,
   startBridgeServer,
   UpgradeRefused,
 } from "../bridge-support";
@@ -122,12 +122,12 @@ describe("cookie routes read the session cookie only", () => {
 
   it("refuses MCP, job and device tokens on every session route", async () => {
     const { app, deps } = createTestApp(testDb.db);
-    const fixtures = await seedProject(testDb.db);
+    const fixtures = await seedWorkspace(testDb.db);
     const mcp = await issueToken(deps, fixtures.userId, ["mcp:read", "mcp:write"]);
     const device = await issueToken(deps, fixtures.userId, ["bridge"], "device");
     const job = await issueJobToken(testDb.db, {
       userId: fixtures.userId,
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       scopes: ["mcp:read", "mcp:write"],
     });
     const secrets = { mcp: mcp.secret, device: device.secret, job: job.secret };
@@ -156,13 +156,16 @@ describe("the machine API reads API keys only", () => {
 
   it("refuses MCP, job and device tokens on /api/v1 and API keys on the cookie routes", async () => {
     const { app, deps } = createTestApp(testDb.db);
-    const fixtures = await seedProject(testDb.db);
+    const fixtures = await seedWorkspace(testDb.db);
     const owner = await insertUser(testDb.db, { role: "owner" });
-    const channel = await insertChannel(testDb.db, testKeyring(), { platform: "facebook" });
+    const channel = await insertChannel(testDb.db, testKeyring(), {
+      workspaceId: fixtures.workspaceId,
+      platform: "facebook",
+    });
     const client = await createApiClientsService(deps).create(
       {
         name: "Backend",
-        projectId: fixtures.projectId,
+        workspaceId: fixtures.workspaceId,
         grants: [{ channelId: channel.id, access: "publish" }],
       },
       owner.id,
@@ -171,7 +174,7 @@ describe("the machine API reads API keys only", () => {
     const device = await issueToken(deps, fixtures.userId, ["bridge"], "device");
     const job = await issueJobToken(testDb.db, {
       userId: fixtures.userId,
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       scopes: ["mcp:read", "mcp:write"],
     });
     const others = { mcp: mcp.secret, device: device.secret, job: job.secret };

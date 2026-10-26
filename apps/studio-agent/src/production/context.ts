@@ -19,7 +19,7 @@ export type Sleep = (ms: number, signal: AbortSignal) => Promise<void>;
 
 /** What the production handlers share. Tests replace every part. */
 export interface ProductionDeps {
-  /** `~/Loomcast`: projects, items and synced skills live below it. */
+  /** `~/Loomcast`: workspaces, items and synced skills live below it. */
   readonly workspaceRoot: string;
   readonly connect: PlatformConnector;
   readonly studio: StudioLoader;
@@ -35,7 +35,7 @@ export interface ProducerStepDeps extends ProductionDeps {
   readonly runtime: ProducerRuntime;
 }
 
-/** Validates a production payload and checks it is about the job's project. */
+/** Validates a production payload and checks it is about the job's workspace. */
 export function parsePayload<T extends JobType>(ctx: JobContext<T>): JobPayload<T> {
   const parsed = parseJobPayload(ctx.job.type, ctx.job.payload);
   if (!parsed.success) {
@@ -45,10 +45,10 @@ export function parsePayload<T extends JobType>(ctx: JobContext<T>): JobPayload<
   if (
     typeof payload === "object" &&
     payload !== null &&
-    "projectId" in payload &&
-    payload.projectId !== ctx.job.projectId
+    "workspaceId" in payload &&
+    payload.workspaceId !== ctx.job.workspaceId
   ) {
-    throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
+    throw new JobFailure("invalid_payload", "The payload's workspace does not match the job's");
   }
   return payload;
 }
@@ -81,7 +81,7 @@ export async function withPlatform<T>(
 /** The item and the version a job starts from, checked against the payload. */
 export async function loadVersion(
   platform: PlatformClient,
-  payload: { readonly projectId: string; readonly itemId: string; readonly versionId: string },
+  payload: { readonly workspaceId: string; readonly itemId: string; readonly versionId: string },
 ): Promise<{ item: ContentItem; version: ContentVersion }> {
   const { item, version } = await platform.getContent({
     itemId: payload.itemId,
@@ -89,7 +89,7 @@ export async function loadVersion(
   });
   if (
     item.id !== payload.itemId ||
-    item.projectId !== payload.projectId ||
+    item.workspaceId !== payload.workspaceId ||
     version.id !== payload.versionId ||
     version.itemId !== payload.itemId
   ) {

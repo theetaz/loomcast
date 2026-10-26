@@ -60,7 +60,7 @@ describe("formats and series", () => {
   it("returns a format with its current version", () => {
     const format = {
       id: ids.format,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       name: "Rust shorts",
       slug: "rust-shorts",
       currentVersion: {
@@ -200,7 +200,7 @@ describe("reviews", () => {
 
 describe("assets", () => {
   const upload = {
-    projectId: ids.project,
+    workspaceId: ids.workspace,
     itemId: ids.item,
     kind: "render",
     filename: "final.mp4",
@@ -259,7 +259,7 @@ describe("assets", () => {
 
   it("returns upload instructions, or none for a ready duplicate", () => {
     const instructions = {
-      url: "https://media.example.test/projects/p/render/a.mp4",
+      url: "https://media.example.test/workspaces/p/render/a.mp4",
       method: "PUT",
       headers: { "content-type": "video/mp4" },
       expiresAt: at,

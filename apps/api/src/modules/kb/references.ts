@@ -18,7 +18,7 @@ const PLATFORM_LABELS: { readonly [P in ReferencePlatform]: string } = {
   other: "Web",
 };
 
-/** The dedupe key of a reference: one live entry per normalised URL and project. */
+/** The dedupe key of a reference: one live entry per normalised URL and workspace. */
 export function referenceDedupeKey(normalizedUrl: string): string {
   return `ref:${normalizedUrl}`;
 }

@@ -132,11 +132,13 @@ export const ConnectionCandidatesSchema = z
 export type ConnectionCandidates = z.infer<typeof ConnectionCandidatesSchema>;
 
 /**
- * Connects the chosen accounts of a pending connection, once: afterwards the connection is used
- * and its tokens are gone. New channels are `active` with dry-run on. Unknown ids answer
- * `400 validation_failed`.
+ * Connects the chosen accounts of a pending connection to a workspace, once: afterwards the
+ * connection is used and its tokens are gone. New channels are `active` with dry-run on. Unknown
+ * ids answer `400 validation_failed`; an account already connected in another workspace answers
+ * `409 channel_in_other_workspace`, naming that workspace in `details`.
  */
 export const AcceptConnectionSchema = z.object({
+  workspaceId: IdSchema,
   accountIds: z
     .array(CandidateAccountIdSchema)
     .min(1)
@@ -185,8 +187,11 @@ export const OAuthCallbackQuerySchema = z.object({
 });
 export type OAuthCallbackQuery = z.infer<typeof OAuthCallbackQuerySchema>;
 
-/** The web page `oauth.callback` redirects to. */
-export const OAUTH_CONNECT_PAGE_PATH = "/settings/channels/connect";
+/**
+ * The web page `oauth.callback` redirects to. It sits outside any workspace: the page asks which
+ * workspace the accounts join, starting from the one the sign-in began in.
+ */
+export const OAUTH_CONNECT_PAGE_PATH = "/channels/connect";
 
 /**
  * Why a sign-in did not produce a pending connection, as `?error=` on the connect page:

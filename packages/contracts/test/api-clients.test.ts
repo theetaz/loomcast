@@ -25,7 +25,7 @@ describe("API client access levels", () => {
 describe("API client management", () => {
   const valid = {
     name: "Blog backend",
-    projectId: ids.project,
+    workspaceId: ids.workspace,
     grants: [{ channelId, access: "write" }],
   };
 

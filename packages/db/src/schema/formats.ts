@@ -14,11 +14,11 @@ import {
 } from "drizzle-orm/pg-core";
 import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { seriesStatus } from "./enums";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /**
- * A format of a project: the rules (length, voice, style, captions, cadence) its series produce
+ * A format of a workspace: the rules (length, voice, style, captions, cadence) its series produce
  * with. The rules live in immutable `format_versions`; every change, even a rename, writes a new
  * version and moves `currentVersionId`.
  *
@@ -32,9 +32,9 @@ export const formats = pgTable(
   "formats",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     currentVersionId: uuid("current_version_id").notNull(),
@@ -46,9 +46,9 @@ export const formats = pgTable(
     archivedAt: timestamptz("archived_at"),
   },
   (t) => [
-    uniqueIndex("formats_project_id_slug_uq").on(t.projectId, t.slug),
-    // Target of `series_format_fk`, which keeps a series and its format in one project.
-    uniqueIndex("formats_project_id_id_uq").on(t.projectId, t.id),
+    uniqueIndex("formats_workspace_id_slug_uq").on(t.workspaceId, t.slug),
+    // Target of `series_format_fk`, which keeps a series and its format in one workspace.
+    uniqueIndex("formats_workspace_id_id_uq").on(t.workspaceId, t.id),
     foreignKey({
       name: "formats_current_version_fk",
       columns: [t.id, t.currentVersionId],
@@ -79,16 +79,16 @@ export const formatVersions = pgTable(
 );
 
 /**
- * A series of a project. Its items follow the rules of its format, which must belong to the same
- * project (`series_format_fk`). A format in use by a series cannot be deleted.
+ * A series of a workspace. Its items follow the rules of its format, which must belong to the same
+ * workspace (`series_format_fk`). A format in use by a series cannot be deleted.
  */
 export const series = pgTable(
   "series",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     formatId: uuid("format_id").notNull(),
@@ -101,12 +101,13 @@ export const series = pgTable(
     archivedAt: timestamptz("archived_at"),
   },
   (t) => [
-    uniqueIndex("series_project_id_slug_uq").on(t.projectId, t.slug),
+    uniqueIndex("series_workspace_id_slug_uq").on(t.workspaceId, t.slug),
+    uniqueIndex("series_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("series_format_id_idx").on(t.formatId),
     foreignKey({
       name: "series_format_fk",
-      columns: [t.projectId, t.formatId],
-      foreignColumns: [formats.projectId, formats.id],
+      columns: [t.workspaceId, t.formatId],
+      foreignColumns: [formats.workspaceId, formats.id],
     }),
   ],
 );

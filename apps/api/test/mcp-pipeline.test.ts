@@ -10,7 +10,7 @@ import {
   pipelineTools,
   type TokenScope,
 } from "@loomcast/contracts";
-import { assets, auditLog, contentItems, contentVersions, projects } from "@loomcast/db";
+import { assets, auditLog, contentItems, contentVersions, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { and, eq } from "drizzle-orm";
@@ -55,8 +55,8 @@ let url: URL;
 let userId: string;
 let writer: Client;
 let reader: Client;
-let projectA: string;
-let projectB: string;
+let workspaceA: string;
+let workspaceB: string;
 const clients: Client[] = [];
 const storedKeys: string[] = [];
 
@@ -89,8 +89,8 @@ beforeAll(async () => {
     (await issueToken(deps, userId, ["mcp:read", "mcp:write"])).secret,
   );
   reader = await connectClient(url, (await issueToken(deps, userId, ["mcp:read"])).secret);
-  projectA = await newProject("Alpha");
-  projectB = await newProject("Beta");
+  workspaceA = await newWorkspace("Alpha");
+  workspaceB = await newWorkspace("Beta");
 });
 
 afterAll(async () => {
@@ -103,23 +103,23 @@ afterAll(async () => {
   await testDb?.drop();
 });
 
-async function newProject(name: string): Promise<string> {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(name: string): Promise<string> {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `mcp-pipeline-${randomUUID().slice(0, 8)}`, name, createdBy: userId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project.id;
+  return workspace.id;
 }
 
-/** A client with the job token of a running job in `projectId`, as a producer session gets one. */
+/** A client with the job token of a running job in `workspaceId`, as a producer session gets one. */
 async function jobClient(
-  projectId: string,
+  workspaceId: string,
   scopes: readonly TokenScope[] = ["mcp:read", "mcp:write"],
 ) {
-  const issued = await issueJobToken(testDb.db, { userId, projectId, scopes });
+  const issued = await issueJobToken(testDb.db, { userId, workspaceId, scopes });
   const client = await connectClient(url, issued.secret);
   clients.push(client);
   return { client, jobId: issued.job.id, tokenId: issued.row.id };
@@ -131,15 +131,15 @@ function item(spec: ItemSpec): Promise<InsertedItem> {
   return insertItem(h, spec);
 }
 
-async function seriesIn(projectId: string): Promise<{ seriesId: string; formatId: string }> {
+async function seriesIn(workspaceId: string): Promise<{ seriesId: string; formatId: string }> {
   const actor = { kind: "user", id: userId, userId } as const;
   const format = await formatsServiceFor(moduleDeps).create(
-    projectId,
+    workspaceId,
     { name: `Format ${randomUUID().slice(0, 6)}` },
     actor,
   );
   const series = await seriesServiceFor(moduleDeps).create(
-    projectId,
+    workspaceId,
     { name: `Series ${randomUUID().slice(0, 6)}`, formatId: format.id },
     actor,
   );
@@ -185,7 +185,7 @@ describe("pipeline tools", () => {
 
   describe("format.get_rules", () => {
     it("returns the current rules of a series' format", async () => {
-      const { seriesId, formatId } = await seriesIn(projectA);
+      const { seriesId, formatId } = await seriesIn(workspaceA);
       const result = await call(reader, "format.get_rules", { seriesId });
       expectOk(result);
       const output = FormatGetRulesOutputSchema.parse(result.structuredContent);
@@ -193,13 +193,13 @@ describe("pipeline tools", () => {
       expect(output.version).toBe(1);
       expect(textOf(result)).toContain(output.formatVersionId);
 
-      const job = await jobClient(projectA, ["mcp:read"]);
+      const job = await jobClient(workspaceA, ["mcp:read"]);
       expectOk(await call(job.client, "format.get_rules", { seriesId }));
     });
 
-    it("refuses a series of another project to a job token, and unknown series", async () => {
-      const { seriesId } = await seriesIn(projectB);
-      const job = await jobClient(projectA);
+    it("refuses a series of another workspace to a job token, and unknown series", async () => {
+      const { seriesId } = await seriesIn(workspaceB);
+      const job = await jobClient(workspaceA);
       expectError(await call(job.client, "format.get_rules", { seriesId }), "forbidden");
       expectError(await call(reader, "format.get_rules", { seriesId: randomUUID() }), "not_found");
     });
@@ -208,7 +208,7 @@ describe("pipeline tools", () => {
   describe("content.create_idea", () => {
     it("creates an idea marked mcp for user tokens and producer for job tokens", async () => {
       const result = await call(writer, "content.create_idea", {
-        projectId: projectA,
+        workspaceId: workspaceA,
         title: "Borrow checker in 60 seconds",
         pitch: "Why the compiler says no",
       });
@@ -219,10 +219,10 @@ describe("pipeline tools", () => {
       expect(row?.createdVia).toBe("mcp");
       expect(row?.createdBy).toBe(userId);
 
-      const { seriesId } = await seriesIn(projectA);
-      const job = await jobClient(projectA);
+      const { seriesId } = await seriesIn(workspaceA);
+      const job = await jobClient(workspaceA);
       const fromJob = await call(job.client, "content.create_idea", {
-        projectId: projectA,
+        workspaceId: workspaceA,
         seriesId,
         title: "Lifetimes without tears",
         pitch: "Annotations are promises, not commands",
@@ -236,33 +236,33 @@ describe("pipeline tools", () => {
       expect(jobRow?.seriesId).toBe(seriesId);
     });
 
-    it("refuses another project to a job token and read-only tokens", async () => {
-      const job = await jobClient(projectA);
+    it("refuses another workspace to a job token and read-only tokens", async () => {
+      const job = await jobClient(workspaceA);
       const before = await testDb.db
         .select({ id: contentItems.id })
         .from(contentItems)
-        .where(eq(contentItems.projectId, projectB));
-      const args = { projectId: projectB, title: "Elsewhere", pitch: "Not yours" };
+        .where(eq(contentItems.workspaceId, workspaceB));
+      const args = { workspaceId: workspaceB, title: "Elsewhere", pitch: "Not yours" };
       expectError(await call(job.client, "content.create_idea", args), "forbidden");
       expectError(await call(reader, "content.create_idea", args), "forbidden");
       const after = await testDb.db
         .select({ id: contentItems.id })
         .from(contentItems)
-        .where(eq(contentItems.projectId, projectB));
+        .where(eq(contentItems.workspaceId, workspaceB));
       expect(after).toHaveLength(before.length);
     });
   });
 
   describe("content.get", () => {
     it("returns the item, a version with its artifacts and the format", async () => {
-      const { seriesId } = await seriesIn(projectA);
+      const { seriesId } = await seriesIn(workspaceA);
       const inserted = await item({
-        projectId: projectA,
+        workspaceId: workspaceA,
         seriesId,
         state: "voice",
         level: "voice",
       });
-      const job = await jobClient(projectA, ["mcp:read"]);
+      const job = await jobClient(workspaceA, ["mcp:read"]);
 
       const current = await call(job.client, "content.get", { itemId: inserted.itemId });
       expectOk(current);
@@ -290,9 +290,9 @@ describe("pipeline tools", () => {
       expect(old.version.script).toBeNull();
     });
 
-    it("is bound to the job's project and reports unknown records", async () => {
-      const other = await item({ projectId: projectB });
-      const job = await jobClient(projectA, ["mcp:read"]);
+    it("is bound to the job's workspace and reports unknown records", async () => {
+      const other = await item({ workspaceId: workspaceB });
+      const job = await jobClient(workspaceA, ["mcp:read"]);
       expectError(await call(job.client, "content.get", { itemId: other.itemId }), "forbidden");
       expectError(await call(reader, "content.get", { itemId: randomUUID() }), "not_found");
       expectError(
@@ -312,7 +312,7 @@ describe("pipeline tools", () => {
     });
 
     it("has no format for an item without a series", async () => {
-      const inserted = await item({ projectId: projectA });
+      const inserted = await item({ workspaceId: workspaceA });
       const result = await call(reader, "content.get", { itemId: inserted.itemId });
       expectOk(result);
       expect(ContentGetOutputSchema.parse(result.structuredContent).format).toBeNull();
@@ -321,8 +321,8 @@ describe("pipeline tools", () => {
 
   describe("content.submit_for_review", () => {
     it("writes a version and moves the item to the stage its artifacts reach", async () => {
-      const inserted = await item({ projectId: projectA });
-      const job = await jobClient(projectA);
+      const inserted = await item({ workspaceId: workspaceA });
+      const job = await jobClient(workspaceA);
       const result = await call(job.client, "content.submit_for_review", {
         itemId: inserted.itemId,
         baseVersionId: inserted.versionId,
@@ -347,15 +347,15 @@ describe("pipeline tools", () => {
     });
 
     it("submits a finished render and its poster for review", async () => {
-      const inserted = await item({ projectId: projectA, state: "voice", level: "voice" });
+      const inserted = await item({ workspaceId: workspaceA, state: "voice", level: "voice" });
       const renderAssetId = await insertAsset(testDb.db, {
-        projectId: projectA,
+        workspaceId: workspaceA,
         itemId: inserted.itemId,
         kind: "render",
         durationMs: 60_500,
       });
       const posterAssetId = await insertAsset(testDb.db, {
-        projectId: projectA,
+        workspaceId: workspaceA,
         itemId: inserted.itemId,
         kind: "poster",
       });
@@ -383,21 +383,21 @@ describe("pipeline tools", () => {
     });
 
     it("refuses media that are not a ready asset of the right kind on the item", async () => {
-      const inserted = await item({ projectId: projectA, state: "voice", level: "voice" });
+      const inserted = await item({ workspaceId: workspaceA, state: "voice", level: "voice" });
       const poster = await insertAsset(testDb.db, {
-        projectId: projectA,
+        workspaceId: workspaceA,
         itemId: inserted.itemId,
         kind: "poster",
       });
       const pending = await insertAsset(testDb.db, {
-        projectId: projectA,
+        workspaceId: workspaceA,
         itemId: inserted.itemId,
         kind: "render",
         status: "pending",
       });
-      const elsewhere = await item({ projectId: projectA });
+      const elsewhere = await item({ workspaceId: workspaceA });
       const foreign = await insertAsset(testDb.db, {
-        projectId: projectA,
+        workspaceId: workspaceA,
         itemId: elsewhere.itemId,
         kind: "render",
       });
@@ -417,7 +417,7 @@ describe("pipeline tools", () => {
     });
 
     it("refuses a stale base version", async () => {
-      const inserted = await item({ projectId: projectA, state: "script", level: "script" });
+      const inserted = await item({ workspaceId: workspaceA, state: "script", level: "script" });
       const result = await call(writer, "content.submit_for_review", {
         itemId: inserted.itemId,
         baseVersionId: randomUUID(),
@@ -428,8 +428,8 @@ describe("pipeline tools", () => {
     });
 
     it("never lets a token approve or edit an approved item", async () => {
-      const approved = await item({ projectId: projectA, state: "approved", level: "render" });
-      const job = await jobClient(projectA);
+      const approved = await item({ workspaceId: workspaceA, state: "approved", level: "render" });
+      const job = await jobClient(workspaceA);
       const result = await call(job.client, "content.submit_for_review", {
         itemId: approved.itemId,
         script: script({ hook: "A different hook." }),
@@ -438,7 +438,7 @@ describe("pipeline tools", () => {
       expect((await itemRow(approved.itemId))?.state).toBe("approved");
 
       // A caption change in review is a user's move only.
-      const inReview = await item({ projectId: projectA, state: "review", level: "render" });
+      const inReview = await item({ workspaceId: workspaceA, state: "review", level: "render" });
       expectError(
         await call(job.client, "content.submit_for_review", {
           itemId: inReview.itemId,
@@ -450,9 +450,9 @@ describe("pipeline tools", () => {
       expect((await itemRow(inReview.itemId))?.state).toBe("review");
     });
 
-    it("refuses an item of another project to a job token", async () => {
-      const other = await item({ projectId: projectB });
-      const job = await jobClient(projectA);
+    it("refuses an item of another workspace to a job token", async () => {
+      const other = await item({ workspaceId: workspaceB });
+      const job = await jobClient(workspaceA);
       expectError(
         await call(job.client, "content.submit_for_review", {
           itemId: other.itemId,
@@ -490,8 +490,12 @@ describe("asset tools", () => {
   }
 
   it("uploads, finalizes and downloads a voice take with a job token", async () => {
-    const inserted = await item({ projectId: projectA, state: "storyboard", level: "storyboard" });
-    const job = await jobClient(projectA);
+    const inserted = await item({
+      workspaceId: workspaceA,
+      state: "storyboard",
+      level: "storyboard",
+    });
+    const job = await jobClient(workspaceA);
     const { file, args } = voiceFile();
 
     const started = await call(job.client, "content.upload_asset", {
@@ -504,7 +508,7 @@ describe("asset tools", () => {
     expect(asset).toMatchObject({
       status: "pending",
       itemId: inserted.itemId,
-      projectId: projectA,
+      workspaceId: workspaceA,
     });
     expect(upload).not.toBeNull();
     if (upload === null) return;
@@ -540,7 +544,7 @@ describe("asset tools", () => {
       kind: "voice",
       status: "ready",
       itemId: inserted.itemId,
-      projectId: projectA,
+      workspaceId: workspaceA,
       sha256: file.sha256,
       durationMs: 31_000,
       alignment,
@@ -565,10 +569,10 @@ describe("asset tools", () => {
   it("gives two items their own copies of an identical voice take and render", async () => {
     const content = contentServiceFor(moduleDeps);
     const items = [
-      await item({ projectId: projectA, state: "storyboard", level: "storyboard" }),
-      await item({ projectId: projectA, state: "storyboard", level: "storyboard" }),
+      await item({ workspaceId: workspaceA, state: "storyboard", level: "storyboard" }),
+      await item({ workspaceId: workspaceA, state: "storyboard", level: "storyboard" }),
     ];
-    const job = await jobClient(projectA);
+    const job = await jobClient(workspaceA);
     const voice = voiceFile(1_024);
     const render = randomFile(1_536);
     const files = [
@@ -621,7 +625,7 @@ describe("asset tools", () => {
   });
 
   it("reports a pending asset as not ready and unknown assets as not found", async () => {
-    const inserted = await item({ projectId: projectA });
+    const inserted = await item({ workspaceId: workspaceA });
     const { args } = voiceFile(512);
     const started = await call(writer, "content.upload_asset", {
       itemId: inserted.itemId,
@@ -642,9 +646,9 @@ describe("asset tools", () => {
     );
   });
 
-  it("binds uploads, finalization and downloads to the job's project", async () => {
-    const other = await item({ projectId: projectB, state: "voice", level: "voice" });
-    const job = await jobClient(projectA);
+  it("binds uploads, finalization and downloads to the job's workspace", async () => {
+    const other = await item({ workspaceId: workspaceB, state: "voice", level: "voice" });
+    const job = await jobClient(workspaceA);
     const { args } = voiceFile(256);
     expectError(
       await call(job.client, "content.upload_asset", { itemId: other.itemId, ...args }),
@@ -664,8 +668,8 @@ describe("asset tools", () => {
   });
 
   it("refuses uploads to read-only job tokens", async () => {
-    const inserted = await item({ projectId: projectA });
-    const job = await jobClient(projectA, ["mcp:read"]);
+    const inserted = await item({ workspaceId: workspaceA });
+    const job = await jobClient(workspaceA, ["mcp:read"]);
     const { args } = voiceFile(128);
     expectError(
       await call(job.client, "content.upload_asset", { itemId: inserted.itemId, ...args }),

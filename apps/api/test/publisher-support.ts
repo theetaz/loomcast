@@ -5,7 +5,7 @@ import type { ModuleDeps } from "../src/deps";
 import type { Config } from "../src/env";
 import { channelAad, createVault, type VaultKeyring } from "../src/lib/vault";
 import type { Scheduler } from "../src/modules/scheduler";
-import { createTestApp, type TestApp, type TestClock } from "./support";
+import { createTestApp, defaultWorkspace, type TestApp, type TestClock } from "./support";
 
 /** A keyring generated per run, shared by every app of a test file. */
 export function testKeyring(): VaultKeyring {
@@ -40,6 +40,8 @@ export interface ChannelSpec {
   connected?: boolean;
   displayName?: string;
   requiresApproval?: boolean;
+  /** Defaults to the database's default workspace. */
+  workspaceId?: string;
 }
 
 export interface InsertedChannel {
@@ -65,6 +67,7 @@ export async function insertChannel(
   const externalId = connected ? String(17_000_000_000 + Math.floor(Math.random() * 1e9)) : null;
   await db.insert(channels).values({
     id,
+    workspaceId: spec.workspaceId ?? (await defaultWorkspace(db)),
     platform,
     displayName: spec.displayName ?? `${platform} channel`,
     externalId,

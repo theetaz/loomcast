@@ -24,7 +24,7 @@ import { createScheduler, type Scheduler } from "../src/modules/scheduler";
 import {
   createPipelineHarness,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import { appWith, insertChannel, insertPost, runDue, testKeyring } from "./publisher-support";
@@ -186,12 +186,12 @@ describe("usage observer", () => {
 // Scheduler integration --------------------------------------------------------------------------
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 const keyring = testKeyring();
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
 });
 
 afterEach(async () => {
@@ -275,7 +275,7 @@ async function liveChannel(platform: Platform = "instagram") {
 }
 
 async function queuedLivePost(channelId: string) {
-  const item = await insertItem(h, { projectId, state: "scheduled", level: "render" });
+  const item = await insertItem(h, { workspaceId, state: "scheduled", level: "render" });
   const postId = await insertPost(h.db, {
     itemId: item.itemId,
     versionId: item.versionId,

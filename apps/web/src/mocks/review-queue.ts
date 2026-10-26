@@ -37,7 +37,8 @@ export function createReviewQueueHandlers(db: MockDb) {
       const all = db.contentItems
         .filter(
           (item) =>
-            item.state === "review" && (!query.projectId || item.projectId === query.projectId),
+            item.state === "review" &&
+            (!query.workspaceId || item.workspaceId === query.workspaceId),
         )
         .sort(queueOrder);
       const offset = Number(query.cursor ?? 0) || 0;

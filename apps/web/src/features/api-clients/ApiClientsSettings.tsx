@@ -1,4 +1,4 @@
-import type { ApiClient } from "@loomcast/contracts";
+import type { ApiClient, Workspace } from "@loomcast/contracts";
 import { Badge } from "@loomcast/ui/components/badge";
 import { Button } from "@loomcast/ui/components/button";
 import { cn } from "@loomcast/ui/lib/cn";
@@ -25,11 +25,11 @@ import {
 
 export const KEY_PLACEHOLDER = "<your-api-key>";
 
-/** Owner only: the backends that schedule posts through the machine API. */
-export function ApiClientsSettings() {
+/** Owner only: the backends that schedule posts on the workspace's channels through the machine API. */
+export function ApiClientsSettings({ workspace }: { workspace: Workspace }) {
   const me = useMe();
   if (me.role !== "owner") return <OwnerOnly />;
-  return <ApiClientsList />;
+  return <ApiClientsList workspace={workspace} />;
 }
 
 function OwnerOnly() {
@@ -44,8 +44,8 @@ function OwnerOnly() {
   );
 }
 
-function ApiClientsList() {
-  const query = useQuery(apiClientsQueryOptions());
+function ApiClientsList({ workspace }: { workspace: Workspace }) {
+  const query = useQuery(apiClientsQueryOptions(workspace.id));
   const revoke = useRevokeApiClient();
   // Targets outlive the open flags so dialogs keep their titles while they fade out.
   const [editing, setEditing] = useState<ApiClient | null>(null);
@@ -97,7 +97,7 @@ function ApiClientsList() {
           <EmptyState
             icon={ServerIcon}
             title="No API clients"
-            description="Create a client for each backend that should schedule posts on your channels."
+            description={`Create a client for each backend that should schedule posts on ${workspace.name}'s channels.`}
             action={newButton()}
           />
         ) : (
@@ -107,10 +107,7 @@ function ApiClientsList() {
                 <th scope="col" className={th("pl-3.5")}>
                   Name
                 </th>
-                <th scope="col" className={th("hidden w-[18%] md:table-cell")}>
-                  Project
-                </th>
-                <th scope="col" className={th("hidden w-[32%] sm:table-cell")}>
+                <th scope="col" className={th("hidden w-[40%] sm:table-cell")}>
                   Channels
                 </th>
                 <th scope="col" className={th("w-[84px] text-right")}>
@@ -147,7 +144,12 @@ function ApiClientsList() {
 
       <ApiUsageSnippet />
 
-      <ApiClientDialog open={dialogOpen} onOpenChange={setDialogOpen} client={editing} />
+      <ApiClientDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        client={editing}
+        workspace={workspace}
+      />
 
       <RevokeDialog
         open={confirming}
@@ -193,9 +195,6 @@ function ClientRow({
         <span className="block truncate font-mono text-[11px] text-muted-foreground">
           {client.prefix}…
         </span>
-      </td>
-      <td className={td("hidden md:table-cell")}>
-        <span className="block truncate text-control">{client.projectName}</span>
       </td>
       <td className={td("hidden sm:table-cell")}>
         <ul aria-label={`Channels of ${client.name}`} className="flex flex-wrap gap-1 py-1">

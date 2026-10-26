@@ -1,11 +1,11 @@
 # MCP server
 
 Loomcast serves its tools over the [Model Context Protocol](https://modelcontextprotocol.io) at
-`/mcp`, so any MCP client can work with projects and their knowledge base (brainstorms,
+`/mcp`, so any MCP client can work with workspaces and their knowledge base (brainstorms,
 reference videos, decisions and session summaries), add video ideas, read and write content
 items, upload their media and publish producer skills with an access token, and the owner can
 invite users, decide items in review and schedule posts. The same endpoint serves producer
-sessions started by the studio agent, which use job tokens bound to one project.
+sessions started by the studio agent, which use job tokens bound to one workspace.
 
 ## Endpoint
 
@@ -43,8 +43,8 @@ Authorization: Bearer <access token>
 
   | Scope | Allows |
   |---|---|
-  | `mcp:read` | Reading tools such as `project.get`, `kb.search` and `kb.get` |
-  | `mcp:write` | Tools that create or change data, such as `project.create` and `kb.save_brainstorm` |
+  | `mcp:read` | Reading tools such as `workspace.get`, `kb.search` and `kb.get` |
+  | `mcp:write` | Tools that create or change data, such as `workspace.create` and `kb.save_brainstorm` |
   | `mcp:admin` | Administration and owner tools such as `admin.create_user`, `content.review` and `calendar.schedule_post`. Only the owner's tokens carry it |
 
 - **Cookies are ignored.** A signed-in browser session does not authorize `/mcp`, and the REST
@@ -53,15 +53,15 @@ Authorization: Bearer <access token>
 - **Failures.** A missing, malformed, expired or revoked token gets `401` with a
   `WWW-Authenticate: Bearer` header. Revoking a token in Settings takes effect on its next request.
   Device tokens (`lc_dev_…`) are not accepted.
-- **Job tokens.** See [Job tokens and project binding](#job-tokens-and-project-binding).
+- **Job tokens.** See [Job tokens and workspace binding](#job-tokens-and-workspace-binding).
 
-## Job tokens and project binding
+## Job tokens and workspace binding
 
 A producer session started by the studio agent never sees a user's access token. For each job
 that needs `/mcp`, the server mints a job token (`lc_job_…`) and sends it to the studio agent
 with the job; the session (or the studio agent itself) uses it as its bearer token on `/mcp`.
 
-- **Lifetime.** A job token is bound to one job and that job's project. It stops working when the
+- **Lifetime.** A job token is bound to one job and that job's workspace. It stops working when the
   job finishes (succeeds, fails or is cancelled), when the job goes back to the queue, when it is
   revoked, or when it expires, whichever comes first. A request with such a token gets `401`.
 - **Scopes.** Each job type's registry entry decides: chat turns and production jobs (script,
@@ -69,16 +69,16 @@ with the job; the session (or the studio agent itself) uses it as its bearer tok
   get `mcp:read` only. Job tokens never carry `mcp:admin`, and they are not listed under
   **Settings → Access tokens**.
 - **Tools.** A job token may call only the tools marked "Job tokens: allowed" in the reference
-  below. Calling any other tool (`project.create`, `kb.save_session_summary`, `skill.publish`,
+  below. Calling any other tool (`workspace.create`, `kb.save_session_summary`, `skill.publish`,
   `admin.create_user`) fails with `forbidden`.
-- **Project binding.** Each tool's reference says how its input names a project:
-  - "the input names the project": the project comes from `projectId`, `idOrSlug`, or the record
+- **Workspace binding.** Each tool's reference says how its input names a workspace:
+  - "the input names the workspace": the workspace comes from `workspaceId`, `idOrSlug`, or the record
     the input names (`kb.get` takes it from `entryId`, `format.get_rules` from `seriesId`, the
     `content.*` tools from `itemId`, `content.finalize_asset` and `asset.get_url` from
-    `assetId`). A job token naming any project but its job's gets `forbidden`, and nothing is read
-    or written. When an optional `projectId` is left out (`kb.search`), the job's project is used.
-  - "the input names no project": the result only covers the job's project. `project.list`
-    returns just that project. Skills are global, so `skill.pull` returns every skill to any
+    `assetId`). A job token naming any workspace but its job's gets `forbidden`, and nothing is read
+    or written. When an optional `workspaceId` is left out (`kb.search`), the job's workspace is used.
+  - "the input names no workspace": the result only covers the job's workspace. `workspace.list`
+    returns just that workspace. Skills are global, so `skill.pull` returns every skill to any
     token.
 - **Rate limit.** 240 requests a minute per job token.
 - **Attribution.** Entries and content items a job token creates are marked as written by a
@@ -119,20 +119,20 @@ curl -s -X POST https://loomcast.prabhavalabs.com/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-And to create a project:
+And to create a workspace:
 
 ```bash
 curl -s -X POST https://loomcast.prabhavalabs.com/mcp \
   -H "Authorization: Bearer $LOOMCAST_MCP_TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project.create","arguments":{"name":"Rust in 60 seconds"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"workspace.create","arguments":{"name":"Rust in 60 seconds"}}}'
 ```
 
 ## Knowledge base tools
 
-The `kb.*` tools read and write a project's knowledge base, the same entries the web app shows
-on the project's knowledge-base pages. Every write is audited and published to the web app's live
+The `kb.*` tools read and write a workspace's knowledge base, the same entries the web app shows
+on the workspace's knowledge-base pages. Every write is audited and published to the web app's live
 event stream (`kb.entry.created`, `kb.entry.updated`), so open pages update at once.
 
 - **`kb.save_brainstorm`** saves markdown with an optional `sessionRef` naming the conversation it
@@ -141,10 +141,10 @@ event stream (`kb.entry.created`, `kb.entry.updated`), so open pages update at o
   its author, transcript and an analysis made by the caller. The platform is detected from the
   link unless given. The link is never fetched, previewed or downloaded, and saving a reference
   never starts an analysis: that happens only when a user asks for one in the web app. Saving a
-  link the project already has fails with `conflict`, naming the existing entry.
+  link the workspace already has fails with `conflict`, naming the existing entry.
 - **`kb.add_decision`** records a decision and its rationale. With `supersedes`, the named
-  decision of the same project is marked superseded in the same change.
-- **`kb.search`** runs a ranked full-text search, within one project or across all of them, and
+  decision of the same workspace is marked superseded in the same change.
+- **`kb.search`** runs a ranked full-text search, within one workspace or across all of them, and
   optionally limited to some entry kinds. Snippets mark matches with the control characters
   U+0002 (start) and U+0003 (end); the text summary leaves the marks out.
 - **`kb.get`** returns one entry with its details, including the reference fields for a
@@ -152,9 +152,9 @@ event stream (`kb.entry.created`, `kb.entry.updated`), so open pages update at o
   instructions.
 - **`kb.save_session_summary`** is meant for an optional session-end hook in an MCP client. It
   saves a summary keyed by `sessionId`; calling it again for the same session replaces the
-  summary. Without `projectId`, the project is taken from `cwd` when it contains a
-  `Loomcast/projects/<project id>` folder (the folder the studio agent gives each project);
-  otherwise the call fails with `project_unresolved`. Job tokens cannot call it.
+  summary. Without `workspaceId`, the workspace is taken from `cwd` when it contains a
+  `Loomcast/projects/<workspace id>` folder (the folder the studio agent gives each workspace);
+  otherwise the call fails with `workspace_unresolved`. Job tokens cannot call it.
 
 Entries written with an access token are marked `createdVia: "mcp"` (`"hook"` for session
 summaries) and belong to the token's user.
@@ -178,8 +178,8 @@ pipeline's state machine, is audited and appears live in open pages (`content.it
 - **`format.get_rules`** returns the current rules of a series' format: tone, reading level, hook
   style, length, voice, visual style, topics, cadence and caption rules, with the format version
   they come from.
-- **`content.create_idea`** adds an item in the `idea` state to a project, optionally in one of its
-  series (which must be in the same project and not archived). The result is the item id.
+- **`content.create_idea`** adds an item in the `idea` state to a workspace, optionally in one of its
+  series (which must be in the same workspace and not archived). The result is the item id.
 - **`content.get`** returns the item, one version and the format the item is produced with. The
   version is the current one unless `versionId` names another version of the item; it carries its
   number (`versionNo`), `script`, `storyboard`, `voiceAssetId`, `renderAssetId`, `posterAssetId`
@@ -205,7 +205,7 @@ Media bytes never pass through `/mcp`. A client uploads a file in three steps:
 1. **`content.upload_asset`** with the item, the kind (`voice`, `render`, `poster`, `frame`,
    `media` for a photo or video of a composed post, …),
    the file name, MIME type, size and SHA-256. The result is the asset and an `upload` with a
-   presigned URL and headers. When the project already holds the same file as a ready asset of
+   presigned URL and headers. When the workspace already holds the same file as a ready asset of
    that kind, `upload` is null and the file needs neither an upload nor a finalize.
 2. `PUT` the bytes to `upload.url` with exactly `upload.headers` before `upload.expiresAt`. The
    headers include the checksum the store verifies.
@@ -216,13 +216,13 @@ Media bytes never pass through `/mcp`. A client uploads a file in three steps:
    finalize again. Finalizing a ready asset returns it unchanged.
 
 **`asset.get_url`** returns a download URL valid for an hour and the asset's details: its kind,
-status, item, project, size, SHA-256, duration, probe and, for a voice take, the alignment. An
+status, item, workspace, size, SHA-256, duration, probe and, for a voice take, the alignment. An
 asset that is not ready fails with `not_ready`.
 
 ## Skill tools
 
 Skills are versioned packs of text files (instructions, recipes and their templates) that
-producer sessions load. They are global, not tied to a project, and the studio agent keeps a copy
+producer sessions load. They are global, not tied to a workspace, and the studio agent keeps a copy
 of the latest version of each in its workspace.
 
 - **`skill.publish`** stores `files` as the next version of the skill `name` (version 1 for a new
@@ -249,14 +249,14 @@ of the latest version of each in its workspace.
 (at most 62 days), so a producer can see when the next videos are due. Each slot is one local time
 of a series' cadence (days, times and time zone from its format) on one channel the series
 publishes to, as a UTC instant. Times the clocks skip move forward to the first valid minute, and
-times that happen twice take the earlier instant. Only active series of active projects have
+times that happen twice take the earlier instant. Only active series of active workspaces have
 slots.
 
 - `postId` is set when a post that is not cancelled has the same series, channel and time; a slot
   without it is open. A post moved to another time leaves its slot open.
-- `seriesId` and `channelId` narrow the list; `projectId` keeps it to one project. Without them an
-  access token sees every project, and a job token only its job's project. A job token naming
-  another project's series is refused with `forbidden`, an unknown series with `not_found`.
+- `seriesId` and `channelId` narrow the list; `workspaceId` keeps it to one workspace. Without them an
+  access token sees every workspace, and a job token only its job's workspace. A job token naming
+  another workspace's series is refused with `forbidden`, an unknown series with `not_found`.
 - Slots are listed in time order, then by series and channel. The text summary counts them and
   the open ones.
 
@@ -280,7 +280,7 @@ approve or schedule its own work.
   status, whether credentials are connected and whether they publish in dry-run. Credentials
   never leave the server.
 - **`calendar.list_posts`** returns the posts scheduled in `[from, to)` (at most 62 days) and the
-  open cadence slots in it from now on, optionally for one `projectId` or some `channelIds`.
+  open cadence slots in it from now on, optionally for one `workspaceId` or some `channelIds`.
 - **`calendar.schedule_post`** schedules an approved item on a channel at least two minutes
   ahead. The post publishes the item's current version and the item moves to `scheduled`; a
   second open post of the same item on the same channel is a `conflict`.
@@ -354,11 +354,11 @@ A failed call returns `isError: true` with one text item of the form `<code>: <m
 
 | Code | Meaning |
 |---|---|
-| `forbidden` | The token lacks the tool's scope, the tool does not accept job tokens, a job token named another project, or a non-owner called an owner-only tool |
-| `not_found` | The project, entry or other record does not exist |
-| `conflict` | The request clashes with existing data, for example a slug or reference already saved, an archived project, a stale `baseVersionId` or a skill published with another kind |
-| `validation_failed` | The arguments are well formed but not acceptable, for example a `supersedes` id that is not a decision of the project; the fields at fault follow in brackets |
-| `project_unresolved` | `kb.save_session_summary` got neither a `projectId` nor a `cwd` inside a project folder |
+| `forbidden` | The token lacks the tool's scope, the tool does not accept job tokens, a job token named another workspace, or a non-owner called an owner-only tool |
+| `not_found` | The workspace, entry or other record does not exist |
+| `conflict` | The request clashes with existing data, for example a slug or reference already saved, an archived workspace, a stale `baseVersionId` or a skill published with another kind |
+| `validation_failed` | The arguments are well formed but not acceptable, for example a `supersedes` id that is not a decision of the workspace; the fields at fault follow in brackets |
+| `workspace_unresolved` | `kb.save_session_summary` got neither a `workspaceId` nor a `cwd` inside a workspace folder |
 | `invalid_transition` | The pipeline's state machine refuses the change, for example a token editing an approved item |
 | `upload_missing` | `content.finalize_asset` found no stored file: `PUT` the bytes to the upload URL, then finalize again |
 | `not_ready` | `asset.get_url` was asked for an asset that is still uploading or failed verification |
@@ -375,11 +375,11 @@ Errors outside a tool call are plain HTTP statuses: `401` (token), `403` (foreig
 
 Every tool call is written to the audit log as `mcp.tool.called`, with the token as the actor,
 the tool name, the client address, the outcome (`ok`, `denied` or `error`, with the error code),
-the project the call was about and, for a job token, the job (`jobId`). Arguments and results are
+the workspace the call was about and, for a job token, the job (`jobId`). Arguments and results are
 not logged, except that a successful owner tool call also records the ids it changed (`reviewId`,
 `itemId`, `decision` and `state` for `content.review`; `postId`, `itemId` and `channelId` for the
 post tools), which ties the owner's move to the token that made it. Changes made by a tool, such
-as `project.created`, `kb.entry.create`, `content.version.created`, `asset.finalized`,
+as `workspace.created`, `kb.entry.create`, `content.version.created`, `asset.finalized`,
 `skill.published` or `user.invited`, are audited as well, naming the token; the owner tools'
 changes are audited as the owner's.
 
@@ -396,7 +396,7 @@ Invite a user. Returns a one-time link where the user sets a password, and when 
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -420,7 +420,7 @@ Get a short-lived download URL for a ready asset, with its details.
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -437,7 +437,7 @@ Get a short-lived download URL for a ready asset, with its details.
 | `expiresAt` | string (date-time) | yes |  |
 | `asset` | object | yes |  |
 | `asset.id` | string (uuid) | yes |  |
-| `asset.projectId` | string (uuid) | yes |  |
+| `asset.workspaceId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
 | `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
@@ -459,7 +459,7 @@ Owner only. Cancel a post that has not started publishing. An item left without 
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -473,7 +473,7 @@ Owner only. Cancel a post that has not started publishing. An item left without 
 |---|---|---|---|
 | `post` | object | yes |  |
 | `post.id` | string (uuid) | yes |  |
-| `post.projectId` | string (uuid) | yes |  |
+| `post.workspaceId` | string (uuid) | yes |  |
 | `post.itemId` | string (uuid) | yes |  |
 | `post.versionId` | string (uuid) \| null | yes |  |
 | `post.channelId` | string (uuid) | yes |  |
@@ -511,13 +511,13 @@ List the publishing slots of series' cadences between two times (at most 62 days
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | no |  |
+| `workspaceId` | string (uuid) | no |  |
 | `seriesId` | string (uuid) | no |  |
 | `channelId` | string (uuid) | no |  |
 | `from` | string (date-time) | yes |  |
@@ -535,11 +535,11 @@ List the publishing slots of series' cadences between two times (at most 62 days
 
 ### `calendar.list_posts`
 
-Owner only. List the posts scheduled between two times (at most 62 days) and the open cadence slots from now on, optionally for one project or some channels. Each post carries the updatedAt that calendar.reschedule_post expects.
+Owner only. List the posts scheduled between two times (at most 62 days) and the open cadence slots from now on, optionally for one workspace or some channels. Each post carries the updatedAt that calendar.reschedule_post expects.
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -547,7 +547,7 @@ Owner only. List the posts scheduled between two times (at most 62 days) and the
 |---|---|---|---|
 | `from` | string (date-time) | yes |  |
 | `to` | string (date-time) | yes |  |
-| `projectId` | string (uuid) | no |  |
+| `workspaceId` | string (uuid) | no |  |
 | `channelIds` | string (uuid)[] | no | at least 1 items; at most 50 items |
 
 **Output** (`structuredContent`)
@@ -556,7 +556,7 @@ Owner only. List the posts scheduled between two times (at most 62 days) and the
 |---|---|---|---|
 | `posts` | object[] | yes |  |
 | `posts[].id` | string (uuid) | yes |  |
-| `posts[].projectId` | string (uuid) | yes |  |
+| `posts[].workspaceId` | string (uuid) | yes |  |
 | `posts[].itemId` | string (uuid) | yes |  |
 | `posts[].versionId` | string (uuid) \| null | yes |  |
 | `posts[].channelId` | string (uuid) | yes |  |
@@ -599,7 +599,7 @@ Owner only. Move a planned, queued, failed or missed post to a new time at least
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -615,7 +615,7 @@ Owner only. Move a planned, queued, failed or missed post to a new time at least
 |---|---|---|---|
 | `post` | object | yes |  |
 | `post.id` | string (uuid) | yes |  |
-| `post.projectId` | string (uuid) | yes |  |
+| `post.workspaceId` | string (uuid) | yes |  |
 | `post.itemId` | string (uuid) | yes |  |
 | `post.versionId` | string (uuid) \| null | yes |  |
 | `post.channelId` | string (uuid) | yes |  |
@@ -653,7 +653,7 @@ Owner only. Schedule an approved item on a channel at a time at least two minute
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -678,7 +678,7 @@ Owner only. Schedule an approved item on a channel at a time at least two minute
 |---|---|---|---|
 | `post` | object | yes |  |
 | `post.id` | string (uuid) | yes |  |
-| `post.projectId` | string (uuid) | yes |  |
+| `post.workspaceId` | string (uuid) | yes |  |
 | `post.itemId` | string (uuid) | yes |  |
 | `post.versionId` | string (uuid) \| null | yes |  |
 | `post.channelId` | string (uuid) | yes |  |
@@ -712,15 +712,17 @@ Owner only. Schedule an approved item on a channel at a time at least two minute
 
 ### `channel.list`
 
-Owner only. List the channels posts can be scheduled on, with their platform, name, handle, status, whether credentials are connected and whether they publish in dry-run.
+Owner only. List the channels posts can be scheduled on, with their workspace, platform, name, handle, status, whether credentials are connected and whether they publish in dry-run. Pass workspaceId for one workspace's channels.
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
-None.
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspaceId` | string (uuid) | no |  |
 
 **Output** (`structuredContent`)
 
@@ -728,6 +730,7 @@ None.
 |---|---|---|---|
 | `channels` | object[] | yes |  |
 | `channels[].id` | string (uuid) | yes |  |
+| `channels[].workspaceId` | string (uuid) | yes |  |
 | `channels[].platform` | "facebook" \| "instagram" \| "threads" \| "x" | yes |  |
 | `channels[].displayName` | string | yes |  |
 | `channels[].externalId` | string \| null | yes |  |
@@ -749,17 +752,17 @@ None.
 
 ### `content.create_idea`
 
-Add a video idea (title and pitch) to a project, optionally in a series. It starts in the idea state.
+Add a video idea (title and pitch) to a workspace, optionally in a series. It starts in the idea state.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | yes |  |
+| `workspaceId` | string (uuid) | yes |  |
 | `seriesId` | string (uuid) | no |  |
 | `title` | string | yes | 1 to 200 characters |
 | `pitch` | string | yes | at most 2000 characters |
@@ -777,7 +780,7 @@ Finish an upload: the server checks the size and SHA-256 and stores the media pr
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -807,7 +810,7 @@ Finish an upload: the server checks the size and SHA-256 and stores the media pr
 |---|---|---|---|
 | `asset` | object | yes |  |
 | `asset.id` | string (uuid) | yes |  |
-| `asset.projectId` | string (uuid) | yes |  |
+| `asset.workspaceId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
 | `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
@@ -828,7 +831,7 @@ Get a content item with one version (the current one by default), its script and
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -843,7 +846,7 @@ Get a content item with one version (the current one by default), its script and
 |---|---|---|---|
 | `item` | object | yes |  |
 | `item.id` | string (uuid) | yes |  |
-| `item.projectId` | string (uuid) | yes |  |
+| `item.workspaceId` | string (uuid) | yes |  |
 | `item.seriesId` | string (uuid) \| null | yes |  |
 | `item.title` | string | yes |  |
 | `item.pitch` | string \| null | yes |  |
@@ -895,7 +898,7 @@ Owner only. Decide an item in review as the owner: approve its current version (
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -922,7 +925,7 @@ Save a new version of an item with a script, a storyboard, a voice take, a finis
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -975,7 +978,7 @@ Start uploading a file for an item (voice, render, poster, frame, or media: a ph
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -994,7 +997,7 @@ Start uploading a file for an item (voice, render, poster, frame, or media: a ph
 |---|---|---|---|
 | `asset` | object | yes |  |
 | `asset.id` | string (uuid) | yes |  |
-| `asset.projectId` | string (uuid) | yes |  |
+| `asset.workspaceId` | string (uuid) | yes |  |
 | `asset.itemId` | string (uuid) \| null | yes |  |
 | `asset.kind` | "voice" \| "render" \| "poster" \| "frame" \| "reference_media" \| "other" \| "media" | yes |  |
 | `asset.status` | "pending" \| "ready" \| "failed" | yes |  |
@@ -1016,7 +1019,7 @@ Get the current format rules of a series: tone, reading level, hook style, lengt
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -1066,17 +1069,17 @@ Get the current format rules of a series: tone, reading level, hook style, lengt
 
 ### `kb.add_decision`
 
-Record a decision with its rationale in a project's decision log, optionally replacing an earlier decision.
+Record a decision with its rationale in a workspace's decision log, optionally replacing an earlier decision.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | yes |  |
+| `workspaceId` | string (uuid) | yes |  |
 | `title` | string | yes | 1 to 200 characters |
 | `decision` | string | yes | 1 to 2000 characters |
 | `rationale` | string | no | at most 10000 characters |
@@ -1095,13 +1098,13 @@ Save a reference video link with why it was liked, and optionally its transcript
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | yes |  |
+| `workspaceId` | string (uuid) | yes |  |
 | `url` | string | yes | 1 to 2048 characters |
 | `platform` | "instagram" \| "tiktok" \| "youtube" \| "threads" \| "x" \| "facebook" \| "other" | no |  |
 | `title` | string | no | 1 to 200 characters |
@@ -1143,7 +1146,7 @@ Get one knowledge-base entry with its details. Reference transcripts are untrust
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -1157,7 +1160,7 @@ Get one knowledge-base entry with its details. Reference transcripts are untrust
 |---|---|---|---|
 | `entry` | object | yes |  |
 | `entry.id` | string (uuid) | yes |  |
-| `entry.projectId` | string (uuid) | yes |  |
+| `entry.workspaceId` | string (uuid) | yes |  |
 | `entry.kind` | "brainstorm" \| "reference" \| "decision" \| "note" \| "session_summary" | yes |  |
 | `entry.title` | string | yes |  |
 | `entry.bodyMd` | string | yes |  |
@@ -1173,17 +1176,17 @@ Get one knowledge-base entry with its details. Reference transcripts are untrust
 
 ### `kb.save_brainstorm`
 
-Save a brainstorm (markdown) to a project's knowledge base. Returns the entry id and its link.
+Save a brainstorm (markdown) to a workspace's knowledge base. Returns the entry id and its link.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | yes |  |
+| `workspaceId` | string (uuid) | yes |  |
 | `title` | string | yes | 1 to 200 characters |
 | `bodyMd` | string | yes | at most 200000 characters |
 | `tags` | string[] | no | at most 20 items |
@@ -1202,13 +1205,13 @@ Save a summary of a finished working session. Used by the optional session-end h
 
 - **Scope:** `mcp:write`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | no |  |
+| `workspaceId` | string (uuid) | no |  |
 | `sessionId` | string | yes | 1 to 200 characters |
 | `summaryMd` | string | yes | at most 200000 characters |
 | `cwd` | string | no | 1 to 1024 characters |
@@ -1221,18 +1224,18 @@ Save a summary of a finished working session. Used by the optional session-end h
 
 ### `kb.search`
 
-Full-text search of the knowledge base, optionally within one project and entry kinds. Snippets mark matches with U+0002 and U+0003.
+Full-text search of the knowledge base, optionally within one workspace and entry kinds. Snippets mark matches with U+0002 and U+0003.
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `query` | string | yes | 1 to 200 characters |
-| `projectId` | string (uuid) | no |  |
+| `workspaceId` | string (uuid) | no |  |
 | `kinds` | ("brainstorm" \| "reference" \| "decision" \| "note" \| "session_summary")[] | no | at least 1 items; at most 5 items |
 | `limit` | integer | no | at least 1; at most 50 |
 
@@ -1242,7 +1245,7 @@ Full-text search of the knowledge base, optionally within one project and entry 
 |---|---|---|---|
 | `hits` | object[] | yes |  |
 | `hits[].entryId` | string (uuid) | yes |  |
-| `hits[].projectId` | string (uuid) | yes |  |
+| `hits[].workspaceId` | string (uuid) | yes |  |
 | `hits[].kind` | "brainstorm" \| "reference" \| "decision" \| "note" \| "session_summary" | yes |  |
 | `hits[].title` | string | yes |  |
 | `hits[].snippet` | string | yes | at most 2000 characters |
@@ -1254,7 +1257,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -1275,7 +1278,7 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 |---|---|---|---|
 | `item` | object | yes |  |
 | `item.id` | string (uuid) | yes |  |
-| `item.projectId` | string (uuid) | yes |  |
+| `item.workspaceId` | string (uuid) | yes |  |
 | `item.seriesId` | string (uuid) \| null | yes |  |
 | `item.title` | string | yes |  |
 | `item.pitch` | string \| null | yes |  |
@@ -1324,17 +1327,17 @@ Owner only. Save a new version of a composed post: its format, its files in orde
 
 ### `post.create`
 
-Owner only. Create a composed post in a project: a photo (image), carousel, story, text post, Facebook video or a Reel from an uploaded video, with no studio production. Next: upload each file with content.upload_asset (kind media, this itemId) and content.finalize_asset, then call post.compose. A text post with a caption is ready for post.schedule at once. For a studio video use content.create_idea.
+Owner only. Create a composed post in a workspace: a photo (image), carousel, story, text post, Facebook video or a Reel from an uploaded video, with no studio production. Next: upload each file with content.upload_asset (kind media, this itemId) and content.finalize_asset, then call post.compose. A text post with a caption is ready for post.schedule at once. For a studio video use content.create_idea.
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projectId` | string (uuid) | yes |  |
+| `workspaceId` | string (uuid) | yes |  |
 | `title` | string | yes | 1 to 200 characters |
 | `format` | "reel" \| "video" \| "image" \| "carousel" \| "story" \| "text" | yes |  |
 | `caption` | string | no | at most 2200 characters |
@@ -1347,7 +1350,7 @@ Owner only. Create a composed post in a project: a photo (image), carousel, stor
 |---|---|---|---|
 | `item` | object | yes |  |
 | `item.id` | string (uuid) | yes |  |
-| `item.projectId` | string (uuid) | yes |  |
+| `item.workspaceId` | string (uuid) | yes |  |
 | `item.seriesId` | string (uuid) \| null | yes |  |
 | `item.title` | string | yes |  |
 | `item.pitch` | string \| null | yes |  |
@@ -1400,7 +1403,7 @@ List the post formats (reel, video, image, carousel, story, text), the photos an
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -1439,7 +1442,7 @@ Owner only. Schedule an item on one or more channels at one time, at least two m
 
 - **Scope:** `mcp:admin`
 - **Job tokens:** not allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -1469,7 +1472,7 @@ Owner only. Schedule an item on one or more channels at one time, at least two m
 | `reviewId` | string (uuid) \| null | yes |  |
 | `posts` | object[] | yes |  |
 | `posts[].id` | string (uuid) | yes |  |
-| `posts[].projectId` | string (uuid) | yes |  |
+| `posts[].workspaceId` | string (uuid) | yes |  |
 | `posts[].itemId` | string (uuid) | yes |  |
 | `posts[].versionId` | string (uuid) \| null | yes |  |
 | `posts[].channelId` | string (uuid) | yes |  |
@@ -1503,11 +1506,11 @@ Owner only. Schedule an item on one or more channels at one time, at least two m
 
 ### `project.create`
 
-Create a project. The slug is derived from the name unless given. Returns the project and its link.
+Deprecated: use workspace.create. Create a workspace. The slug is derived from the name unless given. Returns the workspace and its link.
 
 - **Scope:** `mcp:write`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -1516,25 +1519,27 @@ Create a project. The slug is derived from the name unless given. Returns the pr
 | `name` | string | yes | 1 to 120 characters |
 | `slug` | string | no | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
 | `description` | string | no | at most 2000 characters |
+| `color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | no |  |
+| `timeZone` | string | no |  |
 
 **Output** (`structuredContent`)
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | object | yes |  |
-| `project.id` | string (uuid) | yes |  |
-| `project.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
-| `project.name` | string | yes |  |
-| `project.description` | string \| null | yes |  |
-| `project.url` | string (uri) | yes |  |
+| `workspace` | object | yes |  |
+| `workspace.id` | string (uuid) | yes |  |
+| `workspace.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspace.name` | string | yes |  |
+| `workspace.description` | string \| null | yes |  |
+| `workspace.url` | string (uri) | yes |  |
 
 ### `project.get`
 
-Get a project by id or slug, with counts of its conversations and content.
+Deprecated: use workspace.get. Get a workspace by id or slug, with counts of its conversations and content.
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names the project
+- **Workspace binding:** the input names the workspace
 
 **Input**
 
@@ -1546,15 +1551,18 @@ Get a project by id or slug, with counts of its conversations and content.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | object | yes |  |
-| `project.id` | string (uuid) | yes |  |
-| `project.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
-| `project.name` | string | yes |  |
-| `project.description` | string \| null | yes |  |
-| `project.status` | "active" \| "archived" | yes |  |
-| `project.createdAt` | string (date-time) | yes |  |
-| `project.updatedAt` | string (date-time) | yes |  |
-| `project.archivedAt` | string (date-time) \| null | yes |  |
+| `workspace` | object | yes |  |
+| `workspace.id` | string (uuid) | yes |  |
+| `workspace.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspace.name` | string | yes |  |
+| `workspace.description` | string \| null | yes |  |
+| `workspace.status` | "active" \| "archived" | yes |  |
+| `workspace.color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | yes |  |
+| `workspace.iconUrl` | string \| null | yes | at most 200 characters; matches `^\/api\/workspaces\/[0-9a-f-]{36}\/icon\?v=\d+$` |
+| `workspace.timeZone` | string | yes |  |
+| `workspace.createdAt` | string (date-time) | yes |  |
+| `workspace.updatedAt` | string (date-time) | yes |  |
+| `workspace.archivedAt` | string (date-time) \| null | yes |  |
 | `stats` | object | yes |  |
 | `stats.conversations` | integer | yes | at least 0 |
 | `stats.kbEntries` | integer | yes | at least 0 |
@@ -1562,11 +1570,11 @@ Get a project by id or slug, with counts of its conversations and content.
 
 ### `project.list`
 
-List projects, optionally filtered by status.
+Deprecated: use workspace.list. List workspaces, optionally filtered by status.
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -1578,15 +1586,18 @@ List projects, optionally filtered by status.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `projects` | object[] | yes |  |
-| `projects[].id` | string (uuid) | yes |  |
-| `projects[].slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
-| `projects[].name` | string | yes |  |
-| `projects[].description` | string \| null | yes |  |
-| `projects[].status` | "active" \| "archived" | yes |  |
-| `projects[].createdAt` | string (date-time) | yes |  |
-| `projects[].updatedAt` | string (date-time) | yes |  |
-| `projects[].archivedAt` | string (date-time) \| null | yes |  |
+| `workspaces` | object[] | yes |  |
+| `workspaces[].id` | string (uuid) | yes |  |
+| `workspaces[].slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspaces[].name` | string | yes |  |
+| `workspaces[].description` | string \| null | yes |  |
+| `workspaces[].status` | "active" \| "archived" | yes |  |
+| `workspaces[].color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | yes |  |
+| `workspaces[].iconUrl` | string \| null | yes | at most 200 characters; matches `^\/api\/workspaces\/[0-9a-f-]{36}\/icon\?v=\d+$` |
+| `workspaces[].timeZone` | string | yes |  |
+| `workspaces[].createdAt` | string (date-time) | yes |  |
+| `workspaces[].updatedAt` | string (date-time) | yes |  |
+| `workspaces[].archivedAt` | string (date-time) \| null | yes |  |
 
 ### `skill.publish`
 
@@ -1594,7 +1605,7 @@ Publish a skill or recipe as a new version. Publishing identical files returns t
 
 - **Scope:** `mcp:write`
 - **Job tokens:** not allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -1622,7 +1633,7 @@ Download published skills with their files: every skill at its latest version, o
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed
-- **Project binding:** the input names no project
+- **Workspace binding:** the input names no workspace
 
 **Input**
 
@@ -1643,5 +1654,100 @@ Download published skills with their files: every skill at its latest version, o
 | `skills[].files` | object[] | yes |  |
 | `skills[].files[].path` | string | yes |  |
 | `skills[].files[].content` | string | yes |  |
+
+### `workspace.create`
+
+Create a workspace. The slug is derived from the name unless given. Returns the workspace and its link.
+
+- **Scope:** `mcp:write`
+- **Job tokens:** not allowed
+- **Workspace binding:** the input names no workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | yes | 1 to 120 characters |
+| `slug` | string | no | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `description` | string | no | at most 2000 characters |
+| `color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | no |  |
+| `timeZone` | string | no |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspace` | object | yes |  |
+| `workspace.id` | string (uuid) | yes |  |
+| `workspace.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspace.name` | string | yes |  |
+| `workspace.description` | string \| null | yes |  |
+| `workspace.url` | string (uri) | yes |  |
+
+### `workspace.get`
+
+Get a workspace by id or slug, with counts of its conversations and content.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Workspace binding:** the input names the workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `idOrSlug` | string | yes | 1 to 64 characters |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspace` | object | yes |  |
+| `workspace.id` | string (uuid) | yes |  |
+| `workspace.slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspace.name` | string | yes |  |
+| `workspace.description` | string \| null | yes |  |
+| `workspace.status` | "active" \| "archived" | yes |  |
+| `workspace.color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | yes |  |
+| `workspace.iconUrl` | string \| null | yes | at most 200 characters; matches `^\/api\/workspaces\/[0-9a-f-]{36}\/icon\?v=\d+$` |
+| `workspace.timeZone` | string | yes |  |
+| `workspace.createdAt` | string (date-time) | yes |  |
+| `workspace.updatedAt` | string (date-time) | yes |  |
+| `workspace.archivedAt` | string (date-time) \| null | yes |  |
+| `stats` | object | yes |  |
+| `stats.conversations` | integer | yes | at least 0 |
+| `stats.kbEntries` | integer | yes | at least 0 |
+| `stats.items` | integer | yes | at least 0 |
+
+### `workspace.list`
+
+List workspaces, optionally filtered by status.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Workspace binding:** the input names no workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `status` | "active" \| "archived" | no |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspaces` | object[] | yes |  |
+| `workspaces[].id` | string (uuid) | yes |  |
+| `workspaces[].slug` | string | yes | at most 64 characters; matches `^[a-z0-9]+(?:-[a-z0-9]+)*$` |
+| `workspaces[].name` | string | yes |  |
+| `workspaces[].description` | string \| null | yes |  |
+| `workspaces[].status` | "active" \| "archived" | yes |  |
+| `workspaces[].color` | "thread" \| "ember" \| "moss" \| "ocean" \| "plum" \| "amber" \| "rose" \| "slate" | yes |  |
+| `workspaces[].iconUrl` | string \| null | yes | at most 200 characters; matches `^\/api\/workspaces\/[0-9a-f-]{36}\/icon\?v=\d+$` |
+| `workspaces[].timeZone` | string | yes |  |
+| `workspaces[].createdAt` | string (date-time) | yes |  |
+| `workspaces[].updatedAt` | string (date-time) | yes |  |
+| `workspaces[].archivedAt` | string (date-time) \| null | yes |  |
 
 <!-- tool-reference:end -->

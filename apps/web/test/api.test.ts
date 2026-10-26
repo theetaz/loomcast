@@ -7,10 +7,10 @@ import {
   INVALID_RESPONSE,
   NETWORK_ERROR,
 } from "@/lib/api";
-import { mockProject } from "@/mocks/db";
+import { mockWorkspace } from "@/mocks/db";
 import { server } from "./support/server";
 
-const project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
+const workspace = mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
 
 describe("api client", () => {
   const client = createApiClient();
@@ -19,16 +19,16 @@ describe("api client", () => {
   it("fills path parameters and parses the response with the route schema", async () => {
     let seen: Request | undefined;
     server.use(
-      http.get("*/api/projects/:idOrSlug", ({ request }) => {
+      http.get("*/api/workspaces/:idOrSlug", ({ request }) => {
         seen = request;
-        return HttpResponse.json({ ...project, extra: "ignored" });
+        return HttpResponse.json({ ...workspace, extra: "ignored" });
       }),
     );
 
-    const result = await client.request("projects.get", { params: { idOrSlug: "a b" } });
+    const result = await client.request("workspaces.get", { params: { idOrSlug: "a b" } });
 
-    expect(result).toEqual(project);
-    expect(new URL(seen?.url ?? "").pathname).toBe("/api/projects/a%20b");
+    expect(result).toEqual(workspace);
+    expect(new URL(seen?.url ?? "").pathname).toBe("/api/workspaces/a%20b");
     expect(seen?.credentials).toBe("same-origin");
     expect(seen?.headers.get("content-type")).toBe("application/json");
   });
@@ -37,18 +37,18 @@ describe("api client", () => {
     let body: unknown;
     let url: URL | undefined;
     server.use(
-      http.post("*/api/projects", async ({ request }) => {
+      http.post("*/api/workspaces", async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(project, { status: 201 });
+        return HttpResponse.json(workspace, { status: 201 });
       }),
-      http.get("*/api/projects", ({ request }) => {
+      http.get("*/api/workspaces", ({ request }) => {
         url = new URL(request.url);
         return HttpResponse.json({ items: [] });
       }),
     );
 
-    await client.request("projects.create", { body: { name: "Rust in 60 seconds" } });
-    await client.request("projects.list", { query: { status: "archived" } });
+    await client.request("workspaces.create", { body: { name: "Rust in 60 seconds" } });
+    await client.request("workspaces.list", { query: { status: "archived" } });
 
     expect(body).toEqual({ name: "Rust in 60 seconds" });
     expect(url?.searchParams.get("status")).toBe("archived");
@@ -61,7 +61,7 @@ describe("api client", () => {
 
   it("turns an error body into an ApiError", async () => {
     server.use(
-      http.post("*/api/projects", () =>
+      http.post("*/api/workspaces", () =>
         HttpResponse.json(
           { error: { code: "conflict", message: "That slug is taken.", details: { slug: "x" } } },
           { status: 409 },
@@ -69,7 +69,9 @@ describe("api client", () => {
       ),
     );
 
-    const error = await client.request("projects.create", { body: { name: "x" } }).catch((e) => e);
+    const error = await client
+      .request("workspaces.create", { body: { name: "x" } })
+      .catch((e) => e);
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 409, code: "conflict", details: { slug: "x" } });
@@ -95,7 +97,7 @@ describe("api client", () => {
 
   it("calls the unauthorized handler for session routes only, unless told not to", async () => {
     server.use(
-      http.get("*/api/projects", () =>
+      http.get("*/api/workspaces", () =>
         HttpResponse.json(
           { error: { code: "unauthorized", message: "No session" } },
           { status: 401 },
@@ -117,7 +119,7 @@ describe("api client", () => {
     const handler = vi.fn();
     client.setUnauthorizedHandler(handler);
 
-    await expect(client.request("projects.list")).rejects.toMatchObject({ status: 401 });
+    await expect(client.request("workspaces.list")).rejects.toMatchObject({ status: 401 });
     await expect(
       client.request("auth.me", { redirectOnUnauthorized: false }),
     ).rejects.toMatchObject({ status: 401 });

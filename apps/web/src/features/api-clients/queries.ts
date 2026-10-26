@@ -26,12 +26,16 @@ export function clientStatus(client: ApiClient, now = Date.now()): ApiClientStat
   return "active";
 }
 
-/** Owner only: every API client, revoked ones included. */
-export function apiClientsQueryOptions() {
+/**
+ * Owner only: the workspace's API clients, revoked ones included. The API lists every workspace's
+ * clients in one response, so the cache holds them all and each workspace selects its own.
+ */
+export function apiClientsQueryOptions(workspaceId: string) {
   return queryOptions({
     queryKey: apiClientKeys.list,
     queryFn: ({ signal }) => api.request("apiClients.list", { signal }),
-    select: (list: List<ApiClient>) => sortClients(list.items),
+    select: (list: List<ApiClient>) =>
+      sortClients(list.items.filter((client) => client.workspaceId === workspaceId)),
   });
 }
 

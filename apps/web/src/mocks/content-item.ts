@@ -79,7 +79,7 @@ const MIME_TYPES: Record<AssetKind, string> = {
 
 /** A ready asset of an item, with plausible media facts for its kind. */
 export function mockAsset(
-  overrides: Partial<AssetDetail> & Pick<AssetDetail, "projectId" | "itemId" | "kind">,
+  overrides: Partial<AssetDetail> & Pick<AssetDetail, "workspaceId" | "itemId" | "kind">,
 ): AssetDetail {
   const at = overrides.createdAt ?? new Date().toISOString();
   const kind = overrides.kind;
@@ -160,7 +160,7 @@ export function ensureItemAssets(db: MockDb, item: ContentItem) {
         mockAsset({
           id,
           kind,
-          projectId: item.projectId,
+          workspaceId: item.workspaceId,
           itemId: item.id,
           createdAt: version.createdAt,
           durationMs,
@@ -175,7 +175,7 @@ export function ensureItemAssets(db: MockDb, item: ContentItem) {
         mockAsset({
           id: entry.assetId,
           kind: "media",
-          projectId: item.projectId,
+          workspaceId: item.workspaceId,
           itemId: item.id,
           createdAt: version.createdAt,
           mime: video ? "video/mp4" : "image/jpeg",
@@ -471,7 +471,7 @@ export function createContentItemHandlers(db: MockDb) {
       db.contentVersions.push(next);
       publish(db, {
         type: "content.version.created",
-        payload: { projectId: item.projectId, version: summary(next) },
+        payload: { workspaceId: item.workspaceId, version: summary(next) },
       });
       const updated = updateContentItem(db, item.id, (entry) => {
         entry.state = state;
@@ -514,7 +514,7 @@ export function createContentItemHandlers(db: MockDb) {
       let conversation = db.conversations.find((entry) => entry.contentItemId === item.id);
       if (!conversation) {
         conversation = mockConversation({
-          projectId: item.projectId,
+          workspaceId: item.workspaceId,
           createdBy: db.user.id,
           title: item.title,
           contentItemId: item.id,
@@ -634,14 +634,14 @@ export function createContentItemHandlers(db: MockDb) {
         createdAt: new Date().toISOString(),
       };
       db.reviews.push(review);
-      publish(db, { type: "review.created", payload: { projectId: item.projectId, review } });
+      publish(db, { type: "review.created", payload: { workspaceId: item.workspaceId, review } });
       const updated = updateContentItem(db, item.id, (entry) => {
         entry.state = REVIEW_DECISION_STATES[body.decision];
         if (body.decision === "reject") entry.archivedAt = new Date().toISOString();
       });
       if (enqueueRevision) {
         const job = mockJob({
-          projectId: item.projectId,
+          workspaceId: item.workspaceId,
           conversationId: null,
           type: "content.revise",
           maxAttempts: 3,
@@ -670,7 +670,7 @@ export function seedItemDemo(db: MockDb, now = Date.now()) {
     db.assets.push(
       mockAsset({
         kind: "voice",
-        projectId: item.projectId,
+        workspaceId: item.workspaceId,
         itemId: item.id,
         filename: "voice-take-slower.mp3",
         durationMs: 47_500,

@@ -22,7 +22,7 @@ import { CursorPageQuerySchema } from "./common";
 import { ContentTitleSchema } from "./content";
 
 // The machine API (`/api/v1`): the owner's other backends schedule posts with an API key
-// (`Authorization: Bearer lc_api_…`). A post is a content item of the client's project and one
+// (`Authorization: Bearer lc_api_…`). A post is a content item of the client's workspace and one
 // scheduled post per channel. The client declares its files, PUTs them to presigned URLs, then
 // finalizes the post; a text post needs no files and is scheduled at once. `docs/api.md` is the
 // guide.
@@ -253,6 +253,8 @@ export const ApiV1MeSchema = z.object({
     createdAt: TimestampSchema,
     expiresAt: TimestampSchema.nullable(),
   }),
+  workspace: z.object({ id: IdSchema, slug: z.string(), name: z.string() }),
+  /** Deprecated: the same as `workspace`, for clients written when workspaces were projects. */
   project: z.object({ id: IdSchema, slug: z.string(), name: z.string() }),
   grants: z.array(ApiV1GrantSchema),
   rateLimit: z.object({ requests: z.number().int(), perSeconds: z.number().int() }),

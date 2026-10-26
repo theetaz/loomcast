@@ -277,7 +277,7 @@ export interface ReferenceUploadResult {
  *
  * 1. hashes the file in slices (SHA-256, the checksum storage verifies);
  * 2. asks the API for an upload (`assets.createUpload`, kind `reference_media`);
- * 3. PUTs the bytes with progress, unless the project already has the same file (`upload: null`);
+ * 3. PUTs the bytes with progress, unless the workspace already has the same file (`upload: null`);
  * 4. finalizes the asset, which checks its size and checksum (a `409 upload_missing` PUTs again);
  * 5. sets the reference's `mediaAssetId` (re-reading the entry once if it changed meanwhile);
  * 6. starts the analysis.
@@ -307,7 +307,7 @@ export async function uploadReferenceMedia(
   const asset = await uploadAsset(
     file,
     {
-      projectId: entry.projectId,
+      workspaceId: entry.workspaceId,
       kind: "reference_media",
       filename: uploadFilename(file.name),
       mime,

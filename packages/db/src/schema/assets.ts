@@ -17,8 +17,8 @@ import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { contentItems } from "./content";
 import { assetKind, assetStatus } from "./enums";
 import { jobs } from "./jobs";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /** What an asset knows besides its columns: the probe sent at finalize and a voice take's timings. */
 export interface AssetMeta {
@@ -32,9 +32,9 @@ export interface AssetMeta {
  * its upload is finalized and its size and SHA-256 verified, then `ready` (or `failed`).
  *
  * Uploading the same bytes again returns the existing asset, within the asset's owner: an item
- * holds one live asset per kind and SHA-256 (`assets_project_id_item_id_kind_sha256_uq`), and the
- * project holds one per kind and SHA-256 among its project-level media, those without an item
- * (`assets_project_id_kind_sha256_uq`). So two items may each hold the same voice take or render,
+ * holds one live asset per kind and SHA-256 (`assets_workspace_id_item_id_kind_sha256_uq`), and the
+ * workspace holds one per kind and SHA-256 among its workspace-level media, those without an item
+ * (`assets_workspace_id_kind_sha256_uq`). So two items may each hold the same voice take or render,
  * and a version can always point at an asset of its own item. Failed assets are left out of both
  * indexes, so a failed upload can be retried; an `ON CONFLICT` target must repeat the index's
  * predicate. The predicates use the enum literal because an index predicate must be immutable and
@@ -45,10 +45,10 @@ export const assets = pgTable(
   "assets",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    /** The content item it belongs to; null for project-level media such as references. */
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The content item it belongs to; null for workspace-level media such as references. */
     itemId: uuid("item_id").references((): AnyPgColumn => contentItems.id, {
       onDelete: "cascade",
     }),
@@ -73,11 +73,11 @@ export const assets = pgTable(
   },
   (t) => [
     uniqueIndex("assets_storage_key_uq").on(t.storageKey),
-    uniqueIndex("assets_project_id_kind_sha256_uq")
-      .on(t.projectId, t.kind, t.sha256)
+    uniqueIndex("assets_workspace_id_kind_sha256_uq")
+      .on(t.workspaceId, t.kind, t.sha256)
       .where(sql`${t.itemId} is null and ${t.status} <> 'failed'`),
-    uniqueIndex("assets_project_id_item_id_kind_sha256_uq")
-      .on(t.projectId, t.itemId, t.kind, t.sha256)
+    uniqueIndex("assets_workspace_id_item_id_kind_sha256_uq")
+      .on(t.workspaceId, t.itemId, t.kind, t.sha256)
       .where(sql`${t.itemId} is not null and ${t.status} <> 'failed'`),
     index("assets_item_id_created_at_idx")
       .on(t.itemId, t.createdAt.desc())

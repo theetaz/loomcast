@@ -224,7 +224,7 @@ right.
    lock so the scheduled backup cannot connect in the middle. If anything fails before the
    swap, the incoming database is dropped and production is unchanged.
 4. **Start the api:** `dc up -d --wait api`. Pending migrations from a newer release apply on
-   start. Check `/readyz`, sign in and look at recent projects.
+   start. Check `/readyz`, sign in and look at recent workspaces.
 5. **Re-enable publishing** when the schedule has been reviewed.
 6. **Clean up** a few days later: drop `loomcast_pre_restore_<stamp>` (as in the scratch
    example).

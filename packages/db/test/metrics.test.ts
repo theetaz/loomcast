@@ -8,8 +8,8 @@ import {
   insertActiveChannel,
   insertContentItem,
   insertPost,
-  insertProject,
   insertUser,
+  insertWorkspace,
   PG,
   pgError,
 } from "./fixtures";
@@ -33,12 +33,15 @@ function hoursAfterPublish(hours: number): Date {
 
 async function insertPublishedPost() {
   const user = await insertUser(testDb.db);
-  const project = await insertProject(testDb.db, user.id);
+  const workspace = await insertWorkspace(testDb.db, user.id);
   const { item, version } = await insertContentItem(testDb.db, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     createdBy: user.id,
   });
-  const channel = await insertActiveChannel(testDb.db, { platform: "instagram" });
+  const channel = await insertActiveChannel(testDb.db, {
+    workspaceId: workspace.id,
+    platform: "instagram",
+  });
   return insertPost(testDb.db, {
     itemId: item.id,
     channelId: channel.id,

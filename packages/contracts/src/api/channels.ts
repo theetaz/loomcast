@@ -57,6 +57,8 @@ export type LivePublishingBlocker = (typeof LIVE_PUBLISHING_BLOCKERS)[number];
  */
 export const ChannelSchema = z.object({
   id: IdSchema,
+  /** The workspace the channel belongs to. An Instagram account shares its Page's workspace. */
+  workspaceId: IdSchema,
   platform: PlatformSchema,
   displayName: z.string(),
   /** The platform's id of the Page, professional account or profile; null until connected. */

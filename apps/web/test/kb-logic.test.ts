@@ -154,7 +154,7 @@ function reference(overrides: Partial<KbReferenceDetail> = {}): KbReferenceDetai
 function job(id: string, status: JobSummary["status"], message?: string): JobSummary {
   return mockJob({
     id,
-    projectId: mockId(),
+    workspaceId: mockId(),
     conversationId: null,
     type: "kb.analyze_reference",
     status,
@@ -266,16 +266,16 @@ describe("tags and editor helpers", () => {
 });
 
 describe("knowledge cache patching", () => {
-  const projectId = mockId();
+  const workspaceId = mockId();
   const entry = (overrides: Partial<KbEntry> = {}) =>
-    listedEntry(mockKbEntry({ projectId, kind: "note", title: "Note", ...overrides }));
+    listedEntry(mockKbEntry({ workspaceId, kind: "note", title: "Note", ...overrides }));
 
   function seed(
     client: QueryClient,
     filter: { kind: "all" | "note" | "decision"; tag: string | null },
     items: KbEntry[],
   ) {
-    client.setQueryData(kbKeys.list(projectId, filter), {
+    client.setQueryData(kbKeys.list(workspaceId, filter), {
       pages: [{ items, nextCursor: null }],
       pageParams: [undefined],
     });
@@ -285,7 +285,7 @@ describe("knowledge cache patching", () => {
     filter: { kind: "all" | "note" | "decision"; tag: string | null },
   ) =>
     (
-      client.getQueryData(kbKeys.list(projectId, filter)) as { pages: { items: KbEntry[] }[] }
+      client.getQueryData(kbKeys.list(workspaceId, filter)) as { pages: { items: KbEntry[] }[] }
     ).pages[0]?.items.map((item) => item.title);
 
   it("matches entries against kind and tag filters", () => {
@@ -313,7 +313,7 @@ describe("knowledge cache patching", () => {
     expect(items(client, { kind: "all", tag: null })).toEqual(["Created", "First, renamed"]);
     expect(items(client, { kind: "note", tag: "x" })).toEqual([]);
 
-    removeKbEntry(client, created.id, projectId);
+    removeKbEntry(client, created.id, workspaceId);
     expect(items(client, { kind: "all", tag: null })).toEqual(["First, renamed"]);
   });
 });

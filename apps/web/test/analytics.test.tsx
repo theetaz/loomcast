@@ -24,10 +24,13 @@ function tableRows(table: HTMLElement): string[][] {
     .map((row) => Array.from(row.querySelectorAll("th, td"), (cell) => cell.textContent ?? ""));
 }
 
+const SLUG = "rust-in-60-seconds";
+const BASE = `/w/${SLUG}/analytics`;
+
 describe("analytics overview", () => {
   it("shows the headline figures, the trend per platform and the top posts", async () => {
     const { db, items } = analyticsSetup();
-    renderApp("/analytics", db);
+    renderApp(BASE, db);
     await screen.findByRole("heading", { name: "Views over time" }, { timeout: 5000 });
 
     expect(within(tile("Posts published")).getByText("4")).toBeInTheDocument();
@@ -58,7 +61,7 @@ describe("analytics overview", () => {
     ]);
     expect(within(top).getAllByRole("link", { name: "Borrowing basics" })[0]).toHaveAttribute(
       "href",
-      `/content/${items.borrowing.id}`,
+      `/w/${SLUG}/content/${items.borrowing.id}`,
     );
     expect(
       within(top).getByRole("link", { name: "Open “Moves explained” on Facebook" }),
@@ -67,7 +70,7 @@ describe("analytics overview", () => {
 
   it("lists the same values in the table view as the chart's points", async () => {
     const { db } = analyticsSetup();
-    const { user } = renderApp("/analytics", db);
+    const { user } = renderApp(BASE, db);
     await screen.findByRole("heading", { name: "Views over time" }, { timeout: 5000 });
     const labels = points(/Views over time, by day/).map(
       (point) => point.getAttribute("aria-label") ?? "",
@@ -110,7 +113,7 @@ describe("analytics overview", () => {
 
   it("moves between points with the keyboard and shows their tooltip", async () => {
     const { db } = analyticsSetup();
-    const { user } = renderApp("/analytics", db);
+    const { user } = renderApp(BASE, db);
     await screen.findByRole("heading", { name: "Views over time" }, { timeout: 5000 });
     const days = points(/Views over time, by day/);
 
@@ -140,7 +143,7 @@ describe("analytics overview", () => {
   it("says when nothing went live in the range", async () => {
     const { db } = analyticsSetup();
     db.livePosts = [];
-    const { user } = renderApp("/analytics", db);
+    const { user } = renderApp(BASE, db);
     expect(
       await screen.findByText("Nothing went live in this range", undefined, { timeout: 5000 }),
     ).toBeInTheDocument();
@@ -158,7 +161,7 @@ describe("analytics overview", () => {
     db.livePosts = [
       mockLivePost({ item: items.moves, platform: "instagram", publishedAt: daysAgo(0) }),
     ];
-    const { user } = renderApp("/analytics", db);
+    const { user } = renderApp(BASE, db);
     await screen.findByRole("heading", { name: "Views over time" }, { timeout: 5000 });
     expect(within(tile("Posts published")).getByText("1 waiting for insights")).toBeInTheDocument();
     expect(within(tile("Total views")).getByText("—")).toBeInTheDocument();
@@ -175,22 +178,17 @@ describe("analytics overview", () => {
     expect(tableRows(within(chart).getByRole("table"))).toHaveLength(30);
   });
 
-  it("narrows to one project from the filter row", async () => {
-    const { db, project } = analyticsSetup();
+  it("asks for the open workspace's posts only", async () => {
+    const { db, workspace } = analyticsSetup();
     const requests = recordRequests();
-    const { user, router } = renderApp("/analytics", db);
+    renderApp(BASE, db);
     await screen.findByRole("heading", { name: "Views over time" }, { timeout: 5000 });
-    await user.click(screen.getByRole("combobox", { name: "Project" }));
-    await user.click(await screen.findByRole("option", { name: project.name }));
-    await waitFor(() => expect(router.state.location.search).toEqual({ project: project.id }));
-    await waitFor(() =>
-      expect(
-        requests.some(
-          (request) =>
-            request.path === "/api/analytics/overview" &&
-            request.query.get("projectId") === project.id,
-        ),
-      ).toBe(true),
+    // The workspace is the page's; there is no workspace filter.
+    expect(screen.queryByRole("combobox", { name: "Workspace" })).not.toBeInTheDocument();
+    const overviews = requests.filter((request) => request.path === "/api/analytics/overview");
+    expect(overviews.length).toBeGreaterThan(0);
+    expect(overviews.every((request) => request.query.get("workspaceId") === workspace.id)).toBe(
+      true,
     );
   });
 });
@@ -198,7 +196,7 @@ describe("analytics overview", () => {
 describe("series analytics", () => {
   it("draws views and watch time per post, by publish date", async () => {
     const { db, series } = analyticsSetup();
-    renderApp(`/analytics/series/${series.id}`, db);
+    renderApp(`${BASE}/series/${series.id}`, db);
     expect(
       await screen.findByRole("heading", { name: "Ownership basics", level: 1 }, { timeout: 5000 }),
     ).toBeInTheDocument();
@@ -227,7 +225,7 @@ describe("series analytics", () => {
 
   it("keeps the table twin of the bars in step with their labels", async () => {
     const { db, series } = analyticsSetup();
-    const { user } = renderApp(`/analytics/series/${series.id}`, db);
+    const { user } = renderApp(`${BASE}/series/${series.id}`, db);
     const chart = await screen.findByRole("region", { name: "Views per post" }, { timeout: 5000 });
     const labels = points(/Views per post, one bar per post/).map(
       (point) => point.getAttribute("aria-label") ?? "",
@@ -243,7 +241,7 @@ describe("series analytics", () => {
   it("shows an empty state for a series that never went live", async () => {
     const { db, series } = analyticsSetup();
     db.livePosts = [];
-    renderApp(`/analytics/series/${series.id}`, db);
+    renderApp(`${BASE}/series/${series.id}`, db);
     expect(
       await screen.findByText("Nothing from this series went live yet", undefined, {
         timeout: 5000,
@@ -254,7 +252,7 @@ describe("series analytics", () => {
   it("needs two measured posts before drawing bars", async () => {
     const { db, series, posts } = analyticsSetup();
     db.livePosts = [posts.borrowingInstagram, posts.borrowingThreads];
-    renderApp(`/analytics/series/${series.id}`, db);
+    renderApp(`${BASE}/series/${series.id}`, db);
     const watch = await screen.findByRole(
       "region",
       { name: "Average watch time per post" },
@@ -307,7 +305,9 @@ describe("item analytics card", () => {
   it("refetches when a post gets a new capture", async () => {
     const { db, items, posts } = analyticsSetup();
     const stream = fakeStream(db);
-    renderApp(`/content/${items.moves.id}`, db, [], { createEventSource: stream.factory });
+    renderApp(`/w/${SLUG}/content/${items.moves.id}`, db, [], {
+      createEventSource: stream.factory,
+    });
     const card = await screen.findByRole("region", { name: "Performance" }, { timeout: 5000 });
     const views = () =>
       within(card).getByText("Views", { selector: "dt" }).parentElement as HTMLElement;

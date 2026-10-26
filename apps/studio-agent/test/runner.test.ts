@@ -50,7 +50,7 @@ class FakeTransport implements BridgeTransport {
 
 const chatPayload = {
   conversationId: ids.otherJob,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   messageId: ids.device,
   text: "Write three hooks",
 };
@@ -98,7 +98,7 @@ function assign(
     ts: new Date().toISOString(),
     type: "job.assign",
     payload: {
-      job: { id: ids.job, attempt: 1, payload: {}, projectId: ids.project, ...job },
+      job: { id: ids.job, attempt: 1, payload: {}, workspaceId: ids.workspace, ...job },
       leaseMs: 600_000,
       ...(credentials === undefined ? {} : { credentials }),
     },
@@ -178,7 +178,13 @@ describe("job runner", () => {
       ts: new Date().toISOString(),
       type: "job.assign",
       payload: {
-        job: { id: ids.job, type: "shell.exec", attempt: 1, payload: {}, projectId: ids.project },
+        job: {
+          id: ids.job,
+          type: "shell.exec",
+          attempt: 1,
+          payload: {},
+          workspaceId: ids.workspace,
+        },
         leaseMs: 1000,
       },
     });
@@ -551,7 +557,7 @@ describe("job credentials", () => {
             type: "producer.chat",
             attempt: 1,
             payload: chatPayload,
-            projectId: ids.project,
+            workspaceId: ids.workspace,
           },
           leaseMs: 600_000,
           credentials: jobCredentials(token, endpoint),

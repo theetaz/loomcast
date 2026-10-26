@@ -7,10 +7,10 @@ import { ContentItemSchema, ContentVersionSummarySchema } from "./api/content";
 import { MessageSchema } from "./api/conversations";
 import { JobSummarySchema } from "./api/jobs";
 import { KbEntrySchema } from "./api/kb";
-import { ProjectSchema } from "./api/projects";
 import { ReviewSchema } from "./api/reviews";
 import { ScheduledTaskSchema } from "./api/scheduler";
 import { SkillVersionSummarySchema } from "./api/skills";
+import { WorkspaceSchema } from "./api/workspaces";
 import { IdSchema, TimestampSchema } from "./common";
 import { PlatformSchema } from "./enums";
 
@@ -56,24 +56,24 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
       lastSeenAt: TimestampSchema.nullable(),
     }),
   ),
-  liveEvent("project.created", z.object({ project: ProjectSchema })),
-  liveEvent("project.updated", z.object({ project: ProjectSchema })),
+  liveEvent("workspace.created", z.object({ workspace: WorkspaceSchema })),
+  liveEvent("workspace.updated", z.object({ workspace: WorkspaceSchema })),
   /** Knowledge-base writes from any source: the web app, MCP, a producer session or the hook. */
   liveEvent("kb.entry.created", z.object({ entry: KbEntrySchema })),
   liveEvent("kb.entry.updated", z.object({ entry: KbEntrySchema })),
-  liveEvent("kb.entry.deleted", z.object({ entryId: IdSchema, projectId: IdSchema })),
+  liveEvent("kb.entry.deleted", z.object({ entryId: IdSchema, workspaceId: IdSchema })),
   /** Content items: creation, and any change of state, title, target, autopilot or last error. */
   liveEvent("content.item.created", z.object({ item: ContentItemSchema })),
   liveEvent("content.item.updated", z.object({ item: ContentItemSchema })),
   /** A new version of an item, from a job result, an MCP submission or an edit. */
   liveEvent(
     "content.version.created",
-    z.object({ projectId: IdSchema, version: ContentVersionSummarySchema }),
+    z.object({ workspaceId: IdSchema, version: ContentVersionSummarySchema }),
   ),
   /** An asset was created, finalized or failed verification. */
   liveEvent("asset.updated", z.object({ asset: AssetSchema })),
-  liveEvent("review.created", z.object({ projectId: IdSchema, review: ReviewSchema })),
-  /** A new skill version; skills are global, not tied to a project. */
+  liveEvent("review.created", z.object({ workspaceId: IdSchema, review: ReviewSchema })),
+  /** A new skill version; skills are global, not tied to a workspace. */
   liveEvent("skill.published", z.object({ skill: SkillVersionSummarySchema })),
   /** A post was created, moved, cancelled or changed status (including publish results). */
   liveEvent("post.updated", z.object({ post: ScheduledPostSchema })),
@@ -83,7 +83,7 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
     z.object({
       postId: IdSchema,
       itemId: IdSchema,
-      projectId: IdSchema,
+      workspaceId: IdSchema,
       channelId: IdSchema,
       platform: PlatformSchema,
       metrics: PostMetricsSchema,

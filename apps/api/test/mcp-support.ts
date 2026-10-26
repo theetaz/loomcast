@@ -67,14 +67,14 @@ export async function issueToken(
  */
 export async function issueJobToken(
   db: Database,
-  values: { userId: string; projectId: string; scopes: readonly TokenScope[] },
+  values: { userId: string; workspaceId: string; scopes: readonly TokenScope[] },
 ) {
   const [job] = await db
     .insert(jobs)
     .values({
       type: "system.ping",
       status: "running",
-      projectId: values.projectId,
+      workspaceId: values.workspaceId,
       payload: {},
       createdBy: values.userId,
     })
@@ -92,7 +92,7 @@ export async function issueJobToken(
       tokenHash: generated.hash,
       prefix: generated.prefix,
       scopes: [...values.scopes],
-      projectId: values.projectId,
+      workspaceId: values.workspaceId,
       jobId: job.id,
     })
     .returning();

@@ -55,7 +55,7 @@ export function mockRules(change: (rules: FormatRules) => void = () => {}): Form
  * Without `history` it has version 1 with the default rules.
  */
 export function mockFormat(
-  overrides: Partial<Omit<Format, "currentVersion">> & Pick<Format, "projectId" | "name">,
+  overrides: Partial<Omit<Format, "currentVersion">> & Pick<Format, "workspaceId" | "name">,
   history: FormatRules[] = [mockRules()],
   createdAt = new Date().toISOString(),
 ): { format: Format; versions: FormatVersion[] } {
@@ -166,7 +166,7 @@ export function ensureFormats(
   for (const series of db.series) {
     if (db.formats.some((format) => format.id === series.formatId)) continue;
     const { format, versions } = mockFormat(
-      { id: series.formatId, projectId: series.projectId, name: series.name },
+      { id: series.formatId, workspaceId: series.workspaceId, name: series.name },
       history(series),
       series.createdAt,
     );
@@ -225,36 +225,38 @@ export function createFormatHandlers(db: MockDb) {
     http.get(path("formats.list"), ({ params }) => {
       if (!db.signedIn) return unauthorized();
       ensureFormats(db);
-      const projectId = String(params.projectId);
-      if (!db.projects.some((project) => project.id === projectId)) {
-        return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!db.workspaces.some((workspace) => workspace.id === workspaceId)) {
+        return apiError(404, "not_found", "No workspace has that id.");
       }
       const items = db.formats
-        .filter((format) => format.projectId === projectId)
+        .filter((format) => format.workspaceId === workspaceId)
         .sort((a, b) => a.name.localeCompare(b.name));
       return HttpResponse.json({ items });
     }),
 
     http.post(path("formats.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const project = db.projects.find((entry) => entry.id === params.projectId);
-      if (!project) return apiError(404, "not_found", "No project has that id.");
-      if (project.status === "archived") {
-        return apiError(409, "conflict", "The project is archived.");
+      const workspace = db.workspaces.find((entry) => entry.id === params.workspaceId);
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
+      if (workspace.status === "archived") {
+        return apiError(409, "conflict", "The workspace is archived.");
       }
       const parsed = CreateFormatRequestSchema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return invalid(parsed.error);
       ensureFormats(db);
       const taken = new Set(
-        db.formats.filter((format) => format.projectId === project.id).map((format) => format.slug),
+        db.formats
+          .filter((format) => format.workspaceId === workspace.id)
+          .map((format) => format.slug),
       );
       let slug = parsed.data.slug ?? (slugify(parsed.data.name) || "format");
       if (parsed.data.slug && taken.has(slug)) {
-        return apiError(409, "conflict", "Another format of this project has that slug.");
+        return apiError(409, "conflict", "Another format of this workspace has that slug.");
       }
       for (let n = 2; taken.has(slug); n += 1) slug = `${slugify(parsed.data.name)}-${n}`;
       const { format, versions } = mockFormat(
-        { projectId: project.id, name: parsed.data.name, slug },
+        { workspaceId: workspace.id, name: parsed.data.name, slug },
         [parsed.data.rules ?? mockRules()],
       );
       db.formats.push(format);

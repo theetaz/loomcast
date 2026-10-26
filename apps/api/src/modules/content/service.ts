@@ -37,7 +37,7 @@ import { afterCommit, type Executor, type Transaction } from "../../lib/db";
 import { conflict, notFound, validationFailed } from "../../lib/errors";
 import { createFormatsService, currentFormatVersionId } from "../formats/service";
 import { toJobSummary } from "../jobs/service";
-import { requireActiveProject } from "../kb/service";
+import { requireActiveWorkspace } from "../kb/service";
 import { auditActor, itemViaFor, type PipelineActor } from "./actor";
 import { toContentItem, toContentVersion, toContentVersionSummary } from "./mappers";
 import {
@@ -48,7 +48,13 @@ import {
   selectItemsWith,
   versionSummaries,
 } from "./queries";
-import { decodeCursor, encodeCursor, inTransaction, projectExists, staleVersion } from "./support";
+import {
+  decodeCursor,
+  encodeCursor,
+  inTransaction,
+  staleVersion,
+  workspaceExists,
+} from "./support";
 import { type TransitionOptions, transitionItem } from "./transitions";
 import {
   type CreateVersionOptions,
@@ -84,11 +90,11 @@ export interface JobVersionOptions extends Omit<CreateVersionOptions, "jobId" | 
 export interface ContentService {
   /**
    * Creates an idea: the item in state `idea` and its version 1 in one transaction, then
-   * publishes `content.item.created`. 404 for an unknown project, 409 for an archived project or
-   * series, 400 for a series of another project.
+   * publishes `content.item.created`. 404 for an unknown workspace, 409 for an archived workspace or
+   * series, 400 for a series of another workspace.
    */
   create(
-    projectId: string,
+    workspaceId: string,
     input: CreateContentItemRequest,
     actor: PipelineActor,
     options?: CreateItemOptions,
@@ -99,7 +105,7 @@ export interface ContentService {
   getItem(id: string, executor?: Executor): Promise<ContentItem | null>;
   /**
    * Items, most recently updated first, by keyset cursor. Archived items are left out unless
-   * `states` asks for them. Null when `projectId` names no project.
+   * `states` asks for them. Null when `workspaceId` names no workspace.
    */
   list(query?: ListContentQuery): Promise<CursorPage<ContentItem> | null>;
   /** Changes the title or pitch (no new version). Null when there is no such item. */
@@ -202,17 +208,21 @@ function normalisePitch(pitch: string | null | undefined): string | null | undef
   return pitch === "" ? null : pitch;
 }
 
-/** The series of a new item: in the same project and not archived. */
-async function requireSeries(tx: Transaction, projectId: string, seriesId: string): Promise<void> {
+/** The series of a new item: in the same workspace and not archived. */
+async function requireSeries(
+  tx: Transaction,
+  workspaceId: string,
+  seriesId: string,
+): Promise<void> {
   const [row] = await tx
     .select({ status: series.status })
     .from(series)
-    .where(and(eq(series.id, seriesId), eq(series.projectId, projectId)))
+    .where(and(eq(series.id, seriesId), eq(series.workspaceId, workspaceId)))
     .limit(1)
     .for("share");
   if (row === undefined) {
     throw validationFailed([
-      { path: "seriesId", message: "No series with that id in this project" },
+      { path: "seriesId", message: "No series with that id in this workspace" },
     ]);
   }
   if (row.status === "archived") {
@@ -270,18 +280,18 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
   }
 
   return {
-    async create(projectId, input, actor, options = {}) {
+    async create(workspaceId, input, actor, options = {}) {
       return inTransaction(db, options.tx, async (tx) => {
-        await requireActiveProject(tx, projectId);
+        await requireActiveWorkspace(tx, workspaceId);
         if (input.seriesId !== undefined) {
-          await requireSeries(tx, projectId, input.seriesId);
+          await requireSeries(tx, workspaceId, input.seriesId);
         }
         const itemId = randomUUID();
         const versionId = randomUUID();
         // The current-version foreign key is deferred: the item goes in first, then version 1.
         await tx.insert(contentItems).values({
           id: itemId,
-          projectId,
+          workspaceId,
           seriesId: input.seriesId ?? null,
           title: input.title,
           pitch: normalisePitch(input.pitch) ?? null,
@@ -310,7 +320,7 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
           action: "content.item.created",
           targetType: "content_item",
           targetId: itemId,
-          data: { projectId, seriesId: input.seriesId ?? null, versionId },
+          data: { workspaceId, seriesId: input.seriesId ?? null, versionId },
         });
         const created = await detail(tx, itemId);
         if (created === null) {
@@ -330,12 +340,14 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
     },
 
     async list(query = {}) {
-      if (query.projectId !== undefined && !(await projectExists(db, query.projectId))) {
+      if (query.workspaceId !== undefined && !(await workspaceExists(db, query.workspaceId))) {
         return null;
       }
       const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
       const conditions: (SQL | undefined)[] = [
-        query.projectId === undefined ? undefined : eq(contentItems.projectId, query.projectId),
+        query.workspaceId === undefined
+          ? undefined
+          : eq(contentItems.workspaceId, query.workspaceId),
         query.states === undefined
           ? ne(contentItems.state, "archived")
           : inArray(contentItems.state, query.states),
@@ -432,7 +444,7 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
         if (existing === null) {
           throw itemNotFound();
         }
-        await requireActiveProject(tx, existing.projectId);
+        await requireActiveWorkspace(tx, existing.workspaceId);
         const result = await createVersion(tx, deps, id, changes, actor, { baseVersionId });
         return { item: result.item, version: result.version };
       });
@@ -447,7 +459,7 @@ export function createContentService(deps: ContentServiceDeps): ContentService {
         if (item === null) {
           throw itemNotFound();
         }
-        await requireActiveProject(tx, item.projectId);
+        await requireActiveWorkspace(tx, item.workspaceId);
         if (input.versionId !== item.currentVersionId) {
           throw staleVersion(item.currentVersionId);
         }

@@ -1,4 +1,4 @@
-import type { KbEntry, Project } from "@loomcast/contracts";
+import type { KbEntry, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -19,11 +19,17 @@ const dateFormat = new Intl.DateTimeFormat("en", {
 });
 
 /**
- * The project's decisions as a timeline, newest first. Active decisions can be superseded;
+ * The workspace's decisions as a timeline, newest first. Active decisions can be superseded;
  * superseded ones link to what replaced them.
  */
-export function DecisionLog({ project, projectParam }: { project: Project; projectParam: string }) {
-  const list = useInfiniteQuery(kbListQueryOptions(project.id, { kind: "decision", tag: null }));
+export function DecisionLog({
+  workspace,
+  workspaceParam,
+}: {
+  workspace: Workspace;
+  workspaceParam: string;
+}) {
+  const list = useInfiniteQuery(kbListQueryOptions(workspace.id, { kind: "decision", tag: null }));
 
   if (list.isPending) return <KbRowsSkeleton rows={4} />;
   if (list.isError) {
@@ -45,8 +51,8 @@ export function DecisionLog({ project, projectParam }: { project: Project; proje
   const record = (
     <Button asChild>
       <Link
-        to="/projects/$projectId/kb/new"
-        params={{ projectId: projectParam }}
+        to="/w/$workspace/kb/new"
+        params={{ workspace: workspaceParam }}
         search={{ kind: "decision" }}
       >
         <PlusIcon aria-hidden="true" />
@@ -77,8 +83,8 @@ export function DecisionLog({ project, projectParam }: { project: Project; proje
         </p>
         <Button asChild variant="outline" size="sm">
           <Link
-            to="/projects/$projectId/kb/new"
-            params={{ projectId: projectParam }}
+            to="/w/$workspace/kb/new"
+            params={{ workspace: workspaceParam }}
             search={{ kind: "decision" }}
           >
             <PlusIcon aria-hidden="true" />
@@ -91,7 +97,7 @@ export function DecisionLog({ project, projectParam }: { project: Project; proje
           <DecisionItem
             key={entry.id}
             entry={entry}
-            projectParam={projectParam}
+            workspaceParam={workspaceParam}
             last={index === decisions.length - 1}
             supersededByTitle={(id) => titles.get(id)}
           />
@@ -114,12 +120,12 @@ export function DecisionLog({ project, projectParam }: { project: Project; proje
 
 function DecisionItem({
   entry,
-  projectParam,
+  workspaceParam,
   last,
   supersededByTitle,
 }: {
   entry: KbEntry;
-  projectParam: string;
+  workspaceParam: string;
   last: boolean;
   supersededByTitle: (id: string) => string | undefined;
 }) {
@@ -149,8 +155,8 @@ function DecisionItem({
         </div>
         <h3 className="min-w-0">
           <Link
-            to="/projects/$projectId/kb/$entryId"
-            params={{ projectId: projectParam, entryId: entry.id }}
+            to="/w/$workspace/kb/$entryId"
+            params={{ workspace: workspaceParam, entryId: entry.id }}
             className={cn(
               "rounded-sm font-medium text-body outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
               superseded ? "text-text-2" : "text-foreground",
@@ -176,8 +182,8 @@ function DecisionItem({
           {superseded ? (
             data.supersededBy ? (
               <Link
-                to="/projects/$projectId/kb/$entryId"
-                params={{ projectId: projectParam, entryId: data.supersededBy }}
+                to="/w/$workspace/kb/$entryId"
+                params={{ workspace: workspaceParam, entryId: data.supersededBy }}
                 className="inline-flex min-w-0 items-center gap-1 rounded-sm text-small text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ReplaceIcon aria-hidden="true" className="size-3.5 shrink-0" />
@@ -189,8 +195,8 @@ function DecisionItem({
           ) : (
             <Button asChild variant="ghost" size="xs" className="-ml-2">
               <Link
-                to="/projects/$projectId/kb/new"
-                params={{ projectId: projectParam }}
+                to="/w/$workspace/kb/new"
+                params={{ workspace: workspaceParam }}
                 search={{ kind: "decision", supersedes: entry.id }}
                 aria-label={`Supersede “${entry.title}”`}
               >

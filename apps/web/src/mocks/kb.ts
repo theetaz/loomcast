@@ -63,7 +63,7 @@ function nextTimestamp(previous: string): string {
 }
 
 export function mockKbEntry(
-  overrides: Partial<KbEntryDetail> & Pick<KbEntryDetail, "projectId" | "kind" | "title">,
+  overrides: Partial<KbEntryDetail> & Pick<KbEntryDetail, "workspaceId" | "kind" | "title">,
 ): KbEntryDetail {
   const at = overrides.createdAt ?? new Date().toISOString();
   return {
@@ -165,12 +165,12 @@ function countMatches(text: string, needle: string): number {
 /** Case-insensitive substring search, scored by the number of matches; titles count double. */
 export function searchKb(
   db: MockDb,
-  query: { q: string; projectId?: string; kinds?: KbEntryKind[]; limit?: number },
+  query: { q: string; workspaceId?: string; kinds?: KbEntryKind[]; limit?: number },
 ): KbSearchHit[] {
   const needle = query.q.trim();
   const hits: KbSearchHit[] = [];
   for (const entry of db.kbEntries) {
-    if (query.projectId && entry.projectId !== query.projectId) continue;
+    if (query.workspaceId && entry.workspaceId !== query.workspaceId) continue;
     if (query.kinds && !query.kinds.includes(entry.kind)) continue;
     const fields = searchableFields(entry);
     const score =
@@ -180,7 +180,7 @@ export function searchKb(
     const field = fields.find((text) => countMatches(text, needle) > 0) ?? entry.title;
     hits.push({
       entryId: entry.id,
-      projectId: entry.projectId,
+      workspaceId: entry.workspaceId,
       kind: entry.kind,
       title: entry.title,
       snippet: mockSnippet(field, needle),
@@ -289,11 +289,11 @@ function parseKinds(url: URL): KbEntryKind[] | undefined | null {
   return parsed.success ? parsed.data : null;
 }
 
-function createEntry(db: MockDb, projectId: string, body: unknown) {
+function createEntry(db: MockDb, workspaceId: string, body: unknown) {
   const parsed = CreateKbEntrySchema.safeParse(body);
   if (!parsed.success) return { error: invalid(parsed.error) };
   const input = parsed.data;
-  const base = { projectId, createdBy: db.user.id, tags: input.tags ?? [] };
+  const base = { workspaceId, createdBy: db.user.id, tags: input.tags ?? [] };
 
   switch (input.kind) {
     case "brainstorm":
@@ -318,7 +318,7 @@ function createEntry(db: MockDb, projectId: string, body: unknown) {
           (item) =>
             item.id === input.supersedes &&
             item.kind === "decision" &&
-            item.projectId === projectId,
+            item.workspaceId === workspaceId,
         );
         if (!old) return { error: apiError(404, "not_found", "No decision has that id.") };
         return { entry, supersedes: old.id };
@@ -353,14 +353,15 @@ function createEntry(db: MockDb, projectId: string, body: unknown) {
 /** Knowledge-base routes, following `@loomcast/contracts`. */
 export function createKbHandlers(db: MockDb) {
   const findEntry = (id: string) => db.kbEntries.find((item) => item.id === id);
-  const hasProject = (id: string) => db.projects.some((project) => project.id === id);
+  const hasWorkspace = (id: string) => db.workspaces.some((workspace) => workspace.id === id);
 
   return [
     // Newest first; the cursor is the offset of the next page.
     http.get(path("kb.list"), ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!hasProject(projectId)) return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!hasWorkspace(workspaceId))
+        return apiError(404, "not_found", "No workspace has that id.");
       const url = new URL(request.url);
       const kinds = parseKinds(url);
       if (kinds === null) return apiError(400, "validation_failed", "Unknown entry kind.");
@@ -373,7 +374,7 @@ export function createKbHandlers(db: MockDb) {
       const all = db.kbEntries
         .filter(
           (entry) =>
-            entry.projectId === projectId &&
+            entry.workspaceId === workspaceId &&
             (!kinds || kinds.includes(entry.kind)) &&
             (!tag || entry.tags.includes(tag)),
         )
@@ -385,11 +386,12 @@ export function createKbHandlers(db: MockDb) {
 
     http.get(path("kb.tags"), ({ params }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!hasProject(projectId)) return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!hasWorkspace(workspaceId))
+        return apiError(404, "not_found", "No workspace has that id.");
       const counts = new Map<string, number>();
       for (const entry of db.kbEntries) {
-        if (entry.projectId !== projectId) continue;
+        if (entry.workspaceId !== workspaceId) continue;
         for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
       const items = [...counts]
@@ -400,9 +402,10 @@ export function createKbHandlers(db: MockDb) {
 
     http.post(path("kb.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!hasProject(projectId)) return apiError(404, "not_found", "No project has that id.");
-      const result = createEntry(db, projectId, await request.json().catch(() => null));
+      const workspaceId = String(params.workspaceId);
+      if (!hasWorkspace(workspaceId))
+        return apiError(404, "not_found", "No workspace has that id.");
+      const result = createEntry(db, workspaceId, await request.json().catch(() => null));
       if ("error" in result) return result.error;
       db.kbEntries.push(result.entry);
       publishEntry(db, "kb.entry.created", result.entry);
@@ -416,7 +419,7 @@ export function createKbHandlers(db: MockDb) {
 
     http.post(path("kb.capture"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
+      const workspaceId = String(params.workspaceId);
       const parsed = CaptureConversationSchema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return invalid(parsed.error);
       const { conversationId, messageIds, title, kind, tags } = parsed.data;
@@ -424,7 +427,7 @@ export function createKbHandlers(db: MockDb) {
         (message) => message.conversationId === conversationId && messageIds.includes(message.id),
       );
       const entry = mockKbEntry({
-        projectId,
+        workspaceId,
         kind,
         title,
         tags: tags ?? [],
@@ -450,8 +453,8 @@ export function createKbHandlers(db: MockDb) {
         KB_SEARCH_MAX_LIMIT,
         Number(url.searchParams.get("limit") ?? KB_SEARCH_DEFAULT_LIMIT) || KB_SEARCH_DEFAULT_LIMIT,
       );
-      const projectId = url.searchParams.get("projectId") ?? undefined;
-      return HttpResponse.json({ items: searchKb(db, { q, projectId, kinds, limit }) });
+      const workspaceId = url.searchParams.get("workspaceId") ?? undefined;
+      return HttpResponse.json({ items: searchKb(db, { q, workspaceId, kinds, limit }) });
     }),
 
     http.get(path("kb.get"), ({ params }) => {
@@ -515,7 +518,7 @@ export function createKbHandlers(db: MockDb) {
       db.kbEntries = db.kbEntries.filter((item) => item.id !== entry.id);
       publish(db, {
         type: "kb.entry.deleted",
-        payload: { entryId: entry.id, projectId: entry.projectId },
+        payload: { entryId: entry.id, workspaceId: entry.workspaceId },
       });
       return new HttpResponse(null, { status: 204 });
     }),
@@ -535,7 +538,7 @@ export function createKbHandlers(db: MockDb) {
         );
       }
       const job = mockJob({
-        projectId: entry.projectId,
+        workspaceId: entry.workspaceId,
         conversationId: null,
         type: "kb.analyze_reference",
       });
@@ -568,8 +571,8 @@ const DEMO_TRANSCRIPT = [
   "[00:47] Follow for one Rust error a day.",
 ].join("\n");
 
-/** Knowledge for the first demo project, so mock mode opens on real entries. */
-export function demoKb(projectId: string, userId: string, now: number): KbEntryDetail[] {
+/** Knowledge for the first demo workspace, so mock mode opens on real entries. */
+export function demoKb(workspaceId: string, userId: string, now: number): KbEntryDetail[] {
   const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
   const entry = (minutes: number, overrides: Parameters<typeof mockKbEntry>[0]) =>
     mockKbEntry({
@@ -580,7 +583,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
     });
 
   const oldCaptions = entry(9 * 24 * 60, {
-    projectId,
+    workspaceId,
     kind: "decision",
     title: "Captions sit at the top of the frame",
     tags: ["captions", "style"],
@@ -588,7 +591,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
     data: { decision: "Captions sit at the top of the frame.", status: "superseded" },
   });
   const captions = entry(2 * 24 * 60, {
-    projectId,
+    workspaceId,
     kind: "decision",
     title: "Captions sit in the lower third, two lines at most",
     tags: ["captions", "style"],
@@ -610,7 +613,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
 
   return [
     entry(20, {
-      projectId,
+      workspaceId,
       kind: "brainstorm",
       title: "Hooks that open on the compiler error",
       tags: ["hooks", "rust-errors"],
@@ -625,7 +628,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
       ].join("\n"),
     }),
     entry(3 * 60, {
-      projectId,
+      workspaceId,
       kind: "reference",
       title: "Instagram video by @fastrustclips",
       tags: ["hooks", "pacing"],
@@ -644,7 +647,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
       }),
     }),
     entry(26 * 60, {
-      projectId,
+      workspaceId,
       kind: "reference",
       title: "YouTube short on lifetimes",
       tags: ["lifetimes"],
@@ -663,7 +666,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
     }),
     captions,
     entry(3 * 24 * 60, {
-      projectId,
+      workspaceId,
       kind: "decision",
       title: "Every short ends on code that runs",
       tags: ["format"],
@@ -676,7 +679,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
     }),
     oldCaptions,
     entry(4 * 24 * 60, {
-      projectId,
+      workspaceId,
       kind: "note",
       title: "Recording checklist",
       tags: ["production"],
@@ -688,7 +691,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
       ].join("\n"),
     }),
     entry(5 * 24 * 60, {
-      projectId,
+      workspaceId,
       kind: "session_summary",
       title: "Session: drafted the lifetimes script",
       createdVia: "hook",
@@ -698,7 +701,7 @@ export function demoKb(projectId: string, userId: string, now: number): KbEntryD
       data: { sessionId: "demo-session" },
     }),
     entry(6 * 24 * 60, {
-      projectId,
+      workspaceId,
       kind: "brainstorm",
       title: "Ten-episode arc for the ownership series",
       tags: ["series-plan"],

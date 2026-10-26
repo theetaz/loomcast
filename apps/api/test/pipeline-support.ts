@@ -7,7 +7,7 @@ import type {
   Script,
   Storyboard,
 } from "@loomcast/contracts";
-import { assets, contentItems, contentVersions, type Database, projects } from "@loomcast/db";
+import { assets, contentItems, contentVersions, type Database, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { ModuleDeps } from "../src/deps";
 import type { BusEventOf, InternalEvent } from "../src/lib/bus";
@@ -80,12 +80,12 @@ export function userOf(h: PipelineHarness): PipelineActor {
   return { kind: "user", id: h.userId, userId: h.userId };
 }
 
-export async function insertProject(
+export async function insertWorkspace(
   h: PipelineHarness,
   status: "active" | "archived" = "active",
 ): Promise<string> {
-  const [project] = await h.db
-    .insert(projects)
+  const [workspace] = await h.db
+    .insert(workspaces)
     .values({
       slug: `pipeline-${randomUUID().slice(0, 8)}`,
       name: "Pipeline",
@@ -94,10 +94,10 @@ export async function insertProject(
       createdBy: h.userId,
     })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project.id;
+  return workspace.id;
 }
 
 export function script(overrides: Partial<Script> = {}): Script {
@@ -130,7 +130,7 @@ export function storyboard(overrides: Partial<Storyboard> = {}): Storyboard {
 }
 
 interface AssetValues {
-  projectId: string;
+  workspaceId: string;
   itemId: string | null;
   kind: AssetKind;
   status?: AssetStatus;
@@ -142,12 +142,12 @@ function assetRow(values: AssetValues) {
   const sha256 = createHash("sha256").update(randomUUID()).digest("hex");
   return {
     id: randomUUID(),
-    projectId: values.projectId,
+    workspaceId: values.workspaceId,
     itemId: values.itemId,
     kind: values.kind,
     status: values.status ?? "ready",
     bucket: "loomcast-media",
-    storageKey: `projects/${values.projectId}/${values.kind}/${sha256}`,
+    storageKey: `projects/${values.workspaceId}/${values.kind}/${sha256}`,
     filename: `${values.kind}.bin`,
     mime: values.kind === "poster" ? "image/jpeg" : "video/mp4",
     bytes: 1_024,
@@ -182,7 +182,7 @@ export interface InsertedItem {
 }
 
 export interface ItemSpec {
-  projectId: string;
+  workspaceId: string;
   state?: PipelineState;
   level?: ArtifactLevel;
   seriesId?: string | null;
@@ -217,7 +217,7 @@ export async function insertItems(
     const level = LEVELS.indexOf(values.level ?? "none");
     const currentId = level === 0 ? firstId : randomUUID();
     const asset = (kind: AssetKind) => {
-      const row = assetRow({ projectId: values.projectId, itemId, kind, durationMs: 31_000 });
+      const row = assetRow({ workspaceId: values.workspaceId, itemId, kind, durationMs: 31_000 });
       files.push(row);
       return row.id;
     };
@@ -226,7 +226,7 @@ export async function insertItems(
     const posterAssetId = level >= 4 ? asset("poster") : null;
     items.push({
       id: itemId,
-      projectId: values.projectId,
+      workspaceId: values.workspaceId,
       seriesId: values.seriesId ?? null,
       title: values.title ?? "Item",
       state: values.state ?? "idea",

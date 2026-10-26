@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { projects } from "@loomcast/db";
+import { workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -51,7 +51,7 @@ describe("mcp endpoint", () => {
     const { secret } = await issueToken(server.deps, userId, ["mcp:read"]);
     const client = await connectClient(server.url, secret);
     expect(client.getServerVersion()?.name).toBe(MCP_SERVER_NAME);
-    expect(client.getInstructions()).toContain("project.list");
+    expect(client.getInstructions()).toContain("workspace.list");
     await client.ping();
     await client.close();
   });
@@ -149,16 +149,16 @@ describe("mcp endpoint", () => {
 
   it("limits each job token to 240 requests a minute", async () => {
     expect(MCP_JOB_RATE_LIMIT.capacity).toBe(240);
-    const [project] = await testDb.db
-      .insert(projects)
+    const [workspace] = await testDb.db
+      .insert(workspaces)
       .values({ slug: `limit-${randomUUID().slice(0, 8)}`, name: "Limits", createdBy: userId })
       .returning();
-    if (project === undefined) {
-      throw new Error("project was not inserted");
+    if (workspace === undefined) {
+      throw new Error("workspace was not inserted");
     }
     const scopes = ["mcp:read"] as const;
-    const limited = await issueJobToken(testDb.db, { userId, projectId: project.id, scopes });
-    const other = await issueJobToken(testDb.db, { userId, projectId: project.id, scopes });
+    const limited = await issueJobToken(testDb.db, { userId, workspaceId: workspace.id, scopes });
+    const other = await issueJobToken(testDb.db, { userId, workspaceId: workspace.id, scopes });
     for (let i = 0; i < MCP_JOB_RATE_LIMIT.capacity; i += 1) {
       const response = await rpc(server.url, ping, bearer(limited.secret));
       expect(response.status).toBe(200);

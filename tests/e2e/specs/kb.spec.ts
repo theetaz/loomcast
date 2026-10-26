@@ -33,14 +33,14 @@ test.describe.configure({ mode: "serial" });
 
 const settings = e2eSettings();
 const run = randomBytes(3).toString("hex");
-const projectName = `Knowledge project ${run}`;
+const workspaceName = `Knowledge workspace ${run}`;
 const deviceName = `E2E KB Studio ${run}`;
 const HOOK = join(REPO_ROOT, "apps/studio-agent/hooks/session-end.mjs");
 
 let context: BrowserContext;
 let page: Page;
 let owner: APIRequestContext;
-let project: { id: string; slug: string };
+let workspace: { id: string; slug: string };
 let device: PairedDevice | null = null;
 let agent: FakeStudioAgent | null = null;
 
@@ -81,34 +81,44 @@ async function signIn(target: Page, email: string, secret: string): Promise<void
   await expect(target.getByText(email)).toBeVisible();
 }
 
-/** Opens one of the project's tabs, navigating by clicks so the live stream stays connected. */
-async function openProjectTab(tab: "Overview" | "Chat" | "Knowledge"): Promise<void> {
-  const tabs = page.getByRole("tablist", { name: "Project sections" });
-  if (!(await tabs.isVisible())) {
-    await page
-      .getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: /^Projects/ })
-      .click();
-    await page.getByRole("link", { name: new RegExp(projectName) }).click();
-    await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+/** Opens the list of every workspace from the workspace switcher in the sidebar header. */
+async function openAllWorkspaces(): Promise<void> {
+  await page.getByRole("button", { name: /Switch workspace|Choose a workspace/ }).click();
+  await page.getByRole("menuitem", { name: "All workspaces" }).click();
+  await expect(page).toHaveURL(/\/workspaces$/);
+}
+
+/**
+ * Opens one of the workspace's pages from the sidebar, switching to the workspace first when the
+ * sidebar works in another one. Navigating by clicks keeps the live stream connected.
+ */
+async function openWorkspacePage(name: "Overview" | "Chat" | "Knowledge"): Promise<void> {
+  const current = page.getByRole("button", {
+    name: `Workspace: ${workspaceName}. Switch workspace`,
+  });
+  if (!(await current.isVisible())) {
+    await page.getByRole("button", { name: /Switch workspace|Choose a workspace/ }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^${workspaceName}`) }).click();
+    await expect(page.getByRole("heading", { level: 1, name: workspaceName })).toBeVisible();
   }
-  if (tab === "Knowledge" && /\/kb\/.+/.test(new URL(page.url()).pathname)) {
-    // On an entry the tab is already selected; its "Knowledge" link leads back to the list.
-    await page.getByRole("link", { name: "Knowledge", exact: true }).first().click();
-  } else {
-    await tabs.getByRole("tab", { name: tab }).click();
-  }
-  if (tab === "Knowledge") {
-    await expect(page).toHaveURL(/\/projects\/[^/]+\/kb/);
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name, exact: true })
+    .click();
+  if (name === "Knowledge") {
+    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/kb$`));
     await expect(page.getByRole("heading", { name: "Knowledge", exact: true })).toBeVisible();
-  } else if (tab === "Chat") {
+  } else if (name === "Chat") {
+    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/chat`));
     await expect(page.getByRole("textbox", { name: "Message the studio agent" })).toBeVisible();
+  } else {
+    await expect(page.getByRole("heading", { level: 1, name: workspaceName })).toBeVisible();
   }
 }
 
-/** Starts a new entry of `kind` from the Knowledge tab's "New entry" menu. */
+/** Starts a new entry of `kind` from the Knowledge page's "New entry" menu. */
 async function newEntry(kind: "Brainstorm" | "Reference"): Promise<void> {
-  await openProjectTab("Knowledge");
+  await openWorkspacePage("Knowledge");
   await page.getByRole("button", { name: "New entry" }).click();
   await page.getByRole("menuitem", { name: kind }).click();
   await expect(page).toHaveURL(/\/kb\/new/);
@@ -130,9 +140,9 @@ test.beforeAll(async ({ browser }) => {
   context = await browser.newContext();
   page = await context.newPage();
   owner = await signedInApi(settings.ownerEmail, settings.ownerPassword);
-  const created = await owner.post("/api/projects", { data: { name: projectName } });
+  const created = await owner.post("/api/workspaces", { data: { name: workspaceName } });
   expect(created.status(), await created.text()).toBe(201);
-  project = (await created.json()) as { id: string; slug: string };
+  workspace = (await created.json()) as { id: string; slug: string };
 });
 
 test.afterAll(async () => {
@@ -146,9 +156,9 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-test("signs in and opens the project's knowledge base", async () => {
+test("signs in and opens the workspace's knowledge base", async () => {
   await signIn(page, settings.ownerEmail, settings.ownerPassword);
-  await openProjectTab("Knowledge");
+  await openWorkspacePage("Knowledge");
   await expect(page.getByRole("link", { name: "New brainstorm" })).toBeVisible();
 });
 
@@ -165,16 +175,12 @@ test("creates a brainstorm and finds it with the command palette", async () => {
   const entryId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
 
   // Leave the entry, then jump back to it from the palette's knowledge-base search.
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("link", { name: /^Projects/ })
-    .click();
-  await expect(page).toHaveURL(/\/projects$/);
+  await openAllWorkspaces();
   const palette = await openPalette();
   await palette.getByRole("combobox", { name: "Search or jump to" }).fill("kerfuffle");
   const hit = palette.getByRole("option", { name: new RegExp(title) });
   await expect(hit).toBeVisible();
-  await expect(hit).toContainText(projectName);
+  await expect(hit).toContainText(workspaceName);
   await hit.click();
   await expect(palette).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/kb/${entryId}$`));
@@ -191,7 +197,7 @@ test("files a brainstorm from a producer chat through MCP and shows it live", as
     await gate.promise;
     if (turn.credentials === undefined) throw new Error("the job came without MCP credentials");
     const result = await callMcpTool(settings.webUrl, turn.credentials, "kb.save_brainstorm", {
-      projectId: turn.job.projectId,
+      workspaceId: turn.job.workspaceId,
       title,
       bodyMd: "- Open on a cache miss\n- Show the latency drop",
       sessionRef: turn.sessionId,
@@ -208,15 +214,15 @@ test("files a brainstorm from a producer chat through MCP and shows it live", as
   agent = new FakeStudioAgent({ serverUrl: settings.webUrl, token: device.token, onChat });
   await agent.connect();
 
-  await openProjectTab("Chat");
+  await openWorkspacePage("Chat");
   await page
     .getByRole("textbox", { name: "Message the studio agent" })
     .fill("Brainstorm hooks about caching and save them");
   await page.getByRole("button", { name: "Send message" }).click();
   await turnStarted.promise;
 
-  // Watch the Knowledge tab while the producer session writes.
-  await openProjectTab("Knowledge");
+  // Watch the Knowledge page while the producer session writes.
+  await openWorkspacePage("Knowledge");
   const row = page.getByRole("link", { name: new RegExp(title) });
   await expect(row).toBeHidden();
   gate.open();
@@ -284,7 +290,7 @@ test("files a session summary with the session-end hook", async () => {
     ];
     writeFileSync(transcriptPath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
 
-    await openProjectTab("Knowledge");
+    await openWorkspacePage("Knowledge");
     const row = page.getByRole("link", { name: new RegExp(`Script the DNS explainer ${run}`) });
     await expect(row).toBeHidden();
 
@@ -296,7 +302,7 @@ test("files a session summary with the session-end hook", async () => {
             LOOMCAST_SESSION_HOOK: "1",
             LOOMCAST_URL: settings.webUrl,
             LOOMCAST_MCP_TOKEN: secret,
-            LOOMCAST_PROJECT_ID: project.id,
+            LOOMCAST_WORKSPACE_ID: workspace.id,
           },
           stdio: ["pipe", "ignore", "pipe"],
         });

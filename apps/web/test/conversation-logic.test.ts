@@ -13,7 +13,7 @@ import { mockJob, mockMessage } from "@/mocks/conversations";
 import { mockId } from "@/mocks/db";
 
 const conversationId = mockId();
-const projectId = mockId();
+const workspaceId = mockId();
 
 function assistant(jobId: string, text: string): Message {
   return mockMessage({ conversationId, role: "assistant", jobId, content: { text } });
@@ -75,8 +75,8 @@ describe("streamed text", () => {
 
   it("tracks the newest job of each conversation", () => {
     const store = createConversationStore();
-    const newer = mockJob({ projectId, conversationId, createdAt: "2026-10-13T10:00:01.000Z" });
-    const older = mockJob({ projectId, conversationId, createdAt: "2026-10-13T10:00:00.000Z" });
+    const newer = mockJob({ workspaceId, conversationId, createdAt: "2026-10-13T10:00:01.000Z" });
+    const older = mockJob({ workspaceId, conversationId, createdAt: "2026-10-13T10:00:00.000Z" });
 
     store.trackJob(newer, "Write a hook");
     store.trackJob(older);
@@ -178,7 +178,7 @@ describe("scroll pinning", () => {
 
 describe("job status", () => {
   const job = (status: JobSummary["status"], patch: Partial<JobSummary> = {}) =>
-    mockJob({ projectId, conversationId, status, ...patch });
+    mockJob({ workspaceId, conversationId, status, ...patch });
 
   it("maps every job state to the status line", () => {
     expect(describeJob(job("queued"), { studio: "online" })).toMatchObject({

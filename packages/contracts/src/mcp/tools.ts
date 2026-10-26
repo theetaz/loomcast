@@ -5,11 +5,11 @@ import { kbTools } from "./kb-tools";
 import { ownerTools } from "./owner-tools";
 import { pipelineTools } from "./pipeline-tools";
 import { postTools } from "./post-tools";
-import { projectTools } from "./project-tools";
+import { workspaceTools } from "./workspace-tools";
 
 /** Every MCP tool the server registers, by name. */
 export const mcpTools = {
-  ...projectTools,
+  ...workspaceTools,
   ...kbTools,
   ...adminTools,
   ...pipelineTools,

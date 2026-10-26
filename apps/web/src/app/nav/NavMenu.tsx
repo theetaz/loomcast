@@ -1,3 +1,4 @@
+import type { Workspace } from "@loomcast/contracts";
 import {
   SidebarMenu,
   SidebarMenuBadge,
@@ -6,24 +7,58 @@ import {
   useSidebar,
 } from "@loomcast/ui/components/sidebar";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { type NavItem, type NavSection, navItems, navSection } from "./registry";
+import {
+  isWorkspacePath,
+  type NavItem,
+  type NavPath,
+  type NavSection,
+  navItems,
+  navSection,
+  type WorkspaceNavPath,
+} from "./registry";
 
-function NavLinkItem({ item, to }: { item: NavItem; to: NonNullable<NavItem["to"]> }) {
+function NavLinkItem({
+  item,
+  to,
+  workspace,
+}: {
+  item: NavItem;
+  to: NavPath;
+  workspace: Pick<Workspace, "id" | "slug"> | null;
+}) {
   const matchRoute = useMatchRoute();
   const { isMobile, setOpenMobile } = useSidebar();
-  const isActive = Boolean(matchRoute({ to, fuzzy: !item.exact }));
+  const fuzzy = !item.exact;
+  const inWorkspace = isWorkspacePath(to) && workspace !== null;
+  const isActive = Boolean(
+    inWorkspace
+      ? matchRoute({ to, params: { workspace: workspace.slug }, fuzzy })
+      : matchRoute({ to: to as Exclude<NavPath, WorkspaceNavPath>, fuzzy }),
+  );
   const Icon = item.icon;
   const Badge = item.badge;
+  const close = () => isMobile && setOpenMobile(false);
+  const content = (
+    <>
+      <Icon aria-hidden="true" />
+      <span>{item.label}</span>
+    </>
+  );
 
   return (
     <SidebarMenuItem data-nav-item={item.id}>
       <SidebarMenuButton asChild isActive={isActive}>
-        <Link to={to} onClick={() => isMobile && setOpenMobile(false)}>
-          <Icon aria-hidden="true" />
-          <span>{item.label}</span>
-        </Link>
+        {inWorkspace ? (
+          <Link to={to} params={{ workspace: workspace.slug }} onClick={close}>
+            {content}
+          </Link>
+        ) : (
+          <Link to={to as Exclude<NavPath, WorkspaceNavPath>} onClick={close}>
+            {content}
+          </Link>
+        )}
       </SidebarMenuButton>
-      {Badge ? <Badge /> : null}
+      {Badge && workspace ? <Badge workspaceId={workspace.id} /> : null}
     </SidebarMenuItem>
   );
 }
@@ -44,20 +79,31 @@ function SoonItem({ item }: { item: NavItem }) {
   );
 }
 
-/** The sidebar items of one section, from the nav registry. */
+/**
+ * The sidebar items of one section, from the nav registry. Items inside a workspace open in
+ * `workspace`; without one they are left out.
+ */
 export function NavMenu({
   section,
+  workspace = null,
   items = navItems,
+  label,
 }: {
   section: NavSection;
+  workspace?: Pick<Workspace, "id" | "slug"> | null;
   /** Defaults to the registry; tests pass their own. */
   items?: readonly NavItem[];
+  label?: string;
 }) {
+  const shown = navSection(items, section).filter(
+    (item) => !item.to || !isWorkspacePath(item.to) || workspace !== null,
+  );
+  if (shown.length === 0) return null;
   return (
-    <SidebarMenu>
-      {navSection(items, section).map((item) =>
+    <SidebarMenu aria-label={label}>
+      {shown.map((item) =>
         item.to ? (
-          <NavLinkItem key={item.id} item={item} to={item.to} />
+          <NavLinkItem key={item.id} item={item} to={item.to} workspace={workspace} />
         ) : (
           <SoonItem key={item.id} item={item} />
         ),

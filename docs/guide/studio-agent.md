@@ -6,7 +6,7 @@ The studio agent is a small program that runs on your Mac. It connects to Loomca
 
 Setting up the studio agent has two halves, and both are needed:
 
-1. **Pairing** registers the Mac with Loomcast and gives it a device token. After pairing, the Mac appears under **Settings → Devices**.
+1. **Pairing** registers the Mac with Loomcast and gives it a device token. After pairing, the Mac appears under **Account settings → Devices**.
 2. **Running** starts the agent program, which connects with that token and waits for jobs.
 
 A Mac that is paired but not running shows **Offline** with **Last seen** **Never**, and the top bar shows **Studio offline**. Nothing is wrong with the pairing: the agent simply has not connected yet. Jobs wait in the queue until it does. Finish the steps below through [Install the background service](#5-install-the-background-service) and the device turns **Online**.
@@ -32,7 +32,7 @@ Run the commands in the repository folder on the Mac.
 
 ### 1. Create a pairing code
 
-Open **Settings → Devices** and select **Pair a device**. The **Pair a studio agent** dialog shows a one-time **Pairing code** and the command to run on the Mac, with a copy button. The code expires after 10 minutes and works once. If it runs out, select **Get a new code**.
+Open **Account settings → Devices** and select **Pair a device**. The **Pair a studio agent** dialog shows a one-time **Pairing code** and the command to run on the Mac, with a copy button. The code expires after 10 minutes and works once. If it runs out, select **Get a new code**.
 
 ![The Pair a studio agent dialog with a pairing code, its countdown and the command to run on the Mac](images/settings-devices-pair.png)
 
@@ -46,7 +46,7 @@ Copy the command from the dialog, or type it with your Loomcast address and the 
 pnpm agent pair --server https://loomcast.example.com --code ABCD-EFGH
 ```
 
-Add `--name "Studio Mac"` to choose the name shown in **Settings → Devices**. Without it, the Mac's host name is used. The address must start with `https://` (plain `http://` is only accepted for `localhost`).
+Add `--name "Studio Mac"` to choose the name shown in **Account settings → Devices**. Without it, the Mac's host name is used. The address must start with `https://` (plain `http://` is only accepted for `localhost`).
 
 The command answers `Paired with … as device …` and stores the device token in `~/.config/loomcast-agent/config.json`. The Mac now appears in the device list, still **Offline**.
 
@@ -97,9 +97,9 @@ Look for `Service: loaded, state running`. Then read the end of the log:
 tail -n 20 ~/Library/Logs/Loomcast/studio-agent.log
 ```
 
-A line with `connected to the bridge` means the agent is connected. In the web app, **Settings → Devices** now shows the Mac as **Online** with **Last seen** **now**, and the top bar shows **Studio online**.
+A line with `connected to the bridge` means the agent is connected. In the web app, **Account settings → Devices** now shows the Mac as **Online** with **Last seen** **now**, and the top bar shows **Studio online**.
 
-![Settings, Devices: one Mac online and seen now, another offline, with Studio online in the top bar](images/settings-devices.png)
+![Account settings, Devices: one Mac online and seen now, another offline, with Studio online in the top bar](images/settings-devices.png)
 
 If the device stays **Offline**, see [Troubleshooting](troubleshooting.md#the-device-is-offline-or-the-top-bar-says-studio-offline).
 
@@ -112,7 +112,7 @@ If the device stays **Offline**, see [Troubleshooting](troubleshooting.md#the-de
 | `pnpm agent service uninstall` | Stops the service and removes it from launchd. The log is kept |
 | `pnpm agent status` | Prints the agent's configuration (the device token is shown as `[redacted]`) and whether the voice provider key is set |
 | `pnpm agent run` | Runs the agent in the foreground of your terminal, for debugging. Stop it with Ctrl+C |
-| `pnpm agent --version` | Prints the agent's version, also shown in the **Agent** column of **Settings → Devices** |
+| `pnpm agent --version` | Prints the agent's version, also shown in the **Agent** column of **Account settings → Devices** |
 
 Use either the service or `pnpm agent run`, never both at the same time: the two connections would replace each other. To debug in the foreground, uninstall the service first, then install it again when you are done. `pnpm agent run --log-level debug` prints more detail.
 
@@ -125,7 +125,7 @@ The agent's settings live in `~/.config/loomcast-agent/config.json`. Pairing wri
 | `serverUrl` | Your Loomcast address |
 | `deviceId` | This Mac's device record, set by pairing |
 | `token` | The device token, set by pairing. Never share or paste it |
-| `workspaceRoot` | Where jobs keep their files. Default `~/Loomcast`; each project works in `projects/<project>` inside it |
+| `workspaceRoot` | Where jobs keep their files. Default `~/Loomcast`; each workspace works in `projects/<workspace id>` inside it. The folder keeps the name `projects` from before workspaces were renamed, so existing producer sessions and files keep working |
 | `concurrency` | How many jobs run at the same time: `producer` (scripts, storyboards, revisions, chat, research) and `render` (voice, render and skill sync). Default 1 each |
 | `ytDlpPath` | Optional. The yt-dlp program to use: an absolute path, or a name found on the service's `PATH`. Default `yt-dlp` |
 
@@ -175,7 +175,7 @@ pnpm --filter @loomcast/studio-agent build
 pnpm agent service install
 ```
 
-Check **Settings → Devices**: the **Agent** column shows the new version once it reconnects.
+Check **Account settings → Devices**: the **Agent** column shows the new version once it reconnects.
 
 ### Repository on an external drive
 
@@ -184,7 +184,7 @@ The service runs the built agent from inside the repository. If the repository l
 ## Stopping, unpairing and removing
 
 - **Stop the agent on this Mac:** `pnpm agent service uninstall`. The Mac stays paired; install the service again to bring it back.
-- **Unpair a Mac:** in **Settings → Devices**, select the unplug button (**Revoke**) on its row and confirm **Revoke device**. It disconnects at once and cannot take jobs until it is paired again. The agent logs that the server refused it and stops.
+- **Unpair a Mac:** in **Account settings → Devices**, select the unplug button (**Revoke**) on its row and confirm **Revoke device**. It disconnects at once and cannot take jobs until it is paired again. The agent logs that the server refused it and stops.
 - **Pair again:** create a new code and run `pnpm agent pair …` again, then `pnpm agent service install` to restart the service with the new token.
 
 ## Security notes
@@ -192,7 +192,7 @@ The service runs the built agent from inside the repository. If the repository l
 - **Outbound only.** The agent opens one connection from the Mac to your Loomcast server. The Mac needs no open ports, and the server cannot reach into it.
 - **A fixed list of jobs.** The agent runs only the job types it knows. It never runs a command sent in a job.
 - **Private files.** The device token (`config.json`) and the voice provider key (`secrets.env`) are stored with mode 600 in a folder only you can open. The server keeps only a hash of the device token.
-- **Scoped job tokens.** Producer sessions never see the device token. Each job gets its own short-lived token that only reaches that job's project, and only the tools that job type needs.
-- **Lost Mac.** Revoke the device in **Settings → Devices** and rotate the voice provider key. The owner's full checklist is in the [owner runbook](../runbooks/owner-runbook.md#7-a-lost-or-stolen-mac).
+- **Scoped job tokens.** Producer sessions never see the device token. Each job gets its own short-lived token that only reaches that job's workspace, and only the tools that job type needs.
+- **Lost Mac.** Revoke the device in **Account settings → Devices** and rotate the voice provider key. The owner's full checklist is in the [owner runbook](../runbooks/owner-runbook.md#7-a-lost-or-stolen-mac).
 
 More detail: [security model](../security.md) and [bridge protocol](../bridge-protocol.md).

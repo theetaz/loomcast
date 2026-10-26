@@ -2,30 +2,30 @@ import type {
   ContentItem,
   ContentVersion,
   PipelineState,
-  Project,
   Series,
+  Workspace,
 } from "@loomcast/contracts";
 import { mockContentItem, mockSeries } from "@/mocks/content";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { at, onlineStudio } from "./kb";
 
 export { at };
 
 /**
- * A signed-in db with two projects, three series and items across the pipeline. Updated times
+ * A signed-in db with two workspaces, three series and items across the pipeline. Updated times
  * are spaced a minute apart, newest first in the order below.
  */
 export function librarySetup() {
-  const rust = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
-  const agents = mockProject({ name: "Agents for small teams", slug: "agents-for-small-teams" });
-  const ownership = mockSeries({ projectId: rust.id, name: "Ownership basics" });
-  const errors = mockSeries({ projectId: rust.id, name: "Error handling" });
-  const patterns = mockSeries({ projectId: agents.id, name: "Agent patterns" });
+  const rust = mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
+  const agents = mockWorkspace({ name: "Agents for small teams", slug: "agents-for-small-teams" });
+  const ownership = mockSeries({ workspaceId: rust.id, name: "Ownership basics" });
+  const errors = mockSeries({ workspaceId: rust.id, name: "Error handling" });
+  const patterns = mockSeries({ workspaceId: agents.id, name: "Agent patterns" });
 
   const versions: ContentVersion[] = [];
   let minute = 100;
   const item = (
-    project: Project,
+    workspace: Workspace,
     title: string,
     state: PipelineState,
     extra: Partial<ContentItem> & { series?: Series } = {},
@@ -33,7 +33,7 @@ export function librarySetup() {
     const { series, ...overrides } = extra;
     minute -= 1;
     const created = mockContentItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       title,
       state,
       versionNo: state === "idea" ? 1 : 3,
@@ -75,7 +75,7 @@ export function librarySetup() {
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [rust, agents],
+    workspaces: [rust, agents],
     devices: [onlineStudio()],
     series: [ownership, errors, patterns],
     contentItems: [borrow, question, lifetimes, moves, handoffs, published, archived],

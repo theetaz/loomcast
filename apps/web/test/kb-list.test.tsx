@@ -2,11 +2,11 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { publish } from "@/mocks/db";
 import { listedEntry, mockKbEntry, updateKbEntry } from "@/mocks/kb";
-import { at, kbSetup, PROJECT_SLUG, recordRequests } from "./support/kb";
+import { at, kbSetup, recordRequests, WORKSPACE_SLUG } from "./support/kb";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
-const KB_PATH = `/projects/${PROJECT_SLUG}/kb`;
+const KB_PATH = `/w/${WORKSPACE_SLUG}/kb`;
 
 function renderKb(db: ReturnType<typeof kbSetup>["db"], path = KB_PATH) {
   const stream = fakeStream(db);
@@ -64,7 +64,7 @@ describe("knowledge list", () => {
   });
 
   it("switches to search after the debounce and back to the list when cleared", async () => {
-    const { db, project } = kbSetup();
+    const { db, workspace } = kbSetup();
     const requests = recordRequests();
     const { user, router } = renderKb(db);
     await screen.findByRole("list", { name: "All entries" });
@@ -80,7 +80,7 @@ describe("knowledge list", () => {
     const searches = requests.filter((request) => request.path === "/api/kb/search");
     // Typing five letters searched once, with the settled query.
     expect(searches.map((request) => request.query.get("q"))).toEqual(["error"]);
-    expect(searches[0]?.query.get("projectId")).toBe(project.id);
+    expect(searches[0]?.query.get("workspaceId")).toBe(workspace.id);
     expect(searches[0]?.query.get("kinds")).toBe("brainstorm");
     expect(router.state.location.search).toEqual({ kind: "brainstorm", q: "error" });
 
@@ -97,7 +97,7 @@ describe("knowledge list", () => {
     expect(await screen.findByText("No references yet")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Add reference" })).toHaveAttribute(
       "href",
-      `/projects/${PROJECT_SLUG}/kb/new?kind=reference`,
+      `/w/${WORKSPACE_SLUG}/kb/new?kind=reference`,
     );
 
     await user.click(screen.getByRole("tab", { name: /sessions/i }));
@@ -110,10 +110,10 @@ describe("knowledge list", () => {
   });
 
   it("pages with Load more", async () => {
-    const { db } = kbSetup((project) =>
+    const { db } = kbSetup((workspace) =>
       Array.from({ length: 52 }, (_, index) =>
         mockKbEntry({
-          projectId: project.id,
+          workspaceId: workspace.id,
           kind: "note",
           title: `Old note ${index + 1}`,
           createdAt: at(-index - 1),
@@ -131,12 +131,12 @@ describe("knowledge list", () => {
   });
 
   it("applies live created, updated and deleted events", async () => {
-    const { db, project, note } = kbSetup();
+    const { db, workspace, note } = kbSetup();
     renderKb(db);
     const list = await screen.findByRole("list", { name: "All entries" });
 
     const created = mockKbEntry({
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "brainstorm",
       title: "Captured by a producer session",
       createdVia: "producer",
@@ -160,7 +160,7 @@ describe("knowledge list", () => {
       db.kbEntries = db.kbEntries.filter((entry) => entry.id !== created.id);
       publish(db, {
         type: "kb.entry.deleted",
-        payload: { entryId: created.id, projectId: project.id },
+        payload: { entryId: created.id, workspaceId: workspace.id },
       });
     });
     await waitFor(() =>

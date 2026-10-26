@@ -3,9 +3,9 @@ import type { NavItem } from "../registry";
 
 export const item: NavItem = {
   id: "settings",
-  label: "Settings",
+  label: "Account settings",
   icon: SettingsIcon,
   to: "/settings",
-  order: 0,
+  order: 20,
   section: "footer",
 };

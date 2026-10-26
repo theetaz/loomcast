@@ -38,7 +38,7 @@ export function apiKeyPrefix(secret: string): string {
 }
 
 export function mockApiClient(
-  overrides: Partial<ApiClient> & Pick<ApiClient, "name" | "projectId" | "projectName">,
+  overrides: Partial<ApiClient> & Pick<ApiClient, "name" | "workspaceId" | "workspaceName">,
 ): ApiClient {
   return {
     id: mockId(),
@@ -83,17 +83,29 @@ export function createApiClientHandlers(db: MockDb) {
       if (refused) return refused;
       const parsed = CreateApiClientRequestSchema.safeParse(await request.json());
       if (!parsed.success) {
-        return apiError(400, "validation_failed", "Check the name, project and channels.");
+        return apiError(400, "validation_failed", "Check the name, workspace and channels.");
       }
-      const project = db.projects.find((item) => item.id === parsed.data.projectId);
-      if (!project) return apiError(404, "not_found", "No project has that id.");
+      const workspace = db.workspaces.find((item) => item.id === parsed.data.workspaceId);
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
+      const outside = parsed.data.grants.some(
+        (grant) =>
+          db.channels.find((channel) => channel.id === grant.channelId)?.workspaceId !==
+          workspace.id,
+      );
+      if (outside) {
+        return apiError(
+          422,
+          "validation_failed",
+          "A client can only use its workspace's channels.",
+        );
+      }
       const grants = grantsView(db, parsed.data.grants);
       if (!grants) return apiError(400, "validation_failed", "No channel has that id.");
       const secret = mockApiKey();
       const client = mockApiClient({
         name: parsed.data.name,
-        projectId: project.id,
-        projectName: project.name,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
         prefix: apiKeyPrefix(secret),
         grants,
         expiresAt: parsed.data.expiresAt ?? null,

@@ -31,8 +31,8 @@ export interface VerifiedToken {
    */
   scopes: TokenScope[];
   user: Pick<AuthUser, "id" | "email" | "name" | "role">;
-  /** Set for job and API tokens only: the one project the token is bound to. */
-  projectId?: string | null;
+  /** Set for job and API tokens only: the one workspace the token is bound to. */
+  workspaceId?: string | null;
   /** Set for job tokens only: the job the token was minted for. */
   jobId?: string | null;
 }

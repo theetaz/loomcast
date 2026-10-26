@@ -11,13 +11,20 @@ import {
   type LiveEvent,
   listSchema,
 } from "@loomcast/contracts";
-import { auditLog, conversations, kbEntries, kbReferences, messages, projects } from "@loomcast/db";
+import {
+  auditLog,
+  conversations,
+  kbEntries,
+  kbReferences,
+  messages,
+  workspaces,
+} from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createJobsService } from "../src/modules/jobs";
 import { createKbService, type KbActor, normalizeTag } from "../src/modules/kb";
-import { createProjectsService } from "../src/modules/projects";
+import { createWorkspacesService } from "../src/modules/workspaces";
 import { insertAsset, sampleAnalysis } from "./kb-support";
 import { createTestApp, errorCode, insertUser, login, send, type TestApp } from "./support";
 
@@ -47,9 +54,9 @@ afterAll(async () => {
   await testDb.drop();
 });
 
-async function newProject(status: "active" | "archived" = "active") {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(status: "active" | "archived" = "active") {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({
       slug: `kb-${randomUUID().slice(0, 8)}`,
       name: "Knowledge",
@@ -58,10 +65,10 @@ async function newProject(status: "active" | "archived" = "active") {
       createdBy: userId,
     })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project;
+  return workspace;
 }
 
 function kbService() {
@@ -72,13 +79,13 @@ function kbService() {
   });
 }
 
-async function createEntry(projectId: string, body: unknown) {
-  const response = await send(t.app, "POST", `/api/projects/${projectId}/kb`, { cookie, body });
+async function createEntry(workspaceId: string, body: unknown) {
+  const response = await send(t.app, "POST", `/api/workspaces/${workspaceId}/kb`, { cookie, body });
   return response;
 }
 
-async function created(projectId: string, body: unknown) {
-  const response = await createEntry(projectId, body);
+async function created(workspaceId: string, body: unknown) {
+  const response = await createEntry(workspaceId, body);
   expect(response.status, await response.clone().text()).toBe(201);
   return KbEntryDetailSchema.parse(await response.json());
 }
@@ -120,8 +127,8 @@ describe("tags", () => {
 
 describe("entries", () => {
   it("creates, reads, updates and deletes a brainstorm", async () => {
-    const project = await newProject();
-    const entry = await created(project.id, {
+    const workspace = await newWorkspace();
+    const entry = await created(workspace.id, {
       kind: "brainstorm",
       title: "Hooks for a Rust short",
       bodyMd: "Open on a compiler error.",
@@ -129,7 +136,7 @@ describe("entries", () => {
     });
     expect(entry).toMatchObject({
       kind: "brainstorm",
-      projectId: project.id,
+      workspaceId: workspace.id,
       tags: ["rust-lang", "hooks"],
       createdVia: "ui",
       createdBy: userId,
@@ -166,8 +173,8 @@ describe("entries", () => {
   });
 
   it("creates a note", async () => {
-    const project = await newProject();
-    const entry = await created(project.id, {
+    const workspace = await newWorkspace();
+    const entry = await created(workspace.id, {
       kind: "note",
       title: "Narration style",
       bodyMd: "Second person, present tense.",
@@ -176,8 +183,8 @@ describe("entries", () => {
   });
 
   it("creates a decision and supersedes it in one step", async () => {
-    const project = await newProject();
-    const first = await created(project.id, {
+    const workspace = await newWorkspace();
+    const first = await created(workspace.id, {
       kind: "decision",
       title: "Shorts run 30 seconds",
       decision: "Every short runs 30 seconds.",
@@ -189,7 +196,7 @@ describe("entries", () => {
       status: "active",
     });
 
-    const second = await created(project.id, {
+    const second = await created(workspace.id, {
       kind: "decision",
       title: "Shorts run 25 to 45 seconds",
       decision: "Target 25 to 45 seconds.",
@@ -204,7 +211,7 @@ describe("entries", () => {
     ]);
 
     // A superseded decision cannot be superseded again.
-    const again = await createEntry(project.id, {
+    const again = await createEntry(workspace.id, {
       kind: "decision",
       title: "Another",
       decision: "Something else.",
@@ -212,8 +219,8 @@ describe("entries", () => {
     });
     expect(again.status).toBe(409);
 
-    // Only decisions of the same project can be superseded.
-    const other = await newProject();
+    // Only decisions of the same workspace can be superseded.
+    const other = await newWorkspace();
     const elsewhere = await createEntry(other.id, {
       kind: "decision",
       title: "Elsewhere",
@@ -225,8 +232,8 @@ describe("entries", () => {
   });
 
   it("updates decision fields and rejects fields of another kind", async () => {
-    const project = await newProject();
-    const decision = await created(project.id, {
+    const workspace = await newWorkspace();
+    const decision = await created(workspace.id, {
       kind: "decision",
       title: "Captions",
       decision: "Burn in captions.",
@@ -247,7 +254,7 @@ describe("entries", () => {
     expect(wrongKind.status).toBe(400);
     expect(await errorCode(wrongKind)).toBe("validation_failed");
 
-    const note = await created(project.id, { kind: "note", title: "N", bodyMd: "B" });
+    const note = await created(workspace.id, { kind: "note", title: "N", bodyMd: "B" });
     const decisionField = await send(t.app, "PATCH", `/api/kb/${note.id}`, {
       cookie,
       body: { expectedUpdatedAt: note.updatedAt, decision: "No" },
@@ -256,8 +263,8 @@ describe("entries", () => {
   });
 
   it("answers 409 to an update based on a stale updatedAt, even within one millisecond", async () => {
-    const project = await newProject();
-    const entry = await created(project.id, { kind: "note", title: "Draft", bodyMd: "One" });
+    const workspace = await newWorkspace();
+    const entry = await created(workspace.id, { kind: "note", title: "Draft", bodyMd: "One" });
 
     const [first, second] = await Promise.all([
       send(t.app, "PATCH", `/api/kb/${entry.id}`, {
@@ -284,11 +291,11 @@ describe("entries", () => {
     expect(stale.status).toBe(409);
   });
 
-  it("validates input and answers 404 for unknown projects and entries", async () => {
-    const project = await newProject();
-    const invalid = await createEntry(project.id, { kind: "brainstorm", title: "", bodyMd: "x" });
+  it("validates input and answers 404 for unknown workspaces and entries", async () => {
+    const workspace = await newWorkspace();
+    const invalid = await createEntry(workspace.id, { kind: "brainstorm", title: "", bodyMd: "x" });
     expect(invalid.status).toBe(400);
-    const sessionSummary = await createEntry(project.id, {
+    const sessionSummary = await createEntry(workspace.id, {
       kind: "session_summary",
       title: "Not through the web app",
       bodyMd: "x",
@@ -299,36 +306,36 @@ describe("entries", () => {
     expect(unknown.status).toBe(404);
     expect((await send(t.app, "GET", `/api/kb/${randomUUID()}`, { cookie })).status).toBe(404);
     expect((await send(t.app, "GET", "/api/kb/not-a-uuid", { cookie })).status).toBe(404);
-    expect((await send(t.app, "GET", `/api/projects/${randomUUID()}/kb`, { cookie })).status).toBe(
-      404,
-    );
+    expect(
+      (await send(t.app, "GET", `/api/workspaces/${randomUUID()}/kb`, { cookie })).status,
+    ).toBe(404);
   });
 
-  it("refuses new entries in an archived project", async () => {
-    const project = await newProject("archived");
-    const response = await createEntry(project.id, { kind: "note", title: "N", bodyMd: "B" });
+  it("refuses new entries in an archived workspace", async () => {
+    const workspace = await newWorkspace("archived");
+    const response = await createEntry(workspace.id, { kind: "note", title: "N", bodyMd: "B" });
     expect(response.status).toBe(409);
   });
 
   it("requires a session and passes the CSRF check", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const body = { kind: "note", title: "N", bodyMd: "B" };
-    const anonymous = await send(t.app, "POST", `/api/projects/${project.id}/kb`, { body });
+    const anonymous = await send(t.app, "POST", `/api/workspaces/${workspace.id}/kb`, { body });
     expect(anonymous.status).toBe(401);
-    expect((await send(t.app, "GET", `/api/projects/${project.id}/kb`)).status).toBe(401);
+    expect((await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb`)).status).toBe(401);
     expect((await send(t.app, "GET", "/api/kb/search?q=hook")).status).toBe(401);
-    const crossSite = await send(t.app, "POST", `/api/projects/${project.id}/kb`, {
+    const crossSite = await send(t.app, "POST", `/api/workspaces/${workspace.id}/kb`, {
       cookie,
       body,
       origin: "https://evil.example.test",
     });
     expect(crossSite.status).toBe(403);
-    const entry = await created(project.id, body);
+    const entry = await created(workspace.id, body);
     for (const [method, path] of [
       ["PATCH", `/api/kb/${entry.id}`],
       ["DELETE", `/api/kb/${entry.id}`],
       ["POST", `/api/kb/${entry.id}/analyze`],
-      ["POST", `/api/projects/${project.id}/kb/capture`],
+      ["POST", `/api/workspaces/${workspace.id}/kb/capture`],
     ] as const) {
       const response = await send(t.app, method, path, {
         cookie,
@@ -342,10 +349,10 @@ describe("entries", () => {
 
 describe("listing", () => {
   it("pages newest first with a keyset cursor and filters by kind and tag", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const ids: string[] = [];
     for (let i = 0; i < 5; i += 1) {
-      const entry = await created(project.id, {
+      const entry = await created(workspace.id, {
         kind: i % 2 === 0 ? "note" : "brainstorm",
         title: `Entry ${i}`,
         bodyMd: "Body",
@@ -357,13 +364,13 @@ describe("listing", () => {
     await testDb.db
       .update(kbEntries)
       .set({ updatedAt: new Date("2026-10-01T00:00:00.000Z") })
-      .where(eq(kbEntries.projectId, project.id));
+      .where(eq(kbEntries.workspaceId, workspace.id));
 
     const seen: string[] = [];
     let cursor: string | null = null;
     do {
       const query: string = cursor === null ? "limit=2" : `limit=2&cursor=${cursor}`;
-      const response = await send(t.app, "GET", `/api/projects/${project.id}/kb?${query}`, {
+      const response = await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb?${query}`, {
         cookie,
       });
       expect(response.status).toBe(200);
@@ -376,13 +383,13 @@ describe("listing", () => {
 
     const notes = EntryPageSchema.parse(
       await (
-        await send(t.app, "GET", `/api/projects/${project.id}/kb?kinds=note`, { cookie })
+        await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb?kinds=note`, { cookie })
       ).json(),
     );
     expect(notes.items.map((item) => item.kind)).toEqual(["note", "note", "note"]);
     const both = EntryPageSchema.parse(
       await (
-        await send(t.app, "GET", `/api/projects/${project.id}/kb?kinds=note&kinds=brainstorm`, {
+        await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb?kinds=note&kinds=brainstorm`, {
           cookie,
         })
       ).json(),
@@ -390,22 +397,22 @@ describe("listing", () => {
     expect(both.items).toHaveLength(5);
     const late = EntryPageSchema.parse(
       await (
-        await send(t.app, "GET", `/api/projects/${project.id}/kb?tag=late`, { cookie })
+        await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb?tag=late`, { cookie })
       ).json(),
     );
     expect(late.items.map((item) => item.title).sort()).toEqual(["Entry 3", "Entry 4"]);
 
-    const badCursor = await send(t.app, "GET", `/api/projects/${project.id}/kb?cursor=nope`, {
+    const badCursor = await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb?cursor=nope`, {
       cookie,
     });
     expect(badCursor.status).toBe(400);
   });
 
   it("counts tags of live entries, most used first", async () => {
-    const project = await newProject();
-    await created(project.id, { kind: "note", title: "A", bodyMd: "", tags: ["hooks", "rust"] });
-    await created(project.id, { kind: "note", title: "B", bodyMd: "", tags: ["hooks"] });
-    const gone = await created(project.id, {
+    const workspace = await newWorkspace();
+    await created(workspace.id, { kind: "note", title: "A", bodyMd: "", tags: ["hooks", "rust"] });
+    await created(workspace.id, { kind: "note", title: "B", bodyMd: "", tags: ["hooks"] });
+    const gone = await created(workspace.id, {
       kind: "note",
       title: "C",
       bodyMd: "",
@@ -413,7 +420,9 @@ describe("listing", () => {
     });
     await send(t.app, "DELETE", `/api/kb/${gone.id}`, { cookie });
 
-    const response = await send(t.app, "GET", `/api/projects/${project.id}/kb/tags`, { cookie });
+    const response = await send(t.app, "GET", `/api/workspaces/${workspace.id}/kb/tags`, {
+      cookie,
+    });
     expect(response.status).toBe(200);
     expect(TagListSchema.parse(await response.json()).items).toEqual([
       { tag: "hooks", count: 2 },
@@ -424,10 +433,10 @@ describe("listing", () => {
 
 describe("capture", () => {
   async function conversationWithMessages() {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const [conversation] = await testDb.db
       .insert(conversations)
-      .values({ projectId: project.id, createdBy: userId, title: "Chat" })
+      .values({ workspaceId: workspace.id, createdBy: userId, title: "Chat" })
       .returning();
     if (conversation === undefined) {
       throw new Error("conversation was not inserted");
@@ -451,16 +460,16 @@ describe("capture", () => {
         })),
       )
       .returning();
-    return { project, conversation, rows };
+    return { workspace, conversation, rows };
   }
 
   it("builds markdown from the selected messages in the order they were posted", async () => {
-    const { project, conversation, rows } = await conversationWithMessages();
+    const { workspace, conversation, rows } = await conversationWithMessages();
     const [ask, answer, , shorter, final] = rows;
     if (ask === undefined || answer === undefined || shorter === undefined || final === undefined) {
       throw new Error("messages were not inserted");
     }
-    const response = await send(t.app, "POST", `/api/projects/${project.id}/kb/capture`, {
+    const response = await send(t.app, "POST", `/api/workspaces/${workspace.id}/kb/capture`, {
       cookie,
       body: {
         conversationId: conversation.id,
@@ -491,14 +500,14 @@ describe("capture", () => {
   });
 
   it("rejects messages of another conversation and non-chat messages", async () => {
-    const { project, conversation, rows } = await conversationWithMessages();
+    const { workspace, conversation, rows } = await conversationWithMessages();
     const other = await conversationWithMessages();
     const foreign = other.rows[0];
     const event = rows[2];
     if (foreign === undefined || event === undefined) {
       throw new Error("messages were not inserted");
     }
-    const path = `/api/projects/${project.id}/kb/capture`;
+    const path = `/api/workspaces/${workspace.id}/kb/capture`;
     const base = { conversationId: conversation.id, title: "T", kind: "note" };
     const wrongConversation = await send(t.app, "POST", path, {
       cookie,
@@ -510,11 +519,16 @@ describe("capture", () => {
       body: { ...base, messageIds: [event.id] },
     });
     expect(nonChat.status).toBe(400);
-    const wrongProject = await send(t.app, "POST", `/api/projects/${other.project.id}/kb/capture`, {
-      cookie,
-      body: { ...base, messageIds: [event.id] },
-    });
-    expect(wrongProject.status).toBe(404);
+    const wrongWorkspace = await send(
+      t.app,
+      "POST",
+      `/api/workspaces/${other.workspace.id}/kb/capture`,
+      {
+        cookie,
+        body: { ...base, messageIds: [event.id] },
+      },
+    );
+    expect(wrongWorkspace.status).toBe(404);
   });
 });
 
@@ -528,8 +542,8 @@ describe("references", () => {
       vi.spyOn(https, "get"),
     ];
     try {
-      const project = await newProject();
-      const entry = await created(project.id, {
+      const workspace = await newWorkspace();
+      const entry = await created(workspace.id, {
         kind: "reference",
         url: "https://www.instagram.com/reel/KbSample01/?igsh=abc&utm_source=share",
         author: "sample.creator",
@@ -568,16 +582,16 @@ describe("references", () => {
     }
   });
 
-  it("answers 409 with the existing id for a URL already saved in the project", async () => {
-    const project = await newProject();
-    const first = await created(project.id, {
+  it("answers 409 with the existing id for a URL already saved in the workspace", async () => {
+    const workspace = await newWorkspace();
+    const first = await created(workspace.id, {
       kind: "reference",
       url: "https://youtu.be/KbSample02?si=tracking",
       title: "Question hook",
     });
     expect(first.reference?.platform).toBe("youtube");
 
-    const duplicate = await createEntry(project.id, {
+    const duplicate = await createEntry(workspace.id, {
       kind: "reference",
       url: "  https://youtu.be/KbSample02?si=other  ",
     });
@@ -588,11 +602,11 @@ describe("references", () => {
       details: { reason: "duplicate", entryId: first.id },
     });
 
-    // Another project may save the same link, and deleting the entry frees the URL.
-    const other = await newProject();
+    // Another workspace may save the same link, and deleting the entry frees the URL.
+    const other = await newWorkspace();
     await created(other.id, { kind: "reference", url: "https://youtu.be/KbSample02" });
     await send(t.app, "DELETE", `/api/kb/${first.id}`, { cookie });
-    const again = await created(project.id, {
+    const again = await created(workspace.id, {
       kind: "reference",
       url: "https://youtu.be/KbSample02",
     });
@@ -600,8 +614,8 @@ describe("references", () => {
   });
 
   it("rejects links that are not http or https", async () => {
-    const project = await newProject();
-    const response = await createEntry(project.id, {
+    const workspace = await newWorkspace();
+    const response = await createEntry(workspace.id, {
       kind: "reference",
       url: "ftp://example.test/a",
     });
@@ -609,8 +623,8 @@ describe("references", () => {
   });
 
   it("updates reference fields and keeps the URL", async () => {
-    const project = await newProject();
-    const entry = await created(project.id, {
+    const workspace = await newWorkspace();
+    const entry = await created(workspace.id, {
       kind: "reference",
       url: "https://www.tiktok.com/@sample/video/1000000000000000009",
       author: "sample",
@@ -647,12 +661,12 @@ describe("references", () => {
   });
 
   it("indexes the first 20k transcript characters and the analysis takeaways", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const kb = kbService();
     const actor: KbActor = { kind: "user", id: userId, userId, via: "mcp" };
     const transcript = `${"word ".repeat(4_000)}${"tail ".repeat(2_000)}`;
     const entry = await kb.create(
-      project.id,
+      workspace.id,
       {
         kind: "reference",
         url: "https://threads.net/@sample/post/KbSample03",
@@ -678,11 +692,11 @@ describe("references", () => {
 });
 
 describe("reference media", () => {
-  it("attaches only a ready reference_media asset of the same project", async () => {
-    const project = await newProject();
-    const other = await newProject();
-    const media = await insertAsset(testDb.db, project.id);
-    const entry = await created(project.id, {
+  it("attaches only a ready reference_media asset of the same workspace", async () => {
+    const workspace = await newWorkspace();
+    const other = await newWorkspace();
+    const media = await insertAsset(testDb.db, workspace.id);
+    const entry = await created(workspace.id, {
       kind: "reference",
       url: "https://www.facebook.com/reel/1000000000000000042",
       mediaAssetId: media,
@@ -691,11 +705,11 @@ describe("reference media", () => {
 
     for (const assetId of [
       await insertAsset(testDb.db, other.id),
-      await insertAsset(testDb.db, project.id, { status: "pending" }),
-      await insertAsset(testDb.db, project.id, { kind: "poster" }),
+      await insertAsset(testDb.db, workspace.id, { status: "pending" }),
+      await insertAsset(testDb.db, workspace.id, { kind: "poster" }),
       randomUUID(),
     ]) {
-      const response = await createEntry(project.id, {
+      const response = await createEntry(workspace.id, {
         kind: "reference",
         url: `https://example.test/watch/${randomUUID()}`,
         mediaAssetId: assetId,
@@ -711,7 +725,7 @@ describe("reference media", () => {
     expect(cleared.status).toBe(200);
     const updated = KbEntryDetailSchema.parse(await cleared.json());
     expect(updated.reference?.mediaAssetId).toBeNull();
-    const pending = await insertAsset(testDb.db, project.id, { status: "pending" });
+    const pending = await insertAsset(testDb.db, workspace.id, { status: "pending" });
     const refused = await send(t.app, "PATCH", `/api/kb/${entry.id}`, {
       cookie,
       body: { expectedUpdatedAt: updated.updatedAt, mediaAssetId: pending },
@@ -722,11 +736,11 @@ describe("reference media", () => {
 
 describe("session summaries", () => {
   it("upserts one entry per session", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const kb = kbService();
     const actor: KbActor = { kind: "user", id: userId, userId, via: "hook" };
     const first = await kb.saveSessionSummary(
-      project.id,
+      workspace.id,
       { sessionId: "session-kb-1", summaryMd: "# Drafted the DNS script\nMore.", cwd: "/tmp/x" },
       actor,
     );
@@ -738,7 +752,7 @@ describe("session summaries", () => {
       data: { sessionId: "session-kb-1", cwd: "/tmp/x" },
     });
     const second = await kb.saveSessionSummary(
-      project.id,
+      workspace.id,
       { sessionId: "session-kb-1", summaryMd: "Rewrote the hook." },
       actor,
     );
@@ -759,9 +773,9 @@ describe("search", () => {
     return SearchResultSchema.parse(await response.json()).items;
   }
 
-  it("ranks matches within one project or across every project", async () => {
-    const mine = await newProject();
-    const other = await newProject();
+  it("ranks matches within one workspace or across every workspace", async () => {
+    const mine = await newWorkspace();
+    const other = await newWorkspace();
     const word = `zebrahook${randomUUID().slice(0, 6)}`;
     const titled = await created(mine.id, {
       kind: "brainstorm",
@@ -781,9 +795,9 @@ describe("search", () => {
     const gone = await created(mine.id, { kind: "note", title: "Gone", bodyMd: `${word} gone` });
     await send(t.app, "DELETE", `/api/kb/${gone.id}`, { cookie });
 
-    const scoped = await search(`q=${word}&projectId=${mine.id}`);
+    const scoped = await search(`q=${word}&workspaceId=${mine.id}`);
     expect(scoped.map((hit) => hit.entryId)).toEqual([titled.id, bodied.id]);
-    expect(scoped.every((hit) => hit.projectId === mine.id)).toBe(true);
+    expect(scoped.every((hit) => hit.workspaceId === mine.id)).toBe(true);
     expect(scoped[1]?.snippet).toContain(KB_SNIPPET_MATCH_START);
     expect(scoped[0]).not.toHaveProperty("search");
 
@@ -799,14 +813,14 @@ describe("search", () => {
   });
 
   it("finds a reference by its transcript", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const word = `quokka${randomUUID().slice(0, 6)}`;
-    const entry = await created(project.id, {
+    const entry = await created(workspace.id, {
       kind: "reference",
       url: `https://www.youtube.com/shorts/${word}`,
       transcript: `Quick: what does a ${word} do when you press enter?`,
     });
-    const hits = await search(`q=${word}&projectId=${project.id}`);
+    const hits = await search(`q=${word}&workspaceId=${workspace.id}`);
     expect(hits.map((hit) => hit.entryId)).toEqual([entry.id]);
   });
 
@@ -816,21 +830,21 @@ describe("search", () => {
     expect((await send(t.app, "GET", "/api/kb/search?q=a&kinds=nope", { cookie })).status).toBe(
       400,
     );
-    expect((await send(t.app, "GET", "/api/kb/search?q=a&projectId=nope", { cookie })).status).toBe(
-      400,
-    );
+    expect(
+      (await send(t.app, "GET", "/api/kb/search?q=a&workspaceId=nope", { cookie })).status,
+    ).toBe(400);
   });
 });
 
-describe("project stats", () => {
+describe("workspace stats", () => {
   it("counts live knowledge base entries", async () => {
-    const project = await newProject();
-    const service = createProjectsService({ db: testDb.db, bus: t.bus });
-    expect((await service.stats(project.id)).kbEntries).toBe(0);
-    await created(project.id, { kind: "note", title: "One", bodyMd: "" });
-    const two = await created(project.id, { kind: "note", title: "Two", bodyMd: "" });
-    await created(project.id, { kind: "reference", url: "https://example.test/watch/1" });
+    const workspace = await newWorkspace();
+    const service = createWorkspacesService({ db: testDb.db, bus: t.bus });
+    expect((await service.stats(workspace.id)).kbEntries).toBe(0);
+    await created(workspace.id, { kind: "note", title: "One", bodyMd: "" });
+    const two = await created(workspace.id, { kind: "note", title: "Two", bodyMd: "" });
+    await created(workspace.id, { kind: "reference", url: "https://example.test/watch/1" });
     await send(t.app, "DELETE", `/api/kb/${two.id}`, { cookie });
-    expect(await service.stats(project.id)).toEqual({ conversations: 0, kbEntries: 2, items: 0 });
+    expect(await service.stats(workspace.id)).toEqual({ conversations: 0, kbEntries: 2, items: 0 });
   });
 });

@@ -20,7 +20,7 @@ export interface EnqueueInput {
   type: JobType;
   /** Validated against the registry schema of `type`; the parsed value is stored. */
   payload: unknown;
-  projectId: string;
+  workspaceId: string;
   conversationId?: string | null;
   /** Only this studio agent may run the job (conversation session affinity). */
   deviceAffinity?: string | null;
@@ -53,7 +53,7 @@ export function toJobSummary(row: JobRow): JobSummary {
     id: row.id,
     type: row.type,
     status: row.status,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     conversationId: row.conversationId,
     claimedByDevice: row.claimedByDevice,
     attempt: row.attempt,
@@ -100,7 +100,7 @@ export function createJobsService(deps: { db: Database; bus: EventBus }): JobsSe
         .values({
           type: input.type,
           payload: parsed.data as JsonObject,
-          projectId: input.projectId,
+          workspaceId: input.workspaceId,
           conversationId: input.conversationId ?? null,
           deviceAffinity: input.deviceAffinity ?? null,
           idempotencyKey: key,
@@ -120,7 +120,7 @@ export function createJobsService(deps: { db: Database; bus: EventBus }): JobsSe
             payload: {
               jobId: inserted.id,
               type: inserted.type,
-              projectId: inserted.projectId,
+              workspaceId: inserted.workspaceId,
               deviceAffinity: inserted.deviceAffinity,
             },
           }),

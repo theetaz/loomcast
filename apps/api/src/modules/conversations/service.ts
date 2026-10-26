@@ -14,7 +14,7 @@ import {
   type JobRow,
   type MessageRow,
   messages,
-  projects,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
@@ -47,10 +47,10 @@ export interface PostMessageResult {
 }
 
 export interface ConversationsService {
-  /** Conversations of a project, most recent activity first. Null when the project is unknown. */
-  list(projectId: string): Promise<ConversationRow[] | null>;
-  /** Starts a conversation. 404 for an unknown project, 409 for an archived one. */
-  create(projectId: string, input: CreateConversation, userId: string): Promise<ConversationRow>;
+  /** Conversations of a workspace, most recent activity first. Null when the workspace is unknown. */
+  list(workspaceId: string): Promise<ConversationRow[] | null>;
+  /** Starts a conversation. 404 for an unknown workspace, 409 for an archived one. */
+  create(workspaceId: string, input: CreateConversation, userId: string): Promise<ConversationRow>;
   get(id: string, executor?: Executor): Promise<ConversationRow | null>;
   /**
    * One page of messages, oldest first. Pass the returned `nextCursor` to read the following
@@ -73,7 +73,7 @@ export interface ConversationsService {
 export function toConversation(row: ConversationRow): Conversation {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     title: row.title,
     deviceId: row.deviceId,
     contentItemId: row.contentItemId,
@@ -96,20 +96,20 @@ export function toMessage(row: MessageRow): Message {
   };
 }
 
-const archivedProject = () =>
-  conflict("The project is archived. Restore it before adding to it.", { reason: "archived" });
+const archivedWorkspace = () =>
+  conflict("The workspace is archived. Restore it before adding to it.", { reason: "archived" });
 
 export function createConversationsService(deps: ConversationsServiceDeps): ConversationsService {
   const { db, bus, jobs } = deps;
 
-  async function projectStatus(executor: Executor, projectId: string) {
-    if (!IdSchema.safeParse(projectId).success) {
+  async function workspaceStatus(executor: Executor, workspaceId: string) {
+    if (!IdSchema.safeParse(workspaceId).success) {
       return null;
     }
     const [row] = await executor
-      .select({ status: projects.status })
-      .from(projects)
-      .where(eq(projects.id, projectId))
+      .select({ status: workspaces.status })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
       .limit(1);
     return row?.status ?? null;
   }
@@ -127,15 +127,15 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
   }
 
   return {
-    async list(projectId) {
-      if ((await projectStatus(db, projectId)) === null) {
+    async list(workspaceId) {
+      if ((await workspaceStatus(db, workspaceId)) === null) {
         return null;
       }
-      // Same order as the (project_id, last_message_at DESC NULLS LAST) index.
+      // Same order as the (workspace_id, last_message_at DESC NULLS LAST) index.
       return db
         .select()
         .from(conversations)
-        .where(eq(conversations.projectId, projectId))
+        .where(eq(conversations.workspaceId, workspaceId))
         .orderBy(
           sql`${conversations.lastMessageAt} desc nulls last`,
           desc(conversations.createdAt),
@@ -143,17 +143,17 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
         );
     },
 
-    async create(projectId, input, userId) {
-      const status = await projectStatus(db, projectId);
+    async create(workspaceId, input, userId) {
+      const status = await workspaceStatus(db, workspaceId);
       if (status === null) {
-        throw notFound("Project not found.");
+        throw notFound("Workspace not found.");
       }
       if (status === "archived") {
-        throw archivedProject();
+        throw archivedWorkspace();
       }
       const [row] = await db
         .insert(conversations)
-        .values({ projectId, title: input.title ?? null, createdBy: userId })
+        .values({ workspaceId, title: input.title ?? null, createdBy: userId })
         .returning();
       if (row === undefined) {
         throw new Error("conversation was not inserted");
@@ -204,14 +204,14 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
         const [conversation] = await tx
           .select({
             id: conversations.id,
-            projectId: conversations.projectId,
+            workspaceId: conversations.workspaceId,
             producerSessionId: conversations.producerSessionId,
             deviceId: conversations.deviceId,
             contentItemId: conversations.contentItemId,
-            projectStatus: projects.status,
+            workspaceStatus: workspaces.status,
           })
           .from(conversations)
-          .innerJoin(projects, eq(projects.id, conversations.projectId))
+          .innerJoin(workspaces, eq(workspaces.id, conversations.workspaceId))
           .where(eq(conversations.id, input.conversationId))
           .limit(1)
           .for("update", { of: conversations });
@@ -249,15 +249,15 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
           return { message: existing, job, created: false };
         }
 
-        if (conversation.projectStatus === "archived") {
-          throw archivedProject();
+        if (conversation.workspaceStatus === "archived") {
+          throw archivedWorkspace();
         }
 
         const { job } = await jobs.enqueue(tx, {
           type: "producer.chat",
           payload: {
             conversationId: conversation.id,
-            projectId: conversation.projectId,
+            workspaceId: conversation.workspaceId,
             messageId: inserted.id,
             text: input.text,
             ...(conversation.producerSessionId === null
@@ -268,7 +268,7 @@ export function createConversationsService(deps: ConversationsServiceDeps): Conv
               ? {}
               : { contentItemId: conversation.contentItemId }),
           },
-          projectId: conversation.projectId,
+          workspaceId: conversation.workspaceId,
           conversationId: conversation.id,
           deviceAffinity: conversation.deviceId,
           createdBy: input.userId,

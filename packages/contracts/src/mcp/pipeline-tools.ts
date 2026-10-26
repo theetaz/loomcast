@@ -47,9 +47,9 @@ export const FormatGetRulesOutputSchema = z.object({
 });
 export type FormatGetRulesOutput = z.infer<typeof FormatGetRulesOutputSchema>;
 
-/** A new idea in a project, optionally in one of its series. */
+/** A new idea in a workspace, optionally in one of its series. */
 export const ContentCreateIdeaInputSchema = z.object({
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   seriesId: IdSchema.optional(),
   title: ContentTitleSchema,
   pitch: ContentPitchSchema.refine((pitch) => pitch.length > 0, {
@@ -207,14 +207,14 @@ export type SkillPublishOutput = z.infer<typeof SkillPublishOutputSchema>;
 
 /**
  * The production tools served on `/mcp`. Producer sessions call them with their job token, bound
- * to the job's project; only publishing skills needs a user's token.
+ * to the job's workspace; only publishing skills needs a user's token.
  */
 export const pipelineTools = {
   "format.get_rules": {
     name: "format.get_rules",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Get the current format rules of a series: tone, reading level, hook style, length, voice, visual style, topics, cadence and caption rules.",
     input: FormatGetRulesInputSchema,
@@ -224,9 +224,9 @@ export const pipelineTools = {
     name: "content.create_idea",
     scope: "mcp:write",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
-      "Add a video idea (title and pitch) to a project, optionally in a series. It starts in the idea state.",
+      "Add a video idea (title and pitch) to a workspace, optionally in a series. It starts in the idea state.",
     input: ContentCreateIdeaInputSchema,
     output: ContentCreateIdeaOutputSchema,
   },
@@ -234,7 +234,7 @@ export const pipelineTools = {
     name: "content.get",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Get a content item with one version (the current one by default), its script and storyboard, and its format rules.",
     input: ContentGetInputSchema,
@@ -244,7 +244,7 @@ export const pipelineTools = {
     name: "content.submit_for_review",
     scope: "mcp:write",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Save a new version of an item with a script, a storyboard, a voice take, a finished render (with its poster) or a mix. Media are ready assets of the item from content.upload_asset. The item moves to the stage its artifacts reach, and a version with a render goes to review. Only the owner can approve it, in the web app or with content.review.",
     input: ContentSubmitForReviewInputSchema,
@@ -254,7 +254,7 @@ export const pipelineTools = {
     name: "content.upload_asset",
     scope: "mcp:write",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Start uploading a file for an item (voice, render, poster, frame, or media: a photo or video of a composed post). PUT the bytes to the returned URL with exactly the returned headers, then call content.finalize_asset. No upload is returned when the item already holds an identical file of that kind.",
     input: ContentUploadAssetInputSchema,
@@ -264,7 +264,7 @@ export const pipelineTools = {
     name: "content.finalize_asset",
     scope: "mcp:write",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Finish an upload: the server checks the size and SHA-256 and stores the media probe (and a voice take's word timings).",
     input: ContentFinalizeAssetInputSchema,
@@ -274,7 +274,7 @@ export const pipelineTools = {
     name: "asset.get_url",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description: "Get a short-lived download URL for a ready asset, with its details.",
     input: AssetGetUrlInputSchema,
     output: AssetGetUrlOutputSchema,
@@ -283,7 +283,7 @@ export const pipelineTools = {
     name: "skill.pull",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "Download published skills with their files: every skill at its latest version, or one skill.",
     input: SkillPullInputSchema,
@@ -293,7 +293,7 @@ export const pipelineTools = {
     name: "skill.publish",
     scope: "mcp:write",
     jobTokens: "deny",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "Publish a skill or recipe as a new version. Publishing identical files returns the latest version.",
     input: SkillPublishInputSchema,

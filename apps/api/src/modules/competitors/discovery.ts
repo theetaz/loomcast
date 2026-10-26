@@ -8,7 +8,7 @@ import {
   normalizeReferenceUrl,
 } from "@loomcast/contracts";
 import { channels, type Database } from "@loomcast/db";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { PlatformsConfig } from "../../env";
 import { HttpError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -175,11 +175,14 @@ interface InstagramChannel {
 }
 
 /**
- * The active Instagram channel `channelId`, or the first one connected, with its access token
- * opened from the vault. `422 no_instagram_channel` when there is none or its token cannot be read.
+ * The active Instagram channel `channelId` of the workspace, or else the first one connected,
+ * preferring the workspace's own (a lookup only needs some account's token, so a workspace without
+ * an Instagram account can still rank), with its access token opened from the vault.
+ * `422 no_instagram_channel` when there is none or its token cannot be read.
  */
 async function instagramChannel(
   deps: DiscoveryDeps,
+  workspaceId: string,
   channelId: string | undefined,
 ): Promise<InstagramChannel> {
   const [row] = await deps.db
@@ -196,10 +199,16 @@ async function instagramChannel(
         eq(channels.platform, "instagram"),
         eq(channels.status, "active"),
         isNotNull(channels.externalId),
-        channelId === undefined ? undefined : eq(channels.id, channelId),
+        channelId === undefined
+          ? undefined
+          : and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)),
       ),
     )
-    .orderBy(asc(channels.createdAt), asc(channels.id))
+    .orderBy(
+      desc(sql`${channels.workspaceId} = ${workspaceId}`),
+      asc(channels.createdAt),
+      asc(channels.id),
+    )
     .limit(1);
   const sealed = row === undefined ? null : sealedSecretOf(row);
   if (row === undefined || row.externalId === null || sealed === null) {
@@ -237,7 +246,7 @@ async function instagramChannel(
  */
 export async function discoverInstagramVideos(
   deps: DiscoveryDeps,
-  input: { handle: string; topN: number; channelId?: string | undefined },
+  input: { workspaceId: string; handle: string; topN: number; channelId?: string | undefined },
 ): Promise<Discovery> {
   if (!COMPETITOR_HANDLE_RE.test(input.handle)) {
     throw unprocessable("not_professional_account", "The handle cannot be looked up.");
@@ -245,7 +254,7 @@ export async function discoverInstagramVideos(
   if (deps.platforms.meta === null) {
     throw new HttpError(503, "not_configured", "The Meta app is not configured on the server.");
   }
-  const channel = await instagramChannel(deps, input.channelId);
+  const channel = await instagramChannel(deps, input.workspaceId, input.channelId);
   const client = deps.graph?.() ?? createMetaGraphClient(deps.platforms);
   let result: Awaited<ReturnType<typeof businessDiscovery>>;
   try {

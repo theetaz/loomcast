@@ -13,13 +13,13 @@ export const DraftSchema = z.object({
 });
 export type Draft = z.infer<typeof DraftSchema>;
 
-/** The storage key of an entry's draft, or of a new entry of `kind` in a project. */
+/** The storage key of an entry's draft, or of a new entry of `kind` in a workspace. */
 export function draftKey(
-  target: { entryId: string } | { projectId: string; kind: string },
+  target: { entryId: string } | { workspaceId: string; kind: string },
 ): string {
   return "entryId" in target
     ? `${PREFIX}${target.entryId}`
-    : `${PREFIX}new.${target.projectId}.${target.kind}`;
+    : `${PREFIX}new.${target.workspaceId}.${target.kind}`;
 }
 
 function storage(): Storage | null {

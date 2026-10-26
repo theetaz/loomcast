@@ -9,7 +9,9 @@ import { librarySetup } from "./support/library";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
-function renderLibrary(db: ReturnType<typeof librarySetup>["db"], path = "/library") {
+const LIBRARY = "/w/rust-in-60-seconds/library";
+
+function renderLibrary(db: ReturnType<typeof librarySetup>["db"], path = LIBRARY) {
   const stream = fakeStream(db);
   const view = renderApp(path, db, [], { createEventSource: stream.factory });
   return { ...view, stream };
@@ -31,7 +33,7 @@ function rowOf(title: string) {
 }
 
 describe("library table", () => {
-  it("lists every item but the archived, newest change first, across projects", async () => {
+  it("lists the workspace's items but the archived, newest change first", async () => {
     const { db, items } = librarySetup();
     renderLibrary(db);
     const grid = await table();
@@ -41,24 +43,24 @@ describe("library table", () => {
         items.question.title,
         items.lifetimes.title,
         items.moves.title,
-        items.handoffs.title,
-        items.published.title,
       ]),
     );
+    // The other workspace's items never show here.
+    expect(screen.queryByRole("link", { name: items.handoffs.title })).not.toBeInTheDocument();
     const row = within(rowOf(items.moves.title));
     expect(row.getByText("In review")).toHaveAttribute("data-tone", "amber");
     expect(row.getByText("v3")).toBeInTheDocument();
     expect(row.getByText("1:05")).toBeInTheDocument();
     expect(await row.findByText("Ownership basics")).toBeInTheDocument();
-    expect(screen.getByText("6 videos")).toBeInTheDocument();
+    expect(screen.getByText("4 videos")).toBeInTheDocument();
   });
 
   it("reads filters from the address and sends them to content.list", async () => {
-    const { db, items, series } = librarySetup();
+    const { db, items, series, rust } = librarySetup();
     const requests = recordRequests();
     renderLibrary(
       db,
-      `/library?states=review,script&series=${series.ownership.id}&from=2026-10-10&to=2026-10-31&q=moves`,
+      `${LIBRARY}?states=review,script&series=${series.ownership.id}&from=2026-10-10&to=2026-10-31&q=moves`,
     );
     const grid = await table();
     await waitFor(() => expect(rowTitles(grid)).toEqual([items.moves.title]));
@@ -68,7 +70,7 @@ describe("library table", () => {
     expect(list?.query.get("seriesId")).toBe(series.ownership.id);
     expect(list?.query.get("q")).toBe("moves");
     expect(list?.query.get("targetFrom")).toBe(new Date(2026, 9, 10).toISOString());
-    expect(list?.query.get("projectId")).toBeNull();
+    expect(list?.query.get("workspaceId")).toBe(rust.id);
     expect(screen.getByRole("searchbox", { name: "Search titles and pitches" })).toHaveValue(
       "moves",
     );
@@ -87,11 +89,7 @@ describe("library table", () => {
     await waitFor(() => expect(router.state.location.search).toEqual({ states: "idea,review" }));
     await user.keyboard("{Escape}");
     await waitFor(() =>
-      expect(rowTitles(screen.getByRole("table"))).toEqual([
-        items.borrow.title,
-        items.moves.title,
-        items.handoffs.title,
-      ]),
+      expect(rowTitles(screen.getByRole("table"))).toEqual([items.borrow.title, items.moves.title]),
     );
 
     await user.type(screen.getByRole("searchbox", { name: "Search titles and pitches" }), "loop");
@@ -119,7 +117,7 @@ describe("library table", () => {
 
   it("drops invalid params and shows the filtered empty state", async () => {
     const { db } = librarySetup();
-    const { user, router } = renderLibrary(db, "/library?states=drafting&sort=loudness&q=zebra");
+    const { user, router } = renderLibrary(db, `${LIBRARY}?states=drafting&sort=loudness&q=zebra`);
     expect(await screen.findByText("No videos match these filters")).toBeInTheDocument();
     expect(router.state.location.search).toEqual({ q: "zebra" });
     // The filter bar and the empty state both offer it.
@@ -147,25 +145,28 @@ describe("library table", () => {
     await user.keyboard("{ArrowUp}");
     expect(screen.getByRole("link", { name: items.question.title })).toHaveFocus();
     await user.keyboard("{End}");
-    expect(screen.getByRole("link", { name: items.published.title })).toHaveFocus();
+    expect(screen.getByRole("link", { name: items.moves.title })).toHaveFocus();
     await user.keyboard("{Home}");
     expect(first).toHaveFocus();
     expect(screen.getByRole("link", { name: items.borrow.title })).toHaveAttribute("tabindex", "0");
 
     await user.keyboard("{ArrowDown}{Enter}");
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe(`/content/${items.question.id}`),
+      expect(router.state.location.pathname).toBe(
+        `/w/rust-in-60-seconds/content/${items.question.id}`,
+      ),
     );
     expect(
       await screen.findByRole("heading", { name: items.question.title, level: 1 }),
     ).toBeInTheDocument();
   });
 
-  it("scopes the project's Content tab to the project", async () => {
+  it("opens the old Content tab address as the workspace's library", async () => {
     const { db, items, rust } = librarySetup();
     const requests = recordRequests();
-    renderLibrary(db, `/projects/${rust.slug}/content`);
+    const { router } = renderLibrary(db, `/workspaces/${rust.slug}/content`);
     const grid = await table();
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/w/${rust.slug}/library`));
     await waitFor(() =>
       expect(rowTitles(grid)).toEqual([
         items.borrow.title,
@@ -175,7 +176,7 @@ describe("library table", () => {
       ]),
     );
     expect(
-      requests.find((request) => request.path === "/api/content")?.query.get("projectId"),
+      requests.find((request) => request.path === "/api/content")?.query.get("workspaceId"),
     ).toBe(rust.id);
   });
 });
@@ -183,18 +184,14 @@ describe("library table", () => {
 describe("live updates", () => {
   it("patches rows from content.item events", async () => {
     const { db, items, rust } = librarySetup();
-    renderLibrary(db, "/library?states=idea,script");
+    renderLibrary(db, `${LIBRARY}?states=idea,script`);
     const grid = await table();
     await waitFor(() =>
-      expect(rowTitles(grid)).toEqual([
-        items.borrow.title,
-        items.question.title,
-        items.handoffs.title,
-      ]),
+      expect(rowTitles(grid)).toEqual([items.borrow.title, items.question.title]),
     );
 
     // A new idea from another writer appears at the top.
-    const created = mockContentItem({ projectId: rust.id, title: "Iterators are lazy" });
+    const created = mockContentItem({ workspaceId: rust.id, title: "Iterators are lazy" });
     db.contentItems.push(created.item);
     act(() => publish(db, { type: "content.item.created", payload: { item: created.item } }));
     await waitFor(() => expect(rowTitles(grid)[0]).toBe("Iterators are lazy"));
@@ -221,11 +218,7 @@ describe("live updates", () => {
       expect(screen.queryByRole("link", { name: items.question.title })).not.toBeInTheDocument(),
     );
     // Rows stay newest change first: the edited idea is now the newest.
-    expect(rowTitles(grid)).toEqual([
-      items.borrow.title,
-      "Iterators are lazy",
-      items.handoffs.title,
-    ]);
+    expect(rowTitles(grid)).toEqual([items.borrow.title, "Iterators are lazy"]);
   });
 });
 
@@ -251,19 +244,19 @@ describe("pipeline board", () => {
       "scheduled",
       "published",
     ]);
-    const idea = within(board).getByRole("listitem", { name: "Idea, 2 items" });
+    const idea = within(board).getByRole("listitem", { name: "Idea, 1 item" });
     expect(
       within(idea)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual([items.borrow.title, items.handoffs.title]);
+    ).toEqual([items.borrow.title]);
     expect(within(board).getByRole("listitem", { name: "Voice, 0 items" })).toHaveTextContent(
       "Nothing here",
     );
     expect(window.localStorage.getItem(LIBRARY_VIEW_KEY)).toBe("board");
 
     unmount();
-    renderLibrary(db, "/library?states=review,archived");
+    renderLibrary(db, `${LIBRARY}?states=review,archived`);
     const again = await screen.findByRole("region", { name: "Pipeline board" });
     await waitFor(() =>
       expect(
@@ -322,7 +315,7 @@ describe("quick actions", () => {
 });
 
 describe("new idea", () => {
-  it("adds an idea to the chosen project and series", async () => {
+  it("adds an idea to the open workspace and the chosen series", async () => {
     const { db, rust, series } = librarySetup();
     const requests = recordRequests();
     const { user } = renderLibrary(db);
@@ -335,14 +328,10 @@ describe("new idea", () => {
 
     await user.type(within(dialog).getByLabelText("Title"), "Traits as contracts");
     await user.type(within(dialog).getByLabelText(/Pitch/), "One trait, three impls.");
-    // The dialog defaults to the most recently updated project, and both fixture projects are
-    // created in the same millisecond, so pick the project explicitly.
-    const projectSelect = within(dialog).getByRole("combobox", { name: /Project/ });
-    await waitFor(() => expect(projectSelect).toBeEnabled());
-    await user.click(projectSelect);
-    await user.click(await screen.findByRole("option", { name: rust.name }));
+    // Inside a workspace the idea always goes into it: there is nothing to pick.
+    expect(within(dialog).queryByRole("combobox", { name: /Workspace/ })).not.toBeInTheDocument();
 
-    // The series select stays disabled until the project's series have loaded.
+    // The series select stays disabled until the workspace's series have loaded.
     const seriesSelect = within(dialog).getByRole("combobox", { name: /Series/ });
     await waitFor(() => expect(seriesSelect).toBeEnabled());
     await user.click(seriesSelect);
@@ -352,7 +341,7 @@ describe("new idea", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByRole("link", { name: "Traits as contracts" })).toBeInTheDocument();
     const create = requests.find((request) => request.method === "POST");
-    expect(create?.path).toBe(`/api/projects/${rust.id}/content`);
+    expect(create?.path).toBe(`/api/workspaces/${rust.id}/content`);
     expect(create?.body).toEqual({
       title: "Traits as contracts",
       pitch: "One trait, three impls.",
@@ -362,7 +351,7 @@ describe("new idea", () => {
 });
 
 describe("palette", () => {
-  it("finds videos by title and opens them", async () => {
+  it("finds the workspace's videos by title and opens them", async () => {
     await preloadPalette();
     const { db, items, rust } = librarySetup();
     const requests = recordRequests();
@@ -377,13 +366,16 @@ describe("palette", () => {
     const palette = await screen.findByRole("dialog", { name: "Search or jump to" });
     await user.keyboard("borrow");
     const option = await within(palette).findByRole("option", { name: /Why the borrow checker/ });
-    expect(option).toHaveTextContent(rust.name);
     expect(option).toHaveTextContent("Idea");
-    expect(
-      requests.filter((request) => request.path === "/api/content" && request.query.get("q")),
-    ).toHaveLength(1);
+    const searches = requests.filter(
+      (request) => request.path === "/api/content" && request.query.get("q"),
+    );
+    expect(searches).toHaveLength(1);
+    expect(searches[0]?.query.get("workspaceId")).toBe(rust.id);
 
     await user.click(option);
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/content/${items.borrow.id}`));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/w/${rust.slug}/content/${items.borrow.id}`),
+    );
   });
 });

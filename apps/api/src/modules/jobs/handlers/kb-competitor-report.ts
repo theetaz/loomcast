@@ -57,7 +57,7 @@ export function createKbCompetitorReportHooks(deps: { db: Database; bus: EventBu
           : { kind: "device", id: job.claimedByDevice, userId: job.createdBy, via: "producer" };
       const entry = await kb.createIn(
         tx,
-        scan.projectId,
+        scan.workspaceId,
         {
           kind: "note",
           title: `Competitor report: @${handle} (${date})`,
@@ -74,7 +74,7 @@ export function createKbCompetitorReportHooks(deps: { db: Database; bus: EventBu
         action: "competitor.scan.report",
         targetType: "competitor_scan",
         targetId: scan.id,
-        data: { projectId: scan.projectId, entryId: entry.id, jobId: job.id, status },
+        data: { workspaceId: scan.workspaceId, entryId: entry.id, jobId: job.id, status },
       });
     },
 

@@ -39,7 +39,7 @@ import {
   createPipelineHarness,
   eventsOf,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import { appWith, insertChannel, insertPost, runDue, testKeyring } from "./publisher-support";
@@ -290,12 +290,12 @@ describe("insights per post format", () => {
 // Scheduler integration --------------------------------------------------------------------------
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 const keyring = testKeyring();
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
 });
 
 afterEach(async () => {
@@ -391,7 +391,7 @@ async function livePost(
     status: "active",
     dryRun: false,
   });
-  const item = await insertItem(h, { projectId, state: "published", level: "render" });
+  const item = await insertItem(h, { workspaceId, state: "published", level: "render" });
   const postId = await insertPost(h.db, {
     itemId: item.itemId,
     versionId: item.versionId,
@@ -514,7 +514,7 @@ describe("insights.pull", () => {
       expect(event?.payload).toEqual({
         postId,
         itemId: item.itemId,
-        projectId,
+        workspaceId,
         channelId: channel.id,
         platform: "instagram",
         metrics: {

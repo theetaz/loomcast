@@ -20,7 +20,7 @@ import {
   type Fixtures,
   pairDevice,
   producerChatPayload,
-  seedProject,
+  seedWorkspace,
   startBridgeServer,
   type TestDevice,
   trackUnhandledRejections,
@@ -35,7 +35,7 @@ const homes: string[] = [];
 
 beforeAll(async () => {
   testDb = await createTestDb();
-  fixtures = await seedProject(testDb.db);
+  fixtures = await seedWorkspace(testDb.db);
 });
 
 afterEach(async () => {
@@ -119,13 +119,13 @@ describe("the studio agent against the bridge hub", () => {
       });
 
     const ping = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const chat = await enqueue(testDb.db, server.bus, {
       type: "producer.chat",
       payload: producerChatPayload(fixtures, conversationId),
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       conversationId,
       createdBy: fixtures.userId,
     });
@@ -185,7 +185,7 @@ describe("the studio agent against the bridge hub", () => {
       throw new Error("aborted");
     });
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     runAgent(server, device, handlers);

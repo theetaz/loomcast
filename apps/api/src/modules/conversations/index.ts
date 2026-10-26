@@ -28,7 +28,7 @@ export {
 const conversationNotFound = () => notFound("Conversation not found.");
 
 /**
- * Conversations of a project and their messages. Posting a message stores it and enqueues the
+ * Conversations of a workspace and their messages. Posting a message stores it and enqueues the
  * `producer.chat` job that answers it; the job dispatcher delivers the job to a studio agent.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
@@ -37,18 +37,18 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["conversations.list"].path, async (c) => {
     currentUser(c);
-    const rows = await service.list(idParam(c, "projectId"));
+    const rows = await service.list(idParam(c, "workspaceId"));
     if (rows === null) {
-      throw notFound("Project not found.");
+      throw notFound("Workspace not found.");
     }
     return c.json({ items: rows.map(toConversation) }, 200);
   });
 
   router.post(routes["conversations.create"].path, async (c) => {
     const user = currentUser(c);
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateConversationSchema);
-    const row = await service.create(projectId, input, user.id);
+    const row = await service.create(workspaceId, input, user.id);
     return c.json(toConversation(row), 201);
   });
 

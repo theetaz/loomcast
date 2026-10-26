@@ -43,19 +43,13 @@ The one exception is a series whose format is set to **Publish automatically** a
 
 ## Finding your videos
 
-### The project's Content tab
-
-Open a project and choose the **Content** tab. It lists that project's videos, from first idea to published.
-
-![A project's Content tab: the table of videos with their series, state, version, target date and length](images/project-content.png)
-
 ### The Library
 
-**Library** in the sidebar shows every video in every project in the same layout.
+**Library** in the sidebar lists the open workspace's videos, from first idea to published. To see another brand's videos, switch workspace with the switcher at the top of the sidebar.
 
-![The Library: every video across projects, with filters and the New idea button](images/library.png)
+![The Library: the workspace's videos with filters and the New idea button](images/library.png)
 
-Both views work the same way:
+The Library works like this:
 
 - **Table** and **Board** switch between a sortable list and a board with a column per state.
 - **Search titles and pitches** filters as you type.
@@ -68,13 +62,12 @@ The columns show the series, the state, the current version (**v5** is the fifth
 
 ### Adding an idea
 
-1. Press **New idea** (top right of the Library or a project's Content tab).
+1. Press **New idea** (top right of the Library, or on a series page).
 2. Enter a **Title**. Add a **Pitch** if you want: the angle, the hook, or what the viewer should take away.
-3. In the Library, choose the **Project**. In a project's Content tab, the project is already set.
-4. Optionally choose a **Series**. The video then follows that series' format.
-5. Press **Add idea**. A message confirms it with an **Open** link.
+3. Optionally choose a **Series** of the workspace. The video then follows that series' format.
+4. Press **Add idea**. A message confirms it with an **Open** link.
 
-The new video is in the **Idea** state. Press **Produce** on its page to have the studio agent make it.
+The new video belongs to the open workspace and is in the **Idea** state. Press **Produce** on its page to have the studio agent make it.
 
 ## The video page
 
@@ -131,17 +124,16 @@ Every decision is kept with the version it was about and listed under the Review
 
 ## The Review queue
 
-**Review** in the sidebar lists every video waiting for your decision, the nearest target date first. Each row shows a poster, the project and series, the version, the length, how long it has been in review and when it is due.
+**Review** in the sidebar lists the open workspace's videos waiting for your decision, the nearest target date first. Each row shows a poster, the series, the version, the length, how long it has been in review and when it is due.
 
 ![The Review queue with two videos waiting for a decision](images/review.png)
 
-- **All projects** limits the queue to one project.
 - **j** and **k** move up and down the list, and **Enter** opens the selected video.
 - The decisions themselves are on the video page, in its Review panel.
 
 ## Approvals
 
-**Approvals** in the sidebar is the inbox for videos that are waiting for a decision before a post is due to go out. It differs from the Review queue in two ways: it counts down to each video's first planned post, and it lets you decide from the list.
+**Approvals** in the sidebar is the open workspace's inbox for videos that are waiting for a decision before a post is due to go out. It differs from the Review queue in two ways: it counts down to each video's first planned post, and it lets you decide from the list.
 
 ![The Approvals inbox: two videos waiting for approval and one missed post](images/approvals.png)
 

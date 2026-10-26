@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useLiveEvent, useLiveReconnect } from "@/lib/live";
 import { queryKeys } from "@/lib/query-keys";
 
-export function overviewQueryOptions(query: { from: string; to: string; projectId?: string }) {
+export function overviewQueryOptions(query: { from: string; to: string; workspaceId?: string }) {
   return queryOptions({
     queryKey: queryKeys.analytics.overview(query),
     queryFn: ({ signal }) => api.request("analytics.overview", { query, signal }),

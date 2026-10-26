@@ -58,33 +58,33 @@ async function mapErrors<T>(fn: () => Promise<T>): Promise<T> {
 export function createAssetTools(deps: AssetToolsDeps): ToolDefinition[] {
   const { assets, content } = deps;
 
-  /** The project of an asset, or null when there is no such asset. */
-  async function assetProject(assetId: string): Promise<string | null> {
-    return (await assets.getRow(assetId))?.projectId ?? null;
+  /** The workspace of an asset, or null when there is no such asset. */
+  async function assetWorkspace(assetId: string): Promise<string | null> {
+    return (await assets.getRow(assetId))?.workspaceId ?? null;
   }
 
-  /** The asset's row, checked against the project the call was bound to. */
+  /** The asset's row, checked against the workspace the call was bound to. */
   async function boundAsset(assetId: string, ctx: ToolContext) {
-    const row = ctx.projectId === null ? null : await assets.getRow(assetId);
-    if (row === null || row.projectId !== ctx.projectId) {
+    const row = ctx.workspaceId === null ? null : await assets.getRow(assetId);
+    if (row === null || row.workspaceId !== ctx.workspaceId) {
       throw new McpToolError("not_found", "No asset has that id.");
     }
     return row;
   }
 
   const upload = defineTool(pipelineTools["content.upload_asset"], {
-    async resolveProject(input) {
-      return (await content.getItem(input.itemId))?.projectId ?? null;
+    async resolveWorkspace(input) {
+      return (await content.getItem(input.itemId))?.workspaceId ?? null;
     },
     async handler(input, ctx) {
-      if (ctx.projectId === null) {
+      if (ctx.workspaceId === null) {
         throw new McpToolError("not_found", "No content item has that id.");
       }
-      const projectId = ctx.projectId;
+      const workspaceId = ctx.workspaceId;
       const { asset, upload: instructions } = await mapErrors(() =>
         assets.createUpload(
           {
-            projectId,
+            workspaceId,
             itemId: input.itemId,
             kind: input.kind,
             filename: input.filename,
@@ -105,7 +105,7 @@ export function createAssetTools(deps: AssetToolsDeps): ToolDefinition[] {
   });
 
   const finalize = defineTool(pipelineTools["content.finalize_asset"], {
-    resolveProject: (input) => assetProject(input.assetId),
+    resolveWorkspace: (input) => assetWorkspace(input.assetId),
     async handler(input, ctx) {
       await boundAsset(input.assetId, ctx);
       const asset = await mapErrors(() =>
@@ -131,7 +131,7 @@ export function createAssetTools(deps: AssetToolsDeps): ToolDefinition[] {
   });
 
   const getUrl = defineTool(pipelineTools["asset.get_url"], {
-    resolveProject: (input) => assetProject(input.assetId),
+    resolveWorkspace: (input) => assetWorkspace(input.assetId),
     async handler(input, ctx) {
       await boundAsset(input.assetId, ctx);
       const signed = await mapErrors(() =>

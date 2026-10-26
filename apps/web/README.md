@@ -19,9 +19,9 @@ pnpm --filter @loomcast/web test       # vitest + Testing Library + jsdom, fetch
 
 ### Mock mode
 
-`dev:mock` starts [MSW](https://mswjs.io) in the browser with demo projects and a paired
-studio. Sign in with `owner@loomcast.test` / `loomcast-demo-password`. Creating a project
-also publishes a `project.created` event on the mock `/api/stream`. The mocks are never part
+`dev:mock` starts [MSW](https://mswjs.io) in the browser with demo workspaces and a paired
+studio. Sign in with `owner@loomcast.test` / `loomcast-demo-password`. Creating a workspace
+also publishes a `workspace.created` event on the mock `/api/stream`. The mocks are never part
 of a production build.
 
 The mock studio agent answers chat messages: the job is dispatched, reports tool activity,
@@ -29,11 +29,11 @@ streams its reply and stores it, publishing the same live events as the real sys
 message containing `[fail]` fails, and `loomcastMock.setStudioOnline(false)` in the console
 takes the studio agent offline so new messages wait (set it back to `true` to run them).
 
-Settings → Members lists demo members. Inviting someone shows a set-password link. The mock
+Account settings → Members lists demo members. Inviting someone shows a set-password link. The mock
 API lives in the page and a reload resets it, so open the link without reloading: for example
 `history.pushState({}, "", link); dispatchEvent(new PopStateEvent("popstate"))` in the console.
 
-The demo projects also have series and content items in every pipeline state
+The demo workspaces also have series and content items in every pipeline state
 (`src/mocks/content.ts`); the demo series get formats with their own rules and history
 (`src/mocks/formats.ts`, default rules for any other series), and uploads go to a pretend
 object store (`src/mocks/uploads.ts`). Producing an item walks it through script, storyboard,
@@ -60,12 +60,12 @@ the scheduler's task list and retry (`db.tasks`, with a few dead and failed task
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers), `login`, `set-password` (public), `_app` (auth guard and shell), `_app/index` (home), `_app/projects/*`, `_app/library/*`, `_app/content/$itemId`, `_app/review/*`, `_app/calendar/*`, `_app/approvals/*`, `_app/analytics/*`, `_app/settings/*` |
-| `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the Channels group |
+| `src/routes/` | File routes. `__root` (providers); `login`, `set-password`, `terms`, `privacy` and `data-deletion` (public); `_app` (auth guard and shell); `_app/index` (opens the last workspace); `_app/workspaces/index` (every workspace); `_app/w/$workspace/*` (every page of one workspace, its settings included); `_app/channels/connect` (where a platform sign-in returns); `_app/settings/*` (account settings); `_app/guide/*`. The old top-level addresses (`_app/calendar`, `library`, `review`, `approvals`, `analytics/*`, `content/$itemId`, `projects/$`, `workspaces/$`, `settings/channels/*`, `settings/api-clients`) only redirect into a workspace |
+| `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the open workspace's Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |
 | `src/lib/query-keys.ts` | Every query key; mutations and live events patch the same caches |
-| `src/features/` | Screens and their queries: `auth`, `projects`, `project` (the project page), `devices`, `home`, `shell`, `conversation`, `kb`, `library`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `approvals`, `channels`, `scheduler-admin`, `analytics`, `palette`, `members`, `settings-nav` |
+| `src/features/` | Screens and their queries: `auth`, `shell` (sidebar, workspace switcher, top bar), `workspaces` (the list and New workspace), `workspace` (the layout, overview, current workspace and old-address redirects), `workspace-settings` (the settings tabs and General), `channels` (channel settings and the connect page), `api-clients`, `devices`, `settings` (devices and tokens), `conversation`, `kb`, `library`, `composer`, `post-formats`, `content-item`, `calendar`, `series`, `formats`, `review-queue`, `approvals`, `competitors`, `scheduler-admin`, `analytics`, `palette`, `members`, `settings-nav`, `guide`, `legal` |
 | `src/components/` | Page scaffolding: `Page`, `PageHeader`, `EmptyState`, `ErrorState`, `RelativeTime`, 404 and error pages |
 | `src/mocks/` | MSW handlers and an in-memory db, shared by the tests and mock mode |
 | `vite/theme-init.ts` | Emits the theme bootstrap as `/theme-init.js`, so the CSP needs no inline script |
@@ -76,8 +76,8 @@ the scheduler's task list and retry (`db.tasks`, with a few dead and failed task
 ```ts
 import { api, ApiError, errorMessage } from "@/lib/api";
 
-const project = await api.request("projects.get", { params: { idOrSlug } });
-await api.request("projects.create", { body: { name } });
+const workspace = await api.request("workspaces.get", { params: { idOrSlug } });
+await api.request("workspaces.create", { body: { name } });
 ```
 
 - Route names, path parameters, bodies, queries and responses are typed from the contracts.
@@ -96,8 +96,8 @@ The `_app` layout keeps one `EventSource` on `/api/stream` open through `useLive
 browser retries dropped connections; when it gives up, the client reconnects with backoff
 (1 s doubling to 30 s) and refetches active queries.
 
-Before features hear about an event, its cache is patched: `project.created` and
-`project.updated` update the project list and detail, `device.status` the device list,
+Before features hear about an event, its cache is patched: `workspace.created` and
+`workspace.updated` update the workspace list and detail, `device.status` the device list,
 `job.updated` the job, and `resync` refetches everything. Features subscribe for the rest:
 
 ```ts
@@ -109,9 +109,9 @@ useLiveReconnect(() => void refetchMessages());
 
 ## Conversations
 
-`features/conversation` is the project page's Chat tab: the conversation list (a column
-from 768px, a picker below), the open conversation (`?conversation=<id>`, else the latest),
-and the composer.
+`features/conversation` is the workspace's Chat page (`/w/:workspace/chat`): the conversation list
+(a column from 768px, a picker below), the open conversation (`?conversation=<id>`, else the
+latest), and the composer.
 
 - Messages are read page by page to the end and kept oldest first. Assistant text is
   markdown (GFM); raw HTML shows as text, unsafe link targets are dropped and images become
@@ -127,7 +127,7 @@ and the composer.
 
 ## Knowledge base
 
-`features/kb` is the project's Knowledge tab (`/projects/:id/kb`), its entry pages
+`features/kb` is the workspace's Knowledge page (`/w/:workspace/kb`), its entry pages
 (`kb/$entryId`) and the create forms (`kb/new?kind=brainstorm|note|decision|reference`).
 
 - The list filters by kind (a segmented control), one tag (chips from `kb.tags`) and a search
@@ -136,7 +136,7 @@ and the composer.
   `\u0003` sentinels. `lib/snippet.tsx` turns them into `<mark>` elements; stored text is never
   rendered as HTML, and markdown previews use the chat renderer with raw HTML shown as text.
 - `kb.entry.created`, `updated` and `deleted` events patch every loaded list, the tags, the
-  searches and the open entry (`queries.ts`, mounted once by the project layout).
+  searches and the open entry (`queries.ts`, mounted once by the workspace layout).
 - Brainstorms and notes open in an editor whose unsaved changes are kept in localStorage
   (`draft.ts`) and restored on return. ⌘S or Ctrl+S saves. Saves send `expectedUpdatedAt`; a
   `409` shows a banner to reload the stored version or overwrite it.
@@ -151,8 +151,8 @@ and the composer.
 
 ## Library
 
-`features/library` is the Library page (`/library`, every project) and each project's Content
-tab (`/projects/:id/content`), the same view scoped to one project.
+`features/library` is the workspace's Library page (`/w/:workspace/library`). The old
+`/library` and the workspace's former Content tab (`/w/:workspace/content`) redirect to it.
 
 - Rows are 38px: title, series, state pill, version, target date, length and last change.
   Column headers sort the loaded rows; empty values sort last. One title link is in the tab
@@ -174,16 +174,16 @@ tab (`/projects/:id/content`), the same view scoped to one project.
   `produce` through `review`), Open, and Archive after a confirmation. What is enabled comes
   from `allowedActions` in the contracts; listed items carry no artifacts, and these actions
   need none.
-- New idea asks for a title, an optional pitch and series, and, in the library, the project.
-- The command palette searches videos by title and pitch across projects
+- New idea asks for a title, an optional pitch and a series of the open workspace.
+- The command palette searches videos by title and pitch across workspaces
   (`features/palette/sources/content.ts`, 150 ms debounce, older requests aborted).
 
 ## Item page
 
-`features/content-item` is one video's page (`/content/:itemId`): the header, the active job, four
-tabs and a rail. The address holds the tab (`?tab=script|storyboard|voice|video`, else the furthest
-artifact), an earlier version to show (`?version=`) and a version to compare scripts with
-(`?compare=`).
+`features/content-item` is one video's page (`/w/:workspace/content/:itemId`): the header, the
+active job, four tabs and a rail. The address holds the tab (`?tab=script|storyboard|voice|video`,
+else the furthest artifact), an earlier version to show (`?version=`) and a version to compare
+scripts with (`?compare=`).
 
 - Every action comes from `allowedActions` in the contracts for the item's state, the user's role
   and the current version: Produce (through review), Approve, Request changes, Reject (after a
@@ -222,16 +222,17 @@ artifact), an earlier version to show (`?version=`) and a version to compare scr
 
 ## Series and formats
 
-`features/series` is the project's Series tab (`/projects/:id/series`) and each series' page
+`features/series` is the workspace's Series page (`/w/:workspace/series`) and each series' page
 (`series/$seriesId`); `features/formats` is the format rules editor (`series/$seriesId/format`).
 
 - The list shows each series' format, status, cadence (with the next slot) and the next video
   coming up. Archived series fold away behind "Show archived". New series takes a name and one
-  of the project's formats, or creates a format with the default rules and opens it.
-- The series page lists its unpublished videos by target date beside cards from a registry:
-  every file in `features/series/cards/items/` exports one `card: {id, order, Card}` and gets
-  `{series, project, format, projectParam}`. Cadence is 10, Format 20 and Channels 30. Pause and Archive ask first (pausing archives ideas planned for upcoming slots);
-  Resume doesn't. Switching the series to another format is in the Format card.
+  of the workspace's formats, or creates a format with the default rules and opens it.
+- The series page lists its unpublished videos by target date beside cards from a registry: every
+  file in `features/series/cards/items/` exports one `card: {id, order, Card}` and gets
+  `{series, workspace, format, workspaceParam}`. Cadence is 10, Format 20 and Channels 30. Pause and
+  Archive ask first (pausing archives ideas planned for upcoming slots); Resume doesn't. Switching
+  the series to another format is in the Format card.
 - The editor is a react-hook-form over the contracts' `FormatRulesSchema` (and
   `FormatNameSchema`), so it accepts and refuses exactly what the API does. Empty optional
   fields are left out rather than sent as `""` (`normalizeRules`); errors land on the field their
@@ -251,17 +252,17 @@ artifact), an earlier version to show (`?version=`) and a version to compare scr
 
 ## Review queue
 
-`features/review-queue` is `/review` (`?project=<id>` narrows it): videos in review from
-`reviews.queue`, the nearest target first, undated ones last, then the longest waiting. Rows
-show the poster (a presigned URL refreshed before it expires), project, series, version, length
-and a deadline badge (red once the date passed, amber within a day, blue within three). `j` and
-`k` (or the arrows, Home and End once a row has focus) move between rows and Enter opens one;
-nothing animates as they move. `content.item.*` events add, re-sort and drop rows.
+`features/review-queue` is `/w/:workspace/review`: the workspace's videos in review from
+`reviews.queue` (with its `workspaceId`), the nearest target first, undated ones last, then the
+longest waiting. Rows show the poster (a presigned URL refreshed before it expires), series,
+version, length and a deadline badge (red once the date passed, amber within a day, blue within
+three). `j` and `k` (or the arrows, Home and End once a row has focus) move between rows and Enter
+opens one; nothing animates as they move. `content.item.*` events add, re-sort and drop rows.
 
 ## Analytics
 
-`features/analytics` is `/analytics` (`?range=7d|30d|90d|12m&project=<id>`), each series' page
-(`/analytics/series/:seriesId?range=all|90d|12m`) and the item page's Performance card
+`features/analytics` is `/w/:workspace/analytics` (`?range=7d|30d|90d|12m`), each series' page
+(`/w/:workspace/analytics/series/:seriesId?range=all|90d|12m`) and the item page's Performance card
 (`features/content-item/cards/items/analytics.tsx`). They read `analytics.overview`,
 `analytics.series` and `analytics.item`: live posts only, each counted by its latest capture.
 
@@ -303,7 +304,7 @@ notice "Only upload media you own or have permission to use.":
 
 1. SHA-256 in 8 MiB slices with `hash-wasm` (Web Crypto over the whole file where a CSP blocks
    WebAssembly);
-2. `assets.createUpload` (kind `reference_media`); `upload: null` means the project already
+2. `assets.createUpload` (kind `reference_media`); `upload: null` means the workspace already
    has the file;
 3. an XHR PUT with the signed headers and upload progress (fetch reports none);
 4. `assets.finalize`, PUTting again once on `409 upload_missing`;
@@ -314,15 +315,17 @@ can be analyzed without a transcript.
 
 ## Calendar
 
-`features/calendar` is the Calendar page (`/calendar`): every post on every channel, by week or
-by month.
+`features/calendar` is the workspace's Calendar page (`/w/:workspace/calendar`): every post on
+the workspace's channels, by week or by month.
 
 - The address holds the view (`view=month`; week by default), any day of the period (`date`,
   `YYYY-MM-DD`; today when left out), the channel and series filters (`channels`, `series`,
-  comma-separated ids) and the clock (`zone=series`). `CalendarSearchSchema` (`search.ts`) drops
-  invalid values. Filters go to `calendar.get` as comma-separated `channelIds` and `seriesIds`.
-- Times follow the browser's time zone. The series time zone (the cadence `tz` of the filtered
-  series' formats, or of every series when unfiltered) can be chosen when they share one.
+  comma-separated ids) and the clock (`zone=local|series`). `CalendarSearchSchema` (`search.ts`)
+  drops invalid values. Filters go to `calendar.get` as comma-separated `channelIds` and
+  `seriesIds`.
+- Times follow the workspace's time zone (Workspace settings → General) by default. `zone=local`
+  uses the browser's, and `zone=series` the cadence `tz` of the filtered series' format, once
+  one series is filtered.
   `time.ts` computes periods with date-fns on `TZDate` (`@date-fns/tz`), so weeks across a
   daylight saving change are 167 or 169 hours, and maps cells to instants with the contracts'
   `fromLocalDateTime`, the rule the API and the scheduler use.
@@ -353,25 +356,32 @@ by month.
 
 ## Channels, approvals and the scheduler
 
-- Settings → Channels (`features/channels`, `/settings/channels`): every channel with its
-  platform, status, access warnings and two switches. The dry-run switch follows the server's
-  `liveBlocker` only (`rules.ts`): while one is set it stays on, `aria-disabled`, with the reason
-  as its description and tooltip. Switching it on is always allowed; switching it off asks
-  first, and a `409 dry_run_locked` puts it back with the server's reason and refetches. The
-  approval switch is open on every channel. "Add planning channel" creates a disconnected
-  dry-run channel; Connect stays disabled until the connect flow replaces `ConnectButton.tsx`.
+- Workspace settings → Channels (`features/channels`, `/w/:workspace/settings/channels`): the
+  workspace's channels with their platform, status, access warnings and two switches. The dry-run
+  switch follows the server's `liveBlocker` only (`rules.ts`): while one is set it stays on,
+  `aria-disabled`, with the reason as its description and tooltip. Switching it on is always
+  allowed; switching it off asks first, and a `409 dry_run_locked` puts it back with the server's
+  reason and refetches. The approval switch is open on every channel. "Add planning channel" creates
+  a disconnected dry-run channel in the workspace. Connect (`ConnectButton.tsx`) offers the sign-ins
+  the server allows and remembers the workspace it started from for the tab's session.
   `PublisherBanner` shows `publisher.status` (dry-run mode, or paused).
+- The connect page (`features/channels/connect`, `/channels/connect`) sits outside any workspace,
+  because the platform's redirect comes back to one fixed address. With `?connection=` it lists
+  the accounts the sign-in can publish as and a workspace picker that starts with the remembered
+  workspace; `oauth.accept` takes the chosen `workspaceId`. A `409 channel_in_other_workspace`
+  names the workspace that already has the account. On success it opens that workspace's
+  channel settings.
 - The series page's Channels card (order 30) switches each channel on or off for the series
   with `series.setChannels`, one change at a time on top of the last; archived series and
   disabled channels lock their switches.
-- Approvals (`features/approvals`, `/approvals`, `?project=` to narrow): videos in review with
+- Approvals (`features/approvals`, `/w/:workspace/approvals`): the workspace's videos in review with
   a countdown to their first open post (red under two hours, amber within a day, blue within
   three), nearest first and videos without a slot last, with Approve and Request changes
   through `reviews.create`; and missed posts with Reschedule (`scheduledPosts.reschedule`).
   Item and post events keep it current.
-- Settings → Scheduler (`features/scheduler-admin`, `/settings/scheduler`, `?status=failed`):
-  dead or failed tasks with their last error and Retry (`scheduler.retryTask`); a `409` says
-  why and refetches. `task.dead` adds tasks as they die.
+- Account settings → Scheduler (`features/scheduler-admin`, `/settings/scheduler`,
+  `?status=failed`): dead or failed tasks with their last error and Retry (`scheduler.retryTask`); a
+  `409` says why and refetches. `task.dead` adds tasks as they die.
 
 ## Screens and conventions
 
@@ -379,28 +389,43 @@ by month.
   with a 44px header and 40px rows. Every data view has loading (skeleton), empty, error with
   retry, and long-content states; names truncate and slugs hide on phones.
 - Breadcrumbs come from route `staticData.breadcrumb`: a string, or a function of the params
-  for labels that need data (see `_app/projects/$projectId/route.tsx`). Builds split every
+  for labels that need data (see `_app/w/$workspace/route.tsx`). Builds split every
   route's component into its own chunk, but `staticData` loads with the app: import crumbs
-  from small modules of their own (`ProjectCrumb.tsx`, `KbEntryCrumb.tsx`, `ContentCrumb.tsx`),
+  from small modules of their own (`WorkspaceCrumb.tsx`, `KbEntryCrumb.tsx`, `ContentCrumb.tsx`),
   never from the page module, or the whole page lands in the entry chunk.
 - The sidebar is 240px and becomes a sheet below 768px, the `@loomcast/ui` mobile breakpoint.
   Its items come from a registry: every file in `src/app/nav/items/` exports one
   `item: {id, label, icon, order, section?, to?, exact?, badge?}`, so a feature adds itself to
-  the sidebar by adding a file. `section` is `main` (default) or `footer`; an item without `to`
-  shows disabled with a "Soon" badge. The Channels group (`src/app/nav/channels-section.tsx`)
-  lists the channels by platform, each opening the calendar filtered to it, with an amber dot
-  when one needs reconnecting and a lock on X while it can only dry-run.
-- The project page (`features/project`) is a header and tabs over the open tab's route. Tabs
-  come from a registry: every file in `features/project/tabs/items/` exports one
-  `tab: {id, label, icon, to, order}`, so a feature adds a tab by adding a file. The tab whose
-  path is the longest prefix of the location is active. Overview (the project root) holds the
-  description editor, stats, recent activity and archiving; Chat is the conversation panel.
-  A link to the project root with `?conversation=` opens the Chat tab.
-- Settings: `settings/devices` pairs studio agents with single-use codes and shows live
-  online status; `settings/tokens` manages access tokens and shows each secret exactly once,
-  never keeping it in the query cache. The tabs come from a registry: every file in
-  `features/settings-nav/items/` exports one `item: {id, label, description, icon, to, order,
-  keywords?, visible?}`; `visible(me)` hides a section, as Members is hidden from admins.
+  the sidebar by adding a file. `section` is `main` (default, the workspace's pages), `studio`
+  (Chat, Knowledge, Series, Competitors) or `footer` (Workspace settings, Guide, Account
+  settings); an item without `to` shows disabled with a "Soon" badge. A `to` under
+  `/w/$workspace` gets the open workspace's slug filled in. The header is the workspace switcher
+  (`features/shell/WorkspaceSwitcher.tsx`): the active workspaces, All workspaces and New
+  workspace. The Channels group (`src/app/nav/channels-section.tsx`) lists the open workspace's
+  channels by platform, each opening its calendar filtered to it, with an amber dot when one
+  needs reconnecting and a lock on X while it can only dry-run.
+- Workspaces (`features/workspace`, `features/workspaces`): `/` opens the workspace remembered
+  in localStorage (`loomcast.workspace.last`), else the most recently updated active one, else
+  `/workspaces` (`home.ts`). `/workspaces` lists every workspace as a card, archived ones behind
+  a switch (`?archived=true`). Everything of one workspace lives under `/w/$workspace`, where the
+  param is the slug (an id is swapped for the slug); `WorkspaceLayout` loads it once, covers the
+  not-found and error states, and remembers it, and pages read it with `useCurrentWorkspace`.
+  The overview (the workspace root) holds the description editor, stats, recent knowledge and
+  conversations, and the channels; a link to the root with `?conversation=` opens Chat. Old
+  addresses redirect through `legacy.ts`, keeping their query and hash.
+- Workspace settings (`features/workspace-settings`, `/w/$workspace/settings`): tabs for
+  General, Channels and API clients (owner only, like every `/api/api-clients` route). General
+  edits the name (the slug never changes), the description, the icon (`icon.ts` crops a PNG,
+  JPEG or WebP to its centre square and re-encodes it as a 256 × 256 PNG before
+  `workspaces.setIcon`, or copies a channel's picture with `fromChannelId`), the colour (one of
+  `WORKSPACE_COLORS`, mapped to theme tokens in `features/workspace/colors.ts`), the time zone
+  and archiving.
+- Account settings (`/settings`, settings that span every workspace): `settings/devices` pairs
+  studio agents with single-use codes and shows live online status; `settings/tokens` manages access
+  tokens and shows each secret exactly once, never keeping it in the query cache. The tabs come from
+  a registry: every file in `features/settings-nav/items/` exports one
+  `item: {id, label, description, icon, to, order, keywords?, visible?}`; `visible(me)` hides a
+  section, as Members is hidden from admins.
 - Members (`settings/members`, owner only, like every `/api/users` route): the people who can
   sign in with role, last sign-in and status, an invite dialog, a new password link and
   disabling (with confirmation; the owner and yourself can't be disabled). Invitation and
@@ -414,10 +439,10 @@ by month.
   client.
 - Command palette (`features/palette`): ⌘K or Ctrl+K anywhere, or the topbar button. It opens
   and closes without animation. Groups come from `features/palette/sources/*`, each exporting
-  `source: {id, heading, order, icon, useItems(context)}` and filtering its own rows: projects
+  `source: {id, heading, order, icon, useItems(context)}` and filtering its own rows: workspaces
   (from the cached list), the knowledge base (server search after a 150 ms pause, from two
-  characters, aborting the previous request), actions (new project, new brainstorm in the open
-  project, switch theme) and pages (including the visible settings sections). Picked pages are
+  characters, aborting the previous request), actions (new workspace, new brainstorm in the open
+  workspace, switch theme) and pages (including the visible settings sections). Picked pages are
   kept per user in localStorage and shown under Recent. The palette body (cmdk, the command
   menu and the sources) is its own chunk: `features/palette/load.ts` starts loading it on idle
   after the shell mounts and when the pointer or focus reaches the search button, while the

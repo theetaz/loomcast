@@ -15,7 +15,7 @@ export * from "./messages";
 export * from "./metrics";
 export * from "./oauth";
 export * from "./posts";
-export * from "./projects";
 export * from "./scheduler";
 export * from "./skills";
 export * from "./users";
+export * from "./workspaces";

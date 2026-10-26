@@ -16,7 +16,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  * and that rewritten command is what runs. Everything else is denied with a reason.
  */
 export interface CommandScope {
-  /** `<workspaceRoot>/projects/<projectId>/items/<itemId>`: the only place commands may look. */
+  /** `<workspaceRoot>/projects/<workspaceId>/items/<itemId>`: the only place commands may look. */
   readonly itemDir: string;
   /** The studio's pinned HyperFrames CLI (`studio/node_modules/hyperframes/bin/hyperframes.mjs`). */
   readonly hyperframesBin: string;

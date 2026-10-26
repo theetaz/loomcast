@@ -11,10 +11,11 @@ export function saveShortcutLabel(): string {
   return /mac|iphone|ipad/i.test(platform) ? "⌘S" : "Ctrl+S";
 }
 
-export function useCreateKbEntry(projectId: string) {
+export function useCreateKbEntry(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateKbEntry) => api.request("kb.create", { params: { projectId }, body }),
+    mutationFn: (body: CreateKbEntry) =>
+      api.request("kb.create", { params: { workspaceId }, body }),
     onSuccess: (entry) => cacheKbEntry(queryClient, entry),
   });
 }

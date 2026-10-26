@@ -20,7 +20,7 @@ export const adminTools = {
     name: "admin.create_user",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "Invite a user. Returns a one-time link where the user sets a password, and when it expires.",
     input: AdminCreateUserInputSchema,

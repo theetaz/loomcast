@@ -23,25 +23,25 @@ import { channels } from "./channels";
 import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { jobs } from "./jobs";
 import { kbEntries } from "./kb";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 function inList(values: readonly string[]) {
   return sql.raw(values.map((value) => `'${value}'`).join(", "));
 }
 
 /**
- * Competitor profiles a project follows. Soft-deleted, so a profile can be followed again; the
- * handle is unique per project and platform among live rows, compared without case. The account
+ * Competitor profiles a workspace follows. Soft-deleted, so a profile can be followed again; the
+ * handle is unique per workspace and platform among live rows, compared without case. The account
  * fields are the last values the official API reported.
  */
 export const competitors = pgTable(
   "competitors",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     platform: text("platform").$type<CompetitorPlatform>().notNull(),
     handle: text("handle").notNull(),
     profileUrl: text("profile_url").notNull(),
@@ -58,10 +58,10 @@ export const competitors = pgTable(
     deletedAt: timestamptz("deleted_at"),
   },
   (t) => [
-    uniqueIndex("competitors_project_id_platform_handle_uq")
-      .on(t.projectId, t.platform, sql`lower(${t.handle})`)
+    uniqueIndex("competitors_workspace_id_platform_handle_uq")
+      .on(t.workspaceId, t.platform, sql`lower(${t.handle})`)
       .where(sql`${t.deletedAt} is null`),
-    index("competitors_project_id_idx").on(t.projectId).where(sql`${t.deletedAt} is null`),
+    index("competitors_workspace_id_idx").on(t.workspaceId).where(sql`${t.deletedAt} is null`),
     check("competitors_platform_ck", sql`${t.platform} in (${inList(COMPETITOR_PLATFORMS)})`),
   ],
 );
@@ -77,9 +77,9 @@ export const competitorScans = pgTable(
     competitorId: uuid("competitor_id")
       .notNull()
       .references(() => competitors.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     status: text("status").$type<CompetitorScanStatus>().notNull(),
     source: text("source").$type<CompetitorScanSource>().notNull(),
     topN: integer("top_n").notNull(),

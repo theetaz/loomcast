@@ -26,8 +26,8 @@ import {
 } from "./enums";
 import { formatVersions, series } from "./formats";
 import { jobs } from "./jobs";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /**
  * A content item: one short video on its way from idea to publication. Its artifacts live in
@@ -43,9 +43,9 @@ export const contentItems = pgTable(
   "content_items",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     seriesId: uuid("series_id").references(() => series.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     pitch: text("pitch"),
@@ -69,8 +69,8 @@ export const contentItems = pgTable(
   },
   (t) => [
     // Drizzle emits `DESC NULLS LAST`; list queries must order the same way to use the index.
-    index("content_items_project_id_state_updated_at_idx").on(
-      t.projectId,
+    index("content_items_workspace_id_state_updated_at_idx").on(
+      t.workspaceId,
       t.state,
       t.updatedAt.desc(),
     ),

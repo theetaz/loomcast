@@ -55,7 +55,7 @@ import type { ReviewsService } from "../reviews/service";
 import { mimeMatches, readHead, sniffMediaMime } from "./media";
 import { selectVisiblePosts, type VisiblePost } from "./queries";
 
-// Posts of the machine API. A post is a content item of the client's project, created as an idea
+// Posts of the machine API. A post is a content item of the client's workspace, created as an idea
 // with the files the client declared; once the files are uploaded, `finalize` writes the version,
 // submits it and creates one post per channel in a single transaction. With `publish` on every
 // channel (and no channel that requires approval) the version is approved on the owner's behalf
@@ -69,8 +69,8 @@ import { selectVisiblePosts, type VisiblePost } from "./queries";
 export interface ApiCaller {
   tokenId: string;
   name: string;
-  /** The project its posts are created in. */
-  projectId: string;
+  /** The workspace its posts are created in. */
+  workspaceId: string;
   /** The owner, whom the client acts for. */
   ownerId: string;
   grants: ReadonlyMap<string, ApiChannelAccess>;
@@ -424,7 +424,7 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
     for (const entry of row.media) {
       const started = await deps.assets.createUpload(
         {
-          projectId: caller.projectId,
+          workspaceId: caller.workspaceId,
           itemId: row.itemId,
           kind: "media",
           filename: entry.filename,
@@ -464,6 +464,7 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
     throwRefusals(
       await refusedChannels(
         tx,
+        caller.workspaceId,
         row.itemId,
         written.version,
         channelIds,
@@ -534,6 +535,7 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
       throwRefusals(
         await refusedChannels(
           db,
+          caller.workspaceId,
           null,
           { format: input.format, media: declaredTypes },
           input.channels.map((target) => target.channelId),
@@ -583,7 +585,7 @@ export function createApiPostsService(deps: ApiPostsDeps): ApiPostsService {
           }
           const actor = ownerActor(caller);
           const created = await content.create(
-            caller.projectId,
+            caller.workspaceId,
             {
               title: input.title ?? defaultTitle(input, caller.name),
               format: input.format,

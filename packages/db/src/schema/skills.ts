@@ -18,7 +18,7 @@ import { skillKind } from "./enums";
 import { users } from "./users";
 
 /**
- * A published skill or recipe that producer sessions load. Skills are global, not per project.
+ * A published skill or recipe that producer sessions load. Skills are global, not per workspace.
  * The files live in immutable `skill_versions`.
  *
  * A skill exists only once published, so `currentVersionId` is never null. The foreign key to

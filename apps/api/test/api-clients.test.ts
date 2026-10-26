@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { API_KEY_RE, ApiClientSchema, listSchema } from "@loomcast/contracts";
-import { auditLog, projects } from "@loomcast/db";
+import { auditLog, workspaces } from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, machine } from "./api-support";
 import { insertChannel, testKeyring } from "./publisher-support";
-import { errorCode, insertUser, login, send } from "./support";
+import { errorCode, insertUser, insertWorkspace, login, send } from "./support";
 
 // The owner's API clients over REST: create with grants (the key shown once), list, change the
 // grants, revoke. Admins are refused; every change is audited without the key.
@@ -18,8 +18,12 @@ let adminCookie: string;
 
 beforeAll(async () => {
   h = await createApiHarness();
-  facebookId = (await insertChannel(h.testDb.db, keyring, { platform: "facebook" })).id;
-  instagramId = (await insertChannel(h.testDb.db, keyring, { platform: "instagram" })).id;
+  facebookId = (
+    await insertChannel(h.testDb.db, keyring, { workspaceId: h.workspaceId, platform: "facebook" })
+  ).id;
+  instagramId = (
+    await insertChannel(h.testDb.db, keyring, { workspaceId: h.workspaceId, platform: "instagram" })
+  ).id;
   const admin = await insertUser(h.testDb.db, { role: "admin" });
   ({ cookie: adminCookie } = await login(h.t.app, admin.email));
 });
@@ -34,7 +38,7 @@ describe("API client management", () => {
   it("creates a client and shows its key once", async () => {
     const response = await h.owner("POST", "/api/api-clients", {
       name: "Blog backend",
-      projectId: h.projectId,
+      workspaceId: h.workspaceId,
       grants: [
         { channelId: facebookId, access: "publish" },
         { channelId: instagramId, access: "read" },
@@ -47,8 +51,8 @@ describe("API client management", () => {
     const client = ApiClientSchema.parse(body.client);
     expect(client).toMatchObject({
       name: "Blog backend",
-      projectId: h.projectId,
-      projectName: "API posts",
+      workspaceId: h.workspaceId,
+      workspaceName: "API posts",
       revokedAt: null,
       lastUsedAt: null,
     });
@@ -94,7 +98,11 @@ describe("API client management", () => {
       [
         "POST",
         "/api/api-clients",
-        { name: "x", projectId: h.projectId, grants: [{ channelId: facebookId, access: "read" }] },
+        {
+          name: "x",
+          workspaceId: h.workspaceId,
+          grants: [{ channelId: facebookId, access: "read" }],
+        },
       ],
       ["PATCH", `/api/api-clients/${client.id}`, { name: "renamed" }],
       ["DELETE", `/api/api-clients/${client.id}`, undefined],
@@ -106,8 +114,8 @@ describe("API client management", () => {
     }
   });
 
-  it("validates the project, the grants and the expiry", async () => {
-    const base = { name: "Bad", projectId: h.projectId };
+  it("validates the workspace, the grants and the expiry", async () => {
+    const base = { name: "Bad", workspaceId: h.workspaceId };
     const unknownChannel = await h.owner("POST", "/api/api-clients", {
       ...base,
       grants: [
@@ -129,12 +137,12 @@ describe("API client management", () => {
     expect(twice.status).toBe(400);
     const none = await h.owner("POST", "/api/api-clients", { ...base, grants: [] });
     expect(none.status).toBe(400);
-    const unknownProject = await h.owner("POST", "/api/api-clients", {
+    const unknownWorkspace = await h.owner("POST", "/api/api-clients", {
       ...base,
-      projectId: randomUUID(),
+      workspaceId: randomUUID(),
       grants: [{ channelId: facebookId, access: "read" }],
     });
-    expect(unknownProject.status).toBe(404);
+    expect(unknownWorkspace.status).toBe(404);
     const past = await h.owner("POST", "/api/api-clients", {
       ...base,
       grants: [{ channelId: facebookId, access: "read" }],
@@ -143,7 +151,7 @@ describe("API client management", () => {
     expect(past.status).toBe(400);
 
     const [archived] = await h.testDb.db
-      .insert(projects)
+      .insert(workspaces)
       .values({
         slug: `old-${randomUUID().slice(0, 8)}`,
         name: "Old",
@@ -153,10 +161,48 @@ describe("API client management", () => {
       .returning();
     const toArchived = await h.owner("POST", "/api/api-clients", {
       ...base,
-      projectId: archived?.id,
+      workspaceId: archived?.id,
       grants: [{ channelId: facebookId, access: "read" }],
     });
     expect(toArchived.status).toBe(409);
+  });
+
+  it("grants only channels of the client's workspace", async () => {
+    const other = await insertWorkspace(h.testDb.db, { createdBy: h.ownerId, name: "Other" });
+    const foreign = (
+      await insertChannel(h.testDb.db, keyring, { workspaceId: other, platform: "facebook" })
+    ).id;
+    const refused = await h.owner("POST", "/api/api-clients", {
+      name: "Cross",
+      workspaceId: h.workspaceId,
+      grants: [
+        { channelId: facebookId, access: "read" },
+        { channelId: foreign, access: "publish" },
+      ],
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        details: [
+          { path: "grants.1.channelId", message: "No channel of this workspace has that id" },
+        ],
+      },
+    });
+
+    // Nor may a change of grants reach into another workspace.
+    const { client } = await h.createClient([{ channelId: facebookId, access: "read" }]);
+    const changed = await h.owner("PATCH", `/api/api-clients/${client.id}`, {
+      grants: [{ channelId: foreign, access: "read" }],
+    });
+    expect(changed.status).toBe(400);
+    expect(await errorCode(changed)).toBe("validation_failed");
+    const [listed] = (
+      (await (await h.owner("GET", "/api/api-clients")).json()) as {
+        items: { id: string; grants: { channelId: string }[] }[];
+      }
+    ).items.filter((item) => item.id === client.id);
+    expect(listed?.grants.map((grant) => grant.channelId)).toEqual([facebookId]);
   });
 
   it("changes grants for the client's next request", async () => {

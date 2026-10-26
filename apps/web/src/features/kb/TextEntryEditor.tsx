@@ -1,8 +1,8 @@
 import {
   KB_TITLE_MAX_LENGTH,
   type KbEntryDetail,
-  type Project,
   type UpdateKbEntry,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
@@ -72,8 +72,8 @@ export function changedFields(
 }
 
 export interface TextEntryEditorProps {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   kind: "brainstorm" | "note";
   /** The stored entry; omitted when creating one. */
   entry?: KbEntryDetail;
@@ -84,10 +84,12 @@ export interface TextEntryEditorProps {
  * kept as a draft in localStorage and restored on return; ⌘S or Ctrl+S saves. A save that finds
  * the entry changed elsewhere (409) offers to reload or overwrite.
  */
-export function TextEntryEditor({ project, projectParam, kind, entry }: TextEntryEditorProps) {
+export function TextEntryEditor({ workspace, workspaceParam, kind, entry }: TextEntryEditorProps) {
   const id = useId();
   const navigate = useNavigate();
-  const key = entry ? draftKey({ entryId: entry.id }) : draftKey({ projectId: project.id, kind });
+  const key = entry
+    ? draftKey({ entryId: entry.id })
+    : draftKey({ workspaceId: workspace.id, kind });
   const titleRef = useRef<HTMLInputElement>(null);
 
   const [initial] = useState(() => {
@@ -110,7 +112,7 @@ export function TextEntryEditor({ project, projectParam, kind, entry }: TextEntr
   const [titleError, setTitleError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
 
-  const create = useCreateKbEntry(project.id);
+  const create = useCreateKbEntry(workspace.id);
   const update = useUpdateKbEntry(entry?.id ?? "");
   const fetchLatest = useFetchLatestEntry();
   const pending = create.isPending || update.isPending || resolving;
@@ -163,8 +165,8 @@ export function TextEntryEditor({ project, projectParam, kind, entry }: TextEntr
             clearDraft(key);
             toast.success(`${label} saved`, { description: created.title });
             void navigate({
-              to: "/projects/$projectId/kb/$entryId",
-              params: { projectId: projectParam, entryId: created.id },
+              to: "/w/$workspace/kb/$entryId",
+              params: { workspace: workspaceParam, entryId: created.id },
               replace: true,
             });
           },
@@ -248,11 +250,11 @@ export function TextEntryEditor({ project, projectParam, kind, entry }: TextEntr
 
   return (
     <form noValidate onSubmit={save} className="flex flex-col gap-4" aria-label={`${label} editor`}>
-      <EntryToolbar projectParam={projectParam}>
+      <EntryToolbar workspaceParam={workspaceParam}>
         <span aria-live="polite" className="text-small text-muted-foreground max-sm:hidden">
           {status}
         </span>
-        {entry ? <DeleteEntryButton entry={entry} projectParam={projectParam} /> : null}
+        {entry ? <DeleteEntryButton entry={entry} workspaceParam={workspaceParam} /> : null}
         <Button type="submit" disabled={pending || (entry !== undefined && !dirty)}>
           {pending ? "Saving…" : entry ? "Save" : `Save ${label.toLowerCase()}`}
           <kbd className="font-sans text-[11px] opacity-70 max-sm:hidden">
@@ -261,7 +263,7 @@ export function TextEntryEditor({ project, projectParam, kind, entry }: TextEntr
         </Button>
       </EntryToolbar>
 
-      {entry ? null : <h2 className="text-title">New {label.toLowerCase()}</h2>}
+      {entry ? null : <h1 className="text-title">New {label.toLowerCase()}</h1>}
 
       {conflict || stale ? (
         <ConflictBanner

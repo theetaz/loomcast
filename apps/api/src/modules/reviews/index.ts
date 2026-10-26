@@ -42,7 +42,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     }
     const page = await service.queue(query.data);
     if (page === null) {
-      throw notFound("Project not found.");
+      throw notFound("Workspace not found.");
     }
     return c.json(page, 200);
   });

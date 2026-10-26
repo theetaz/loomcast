@@ -30,16 +30,16 @@ import { useCreateSeries } from "./queries";
 const NEW_FORMAT = "__new";
 
 /**
- * Wraps a trigger button. A series needs a name and a format: one of the project's formats, or a
+ * Wraps a trigger button. A series needs a name and a format: one of the workspace's formats, or a
  * new format with the default rules, named after the series and edited next.
  */
 export function NewSeriesDialog({
-  projectId,
-  projectParam,
+  workspaceId,
+  workspaceParam,
   children,
 }: {
-  projectId: string;
-  projectParam: string;
+  workspaceId: string;
+  workspaceParam: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -56,8 +56,8 @@ export function NewSeriesDialog({
       <DialogContent className="sm:max-w-[440px]">
         <NewSeriesForm
           key={formKey}
-          projectId={projectId}
-          projectParam={projectParam}
+          workspaceId={workspaceId}
+          workspaceParam={workspaceParam}
           onCreated={() => setOpen(false)}
         />
       </DialogContent>
@@ -66,18 +66,18 @@ export function NewSeriesDialog({
 }
 
 function NewSeriesForm({
-  projectId,
-  projectParam,
+  workspaceId,
+  workspaceParam,
   onCreated,
 }: {
-  projectId: string;
-  projectParam: string;
+  workspaceId: string;
+  workspaceParam: string;
   onCreated: () => void;
 }) {
   const id = useId();
   const nameRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const formats = useQuery(formatsListQueryOptions(projectId));
+  const formats = useQuery(formatsListQueryOptions(workspaceId));
   const createFormat = useCreateFormat();
   const createSeries = useCreateSeries();
   const [name, setName] = useState("");
@@ -102,12 +102,12 @@ function NewSeriesForm({
     try {
       let newFormatId = formatId === NEW_FORMAT ? createdFormatId : null;
       if (formatId === NEW_FORMAT && newFormatId === null) {
-        const format = await createFormat.mutateAsync({ projectId, name: parsed.data });
+        const format = await createFormat.mutateAsync({ workspaceId, name: parsed.data });
         newFormatId = format.id;
         setCreatedFormatId(format.id);
       }
       const series = await createSeries.mutateAsync({
-        projectId,
+        workspaceId,
         name: parsed.data,
         formatId: newFormatId ?? formatId,
       });
@@ -115,9 +115,9 @@ function NewSeriesForm({
       toast.success("Series created", { description: series.name });
       void navigate({
         to: newFormatId
-          ? "/projects/$projectId/series/$seriesId/format"
-          : "/projects/$projectId/series/$seriesId",
-        params: { projectId: projectParam, seriesId: series.id },
+          ? "/w/$workspace/series/$seriesId/format"
+          : "/w/$workspace/series/$seriesId",
+        params: { workspace: workspaceParam, seriesId: series.id },
       });
     } catch {
       // Shown below the fields.

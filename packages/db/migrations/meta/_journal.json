@@ -120,6 +120,20 @@
       "when": 1792330192096,
       "tag": "0016_add_api_clients",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793016314986,
+      "tag": "0017_rename_projects_to_workspaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793016711127,
+      "tag": "0018_scope_channels_to_workspaces",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,7 @@ import { seriesChannelLock } from "@/features/channels/SeriesChannelsCard";
 import { mockChannel, mockLiveBlocker } from "@/mocks/calendar";
 
 const NOW = Date.parse("2026-10-14T08:00:00.000Z");
+const WORKSPACE_ID = "6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const DAY_MS = 24 * 60 * 60_000;
 const inDays = (days: number) => new Date(NOW + days * DAY_MS).toISOString();
 
@@ -139,10 +140,25 @@ describe("series channel links", () => {
   it("orders channels by platform, then name", () => {
     const at = "2026-10-01T08:00:00.000Z";
     const channels = [
-      mockChannel({ platform: "x", displayName: "a", createdAt: at }),
-      mockChannel({ platform: "threads", displayName: "b", createdAt: at }),
-      mockChannel({ platform: "facebook", displayName: "z", createdAt: at }),
-      mockChannel({ platform: "facebook", displayName: "m", createdAt: at }),
+      mockChannel({ workspaceId: WORKSPACE_ID, platform: "x", displayName: "a", createdAt: at }),
+      mockChannel({
+        workspaceId: WORKSPACE_ID,
+        platform: "threads",
+        displayName: "b",
+        createdAt: at,
+      }),
+      mockChannel({
+        workspaceId: WORKSPACE_ID,
+        platform: "facebook",
+        displayName: "z",
+        createdAt: at,
+      }),
+      mockChannel({
+        workspaceId: WORKSPACE_ID,
+        platform: "facebook",
+        displayName: "m",
+        createdAt: at,
+      }),
     ];
     expect(sortChannels(channels).map((channel) => channel.displayName)).toEqual([
       "m",
@@ -191,6 +207,7 @@ describe("going live", () => {
 
   it("lists the server's checks, with a paused publisher only as a warning", () => {
     const channel = mockChannel({
+      workspaceId: WORKSPACE_ID,
       platform: "threads",
       displayName: "@rustin60",
       connected: true,

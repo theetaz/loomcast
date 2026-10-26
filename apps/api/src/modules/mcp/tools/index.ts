@@ -5,10 +5,10 @@ import { calendarServiceFor } from "../../calendar";
 import { listChannels } from "../../channels/mappers";
 import { contentServiceFor } from "../../content";
 import { formatsServiceFor } from "../../formats";
-import { createProjectsService } from "../../projects/service";
 import { reviewsServiceFor } from "../../reviews";
 import { seriesServiceFor } from "../../series";
 import { skillsServiceFor } from "../../skills";
+import { createWorkspacesService } from "../../workspaces/service";
 import { createAdminTools } from "./admin";
 import { createAssetTools } from "./assets";
 import { createCalendarTools } from "./calendar";
@@ -16,18 +16,17 @@ import { createKbTools } from "./kb";
 import { createOwnerTools } from "./owner";
 import { createPipelineTools } from "./pipeline";
 import { createPostTools } from "./posts";
-import { createProjectTools } from "./projects";
 import type { ToolDefinition } from "./registry";
 import { createSkillTools } from "./skills";
+import { createWorkspaceTools } from "./workspaces";
 
 export { type AdminToolsDeps, createAdminTools } from "./admin";
 export { type AssetToolsDeps, createAssetTools } from "./assets";
 export { type CalendarToolsDeps, createCalendarTools } from "./calendar";
-export { createKbTools, type KbToolsDeps, kbEntryUrl, projectIdFromCwd } from "./kb";
+export { createKbTools, type KbToolsDeps, kbEntryUrl, workspaceIdFromCwd } from "./kb";
 export { createOwnerTools, type OwnerToolsDeps } from "./owner";
 export { createPipelineTools, type PipelineToolsDeps, tokenActor } from "./pipeline";
 export { createPostTools, type PostToolsDeps } from "./posts";
-export { createProjectTools, type ProjectToolsDeps, projectUrl } from "./projects";
 export {
   defineTool,
   McpToolError,
@@ -40,6 +39,7 @@ export {
   type ToolImplementation,
 } from "./registry";
 export { createSkillTools, type SkillToolsDeps } from "./skills";
+export { createWorkspaceTools, type WorkspaceToolsDeps, workspaceUrl } from "./workspaces";
 
 /**
  * Every tool served on `/mcp`. A new group of tools lives in its own file under `tools/`, built
@@ -47,12 +47,12 @@ export { createSkillTools, type SkillToolsDeps } from "./skills";
  */
 export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
   const { db, bus, clock, config, sessions, tokens, kb } = deps;
-  const projects = createProjectsService(deps);
+  const workspaces = createWorkspacesService(deps);
   const passwordTokens = createPasswordTokensService({ db, clock, config });
   const users = createUsersService({ db, bus, clock, sessions, tokens, passwordTokens });
   const content = contentServiceFor(deps);
   return [
-    ...createProjectTools({ projects, appOrigin: config.appOrigin }),
+    ...createWorkspaceTools({ workspaces, appOrigin: config.appOrigin }),
     ...createKbTools({ kb, db, appOrigin: config.appOrigin }),
     ...createAdminTools({ users }),
     ...createPipelineTools({
@@ -68,7 +68,7 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
       content,
       reviews: reviewsServiceFor(deps),
       calendar: calendarServiceFor(deps),
-      listChannels: () => listChannels(db, config),
+      listChannels: (workspaceId) => listChannels(db, config, workspaceId),
     }),
     ...createPostTools({
       db,

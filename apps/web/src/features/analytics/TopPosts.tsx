@@ -2,6 +2,7 @@ import type { PostPerformance } from "@loomcast/contracts";
 import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { Link } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { engagementRate, formatDay, formatFullCount, formatRate } from "./format";
 import { PLATFORM_LABELS, platformColor } from "./platforms";
 
@@ -25,6 +26,7 @@ export function PlatformLabel({ platform }: { platform: PostPerformance["platfor
 
 /** The most-viewed posts of the range, most first, with a link to the video and the post. */
 export function TopPostsTable({ posts }: { posts: readonly PostPerformance[] }) {
+  const workspaceParam = useWorkspaceParam();
   return (
     <ScrollArea orientation="horizontal">
       <table className="w-full min-w-[620px] border-collapse text-control">
@@ -64,8 +66,8 @@ export function TopPostsTable({ posts }: { posts: readonly PostPerformance[] }) 
                 </td>
                 <th scope="row" className="h-10 max-w-[280px] px-2 text-left font-normal">
                   <Link
-                    to="/content/$itemId"
-                    params={{ itemId: post.itemId }}
+                    to="/w/$workspace/content/$itemId"
+                    params={{ workspace: workspaceParam, itemId: post.itemId }}
                     className="block truncate text-foreground underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                   >
                     {post.title}

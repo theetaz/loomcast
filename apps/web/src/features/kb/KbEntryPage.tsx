@@ -1,4 +1,4 @@
-import type { KbEntryDetail, Project } from "@loomcast/contracts";
+import type { KbEntryDetail, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -15,27 +15,27 @@ import { ReferenceView } from "./ReferenceView";
 import { TextEntryEditor } from "./TextEntryEditor";
 
 export interface KbEntryPageProps {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   /** `null` when the address does not hold a valid id. */
   entryId: string | null;
 }
 
 /** One knowledge entry, with the view or editor that fits its kind. */
-export function KbEntryPage({ project, projectParam, entryId }: KbEntryPageProps) {
+export function KbEntryPage({ workspace, workspaceParam, entryId }: KbEntryPageProps) {
   const query = useQuery({ ...kbEntryQueryOptions(entryId ?? ""), enabled: entryId !== null });
-  const entry = query.data?.projectId === project.id ? query.data : undefined;
-  useTitle(`${entry ? entry.title : "Knowledge"} · ${project.name}`);
+  const entry = query.data?.workspaceId === workspace.id ? query.data : undefined;
+  useTitle(`${entry ? entry.title : "Knowledge"} · ${workspace.name}`);
 
   if (entryId === null || (query.isSuccess && !entry) || isApiError(query.error, 404)) {
     return (
       <EmptyState
         icon={FileQuestionIcon}
         title="Entry not found"
-        description="It may have been deleted, or it belongs to another project."
+        description="It may have been deleted, or it belongs to another workspace."
         action={
           <Button asChild variant="outline">
-            <Link to="/projects/$projectId/kb" params={{ projectId: projectParam }}>
+            <Link to="/w/$workspace/kb" params={{ workspace: workspaceParam }}>
               Back to knowledge
             </Link>
           </Button>
@@ -60,37 +60,37 @@ export function KbEntryPage({ project, projectParam, entryId }: KbEntryPageProps
     case "note":
       return (
         <TextEntryEditor
-          project={project}
-          projectParam={projectParam}
+          workspace={workspace}
+          workspaceParam={workspaceParam}
           kind={entry.kind}
           entry={entry}
         />
       );
     case "decision":
-      return <DecisionView project={project} projectParam={projectParam} entry={entry} />;
+      return <DecisionView workspace={workspace} workspaceParam={workspaceParam} entry={entry} />;
     case "reference":
-      return <ReferenceView entry={entry} projectParam={projectParam} />;
+      return <ReferenceView entry={entry} workspaceParam={workspaceParam} />;
     default:
-      return <EntryReadView entry={entry} projectParam={projectParam} />;
+      return <EntryReadView entry={entry} workspaceParam={workspaceParam} />;
   }
 }
 
 /** A read-only entry: title, tags and the markdown body. */
 export function EntryReadView({
   entry,
-  projectParam,
+  workspaceParam,
 }: {
   entry: KbEntryDetail;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   return (
     <article className="flex flex-col gap-4">
-      <EntryToolbar projectParam={projectParam}>
-        <DeleteEntryButton entry={entry} projectParam={projectParam} />
+      <EntryToolbar workspaceParam={workspaceParam}>
+        <DeleteEntryButton entry={entry} workspaceParam={workspaceParam} />
       </EntryToolbar>
       <header className="flex flex-col gap-2">
         <EntryMeta entry={entry} />
-        <h2 className="text-title break-words">{entry.title}</h2>
+        <h1 className="text-title break-words">{entry.title}</h1>
         <TagChips tags={entry.tags} />
       </header>
       <div className="rounded-lg bg-card px-4 py-3.5 shadow-card md:px-5">

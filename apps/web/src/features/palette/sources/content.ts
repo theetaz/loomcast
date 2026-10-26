@@ -2,32 +2,35 @@ import { statusStyle } from "@loomcast/ui/components/StatusPill";
 import { useQuery } from "@tanstack/react-query";
 import { ClapperboardIcon, TriangleAlertIcon } from "lucide-react";
 import { useContentSearch } from "@/features/library/use-content-search";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { workspacesQueryOptions } from "@/features/workspaces/queries";
 import { errorMessage } from "@/lib/api";
 import type { PaletteItem, PaletteSource } from "../types";
 
-/** Videos of every project whose title or pitch matches, searched on the server as the user types. */
+/**
+ * Videos whose title or pitch matches, searched on the server as the user types: the open
+ * workspace's only, or every workspace's outside one.
+ */
 export const source: PaletteSource = {
   id: "content",
   heading: "Videos",
   order: 15,
   icon: ClapperboardIcon,
-  useItems: ({ query }) => {
-    const search = useContentSearch(query);
-    const { data: projects = [] } = useQuery(projectsQueryOptions());
-    const byId = new Map(projects.map((project) => [project.id, project]));
+  useItems: ({ query, workspace: current }) => {
+    const search = useContentSearch(query, current?.id ?? null);
+    const { data: workspaces = [] } = useQuery(workspacesQueryOptions());
+    const byId = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
     const items: PaletteItem[] = search.items.map((item) => {
       const state = statusStyle("pipeline", item.state).label;
-      const project = byId.get(item.projectId);
+      const workspace = byId.get(item.workspaceId);
       return {
         id: `content:${item.id}`,
         label: item.title,
         icon: ClapperboardIcon,
-        secondary: project?.name,
+        secondary: current ? undefined : workspace?.name,
         meta: state,
-        href: `/content/${item.id}`,
-        recentDetail: project ? `${state} in ${project.name}` : state,
+        href: `/w/${workspace?.slug ?? item.workspaceId}/content/${item.id}`,
+        recentDetail: workspace ? `${state} in ${workspace.name}` : state,
       };
     });
 

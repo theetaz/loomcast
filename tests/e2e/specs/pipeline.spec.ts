@@ -32,7 +32,7 @@ test.describe.configure({ mode: "serial" });
 
 const settings = e2eSettings();
 const run = randomBytes(3).toString("hex");
-const projectName = `Pipeline project ${run}`;
+const workspaceName = `Pipeline workspace ${run}`;
 const seriesName = `Ownership basics ${run}`;
 const ideaTitle = `Why the borrow checker rejects this loop ${run}`;
 const ideaPitch = "Show the compiler error first, then the one-line fix.";
@@ -81,8 +81,11 @@ async function signedInApi(): Promise<APIRequestContext> {
   return api;
 }
 
-function workspaceLink(name: RegExp): Locator {
-  return page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name });
+/** A link in the sidebar, such as a page of the open workspace. */
+function sidebarLink(name: string): Locator {
+  return page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("link", { name, exact: true });
 }
 
 /**
@@ -100,21 +103,26 @@ async function openDialog(trigger: Locator, name: string): Promise<Locator> {
   return dialog;
 }
 
-/** Opens one of the project's tabs, navigating by clicks so the live stream stays connected. */
-async function openProjectTab(tab: "Content" | "Series"): Promise<void> {
-  await workspaceLink(/^Projects/).click();
-  await page.getByRole("link", { name: new RegExp(projectName) }).click();
-  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
-  await page
-    .getByRole("tablist", { name: "Project sections" })
-    .getByRole("tab", { name: tab })
-    .click();
+/**
+ * Opens one of the workspace's pages from the sidebar, switching to the workspace first when the
+ * sidebar works in another one. Navigating by clicks keeps the live stream connected.
+ */
+async function openWorkspacePage(name: "Library" | "Series"): Promise<void> {
+  const current = page.getByRole("button", {
+    name: `Workspace: ${workspaceName}. Switch workspace`,
+  });
+  if (!(await current.isVisible())) {
+    await page.getByRole("button", { name: /Switch workspace|Choose a workspace/ }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^${workspaceName}`) }).click();
+    await expect(page.getByRole("heading", { level: 1, name: workspaceName })).toBeVisible();
+  }
+  await sidebarLink(name).click();
 }
 
 /** Opens the item from the review queue, as a reviewer does. */
 async function openFromReviewQueue(): Promise<void> {
-  await workspaceLink(/^Review/).click();
-  await expect(page).toHaveURL(/\/review/);
+  await sidebarLink("Review").click();
+  await expect(page).toHaveURL(/\/w\/[^/]+\/review$/);
   const queue = page.getByRole("region", { name: "Review queue" });
   await queue.getByRole("link", { name: new RegExp(ideaTitle) }).click();
   await expect(page).toHaveURL(new RegExp(`/content/${itemId}`));
@@ -157,7 +165,7 @@ test.beforeAll(async ({ browser }) => {
   context = await browser.newContext();
   page = await context.newPage();
   owner = await signedInApi();
-  const created = await owner.post("/api/projects", { data: { name: projectName } });
+  const created = await owner.post("/api/workspaces", { data: { name: workspaceName } });
   expect(created.status(), await created.text()).toBe(201);
 });
 
@@ -235,7 +243,7 @@ test("syncs a skill published over MCP to the studio agent", async () => {
 });
 
 test("creates a series with a new format and gives it a voice", async () => {
-  await openProjectTab("Series");
+  await openWorkspacePage("Series");
   await expect(page).toHaveURL(/\/series$/);
   const dialog = await openDialog(
     page.getByRole("button", { name: "New series" }).first(),
@@ -270,7 +278,8 @@ test("adds an idea to the series and produces it through review", async () => {
   await dialog.getByRole("button", { name: "Add idea" }).click();
   await expect(dialog).toBeHidden();
 
-  await openProjectTab("Content");
+  await openWorkspacePage("Library");
+  await expect(page).toHaveURL(/\/w\/[^/]+\/library/);
   const row = page.getByRole("row", { name: new RegExp(ideaTitle) });
   await expect(row).toContainText("Idea");
   await expect(row).toContainText(seriesName);
@@ -368,7 +377,7 @@ test("approves the revised version from the review queue and keeps every version
   ]);
 
   // Nothing is left to review.
-  await workspaceLink(/^Review/).click();
+  await sidebarLink("Review").click();
   await expect(
     page.getByRole("region", { name: "Review queue" }).getByRole("link", { name: ideaTitle }),
   ).toBeHidden();

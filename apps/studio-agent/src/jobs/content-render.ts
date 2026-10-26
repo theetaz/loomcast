@@ -69,7 +69,7 @@ export function renderHandler(deps: ProductionDeps): Handler<"content.render"> {
 
         const workspace = await ensureItemWorkspace(
           deps.workspaceRoot,
-          payload.projectId,
+          payload.workspaceId,
           item.id,
           version.versionNo,
         );

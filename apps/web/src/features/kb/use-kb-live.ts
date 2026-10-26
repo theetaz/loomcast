@@ -4,7 +4,7 @@ import { patchKbDetail, removeKbEntry, upsertKbEntry } from "./queries";
 
 /**
  * Keeps the knowledge caches current with `kb.entry.*` events from any writer: the web app, MCP
- * clients, producer sessions or the session hook. Mounted once by the project page.
+ * clients, producer sessions or the session hook. Mounted once by the workspace page.
  */
 export function useKbLive() {
   const queryClient = useQueryClient();
@@ -14,6 +14,6 @@ export function useKbLive() {
     patchKbDetail(queryClient, event.payload.entry);
   });
   useLiveEvent("kb.entry.deleted", (event) =>
-    removeKbEntry(queryClient, event.payload.entryId, event.payload.projectId),
+    removeKbEntry(queryClient, event.payload.entryId, event.payload.workspaceId),
   );
 }

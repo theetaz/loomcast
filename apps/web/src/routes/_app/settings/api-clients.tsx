@@ -1,13 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ApiClientsSettings } from "@/features/api-clients/ApiClientsSettings";
-import { useTitle } from "@/lib/use-title";
+import { redirectIntoWorkspace } from "@/features/workspace/legacy";
 
+/** API clients belong to a workspace now: opens its API client settings. */
 export const Route = createFileRoute("/_app/settings/api-clients")({
-  staticData: { breadcrumb: "API clients" },
-  component: ApiClientsPage,
+  beforeLoad: ({ context, location }) =>
+    redirectIntoWorkspace(context.queryClient, location, "/settings/api-clients"),
 });
-
-function ApiClientsPage() {
-  useTitle("API clients");
-  return <ApiClientsSettings />;
-}

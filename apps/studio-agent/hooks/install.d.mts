@@ -20,4 +20,4 @@ export declare function installHook(
   file: string,
   command: string,
 ): Promise<{ path: string; changed: boolean; backup: string | null }>;
-export declare function envLines(options?: { url?: string; project?: string }): string[];
+export declare function envLines(options?: { url?: string; workspace?: string }): string[];

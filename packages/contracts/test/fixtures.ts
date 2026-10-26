@@ -7,7 +7,6 @@ import type {
   JobSummary,
   KbEntry,
   Message,
-  Project,
   PublishAttempt,
   ReferenceAnalysis,
   Review,
@@ -17,11 +16,12 @@ import type {
   SkillVersionSummary,
   Storyboard,
   VoiceAlignment,
+  Workspace,
 } from "../src";
 
 export const ids = {
   user: "4f6d1c2a-8b3e-4a5f-9c7d-1e2f3a4b5c6d",
-  project: "0b1c2d3e-4f50-4612-8a7b-9c0d1e2f3a4b",
+  workspace: "0b1c2d3e-4f50-4612-8a7b-9c0d1e2f3a4b",
   conversation: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d",
   message: "9d8c7b6a-5f4e-4d3c-9b2a-1f0e9d8c7b6a",
   job: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
@@ -47,12 +47,15 @@ export const ids = {
 
 export const at = "2026-10-12T09:30:00.000Z";
 
-export const project: Project = {
-  id: ids.project,
+export const workspace: Workspace = {
+  id: ids.workspace,
   slug: "rust-in-60-seconds",
   name: "Rust in 60 seconds",
   description: null,
   status: "active",
+  color: "thread",
+  iconUrl: null,
+  timeZone: "UTC",
   createdAt: at,
   updatedAt: at,
   archivedAt: null,
@@ -73,7 +76,7 @@ export const job: JobSummary = {
   id: ids.job,
   type: "producer.chat",
   status: "queued",
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   conversationId: ids.conversation,
   claimedByDevice: null,
   attempt: 0,
@@ -88,7 +91,7 @@ export const job: JobSummary = {
 
 export const kbEntry: KbEntry = {
   id: ids.entry,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   kind: "decision",
   title: "Open every video with the result",
   bodyMd: "Viewers decide in the first second.",
@@ -169,7 +172,7 @@ export const alignment: VoiceAlignment = {
 
 export const contentItem: ContentItem = {
   id: ids.item,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   seriesId: ids.series,
   title: "Borrowing in one minute",
   pitch: "The borrow checker as one rule.",
@@ -220,7 +223,7 @@ export const version: ContentVersion = {
 
 export const asset: Asset = {
   id: ids.render,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   itemId: ids.item,
   kind: "render",
   status: "ready",
@@ -263,6 +266,7 @@ export const skillVersion: SkillVersionSummary = {
 
 export const channel: Channel = {
   id: ids.channel,
+  workspaceId: ids.workspace,
   platform: "instagram",
   displayName: "Rust in 60 seconds",
   externalId: "17841400000000001",
@@ -282,7 +286,7 @@ export const channel: Channel = {
 
 export const post: ScheduledPost = {
   id: ids.post,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   itemId: ids.item,
   versionId: ids.version,
   channelId: ids.channel,

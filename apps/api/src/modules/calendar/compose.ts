@@ -32,13 +32,15 @@ export interface ChannelRefusal {
 }
 
 /**
- * The reasons the item cannot go out on each channel, in the order given: an unknown or disabled
- * channel, a platform that does not publish the format, or an open post of the item already
+ * The reasons the item cannot go out on each channel, in the order given: a channel that is not
+ * one of `workspaceId`'s, a disabled channel, a platform that does not publish the format, or an
+ * open post of the item already
  * there (when `itemId` names an item). Checked before anything changes, so a refusal names every
  * channel at once. `pathOf` names each channel's field in the request.
  */
 export async function refusedChannels(
   tx: Executor,
+  workspaceId: string,
   itemId: string | null,
   version: { format: PostFormat; media: readonly Pick<PostMediaEntry, "type">[] },
   channelIds: readonly string[],
@@ -52,7 +54,7 @@ export async function refusedChannels(
       displayName: channels.displayName,
     })
     .from(channels)
-    .where(inArray(channels.id, [...channelIds]));
+    .where(and(inArray(channels.id, [...channelIds]), eq(channels.workspaceId, workspaceId)));
   const open =
     itemId === null
       ? []
@@ -73,7 +75,7 @@ export async function refusedChannels(
     const path = pathOf(index);
     const channel = byId.get(id);
     if (channel === undefined) {
-      refused.push({ path, message: "No channel has that id", format: false });
+      refused.push({ path, message: "No channel of this workspace has that id", format: false });
       continue;
     }
     const name = `${channel.displayName} (${PLATFORM_LABELS[channel.platform]})`;

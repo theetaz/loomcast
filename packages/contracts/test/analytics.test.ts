@@ -45,7 +45,7 @@ const capture: PostMetrics = {
 const performance: PostPerformance = {
   postId: ids.post,
   itemId: ids.item,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   seriesId: ids.series,
   channelId: ids.channel,
   platform: "instagram",
@@ -209,9 +209,9 @@ describe("analytics responses and queries", () => {
       AnalyticsOverviewQuerySchema.parse({
         from,
         to: "2027-01-02T00:00:00.000Z",
-        projectId: ids.project,
+        workspaceId: ids.workspace,
       }),
-    ).toEqual({ from, to: "2027-01-02T00:00:00.000Z", projectId: ids.project });
+    ).toEqual({ from, to: "2027-01-02T00:00:00.000Z", workspaceId: ids.workspace });
     expect(
       AnalyticsOverviewQuerySchema.safeParse({ from, to: "2027-01-02T00:00:00.001Z" }).success,
     ).toBe(false);

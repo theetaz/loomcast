@@ -96,7 +96,7 @@ export const UPLOAD_ATTEMPTS = 3;
  * Uploads one file content-addressed:
  *
  * 1. hashes it while streaming it from disk;
- * 2. asks for an upload (`content.upload_asset`) with the size and SHA-256. When the project
+ * 2. asks for an upload (`content.upload_asset`) with the size and SHA-256. When the workspace
  *    already has an identical ready asset, the server answers without upload instructions and the
  *    existing asset is used: nothing is sent;
  * 3. PUTs the bytes with exactly the headers the server signed (they carry the content type, the

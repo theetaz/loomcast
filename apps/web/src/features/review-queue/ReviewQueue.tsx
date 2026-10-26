@@ -1,15 +1,8 @@
 import type { ContentItem } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@loomcast/ui/components/select";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ClipboardCheckIcon, TriangleAlertIcon } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -19,7 +12,7 @@ import { RelativeTime } from "@/components/RelativeTime";
 import { formatDuration } from "@/features/library/format";
 import { useSeriesOptions } from "@/features/library/queries";
 import { formatLabel } from "@/features/post-formats/FormatBadge";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { type DeadlineTone, deadlineOf } from "./deadline";
@@ -27,7 +20,6 @@ import { Poster } from "./Poster";
 import { compareQueue, reviewQueueQueryOptions, useReviewQueueLive } from "./queries";
 import { useQueueKeys } from "./use-queue-keys";
 
-const ALL_PROJECTS = "all";
 const ROW_LINK = "a[data-queue-link]";
 
 const TONES: Record<DeadlineTone, string> = {
@@ -38,21 +30,15 @@ const TONES: Record<DeadlineTone, string> = {
 };
 
 /**
- * Videos waiting for a decision, the nearest publishing date first. `j` and `k` move between them
- * and Enter opens one; the item page holds the review actions.
+ * The workspace's videos waiting for a decision, the nearest publishing date first. `j` and `k`
+ * move between them and Enter opens one; the item page holds the review actions.
  */
-export function ReviewQueue({
-  projectId,
-  onProjectChange,
-}: {
-  projectId: string | null;
-  onProjectChange: (projectId: string | null) => void;
-}) {
+export function ReviewQueue({ workspaceId }: { workspaceId: string }) {
   useReviewQueueLive();
+  const workspaceParam = useWorkspaceParam();
   const now = useNow();
-  const query = useInfiniteQuery(reviewQueueQueryOptions(projectId));
-  const projects = useQuery(projectsQueryOptions());
-  const { byId: seriesById } = useSeriesOptions(null);
+  const query = useInfiniteQuery(reviewQueueQueryOptions(workspaceId));
+  const { byId: seriesById } = useSeriesOptions(workspaceId);
   const listRef = useRef<HTMLOListElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -66,28 +52,11 @@ export function ReviewQueue({
   );
   useQueueKeys(listRef, ROW_LINK, activeIndex);
 
-  const projectById = new Map((projects.data ?? []).map((project) => [project.id, project]));
   const overdue = items.filter((item) => item.targetAt && Date.parse(item.targetAt) <= now).length;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={projectId ?? ALL_PROJECTS}
-          onValueChange={(value) => onProjectChange(value === ALL_PROJECTS ? null : value)}
-        >
-          <SelectTrigger aria-label="Project" className="w-56 max-w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_PROJECTS}>All projects</SelectItem>
-            {(projects.data ?? []).map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         {query.data ? (
           <p className="text-control text-muted-foreground" aria-live="polite">
             {items.length === 1 ? "1 video" : `${items.length} videos`}
@@ -131,7 +100,9 @@ export function ReviewQueue({
             description="Videos land here when they finish rendering and wait for your decision."
             action={
               <Button asChild variant="outline">
-                <Link to="/library">Open the library</Link>
+                <Link to="/w/$workspace/library" params={{ workspace: workspaceParam }}>
+                  Open the library
+                </Link>
               </Button>
             }
           />
@@ -141,7 +112,6 @@ export function ReviewQueue({
               <QueueRow
                 key={item.id}
                 item={item}
-                projectName={projectId ? null : (projectById.get(item.projectId)?.name ?? null)}
                 seriesName={item.seriesId ? (seriesById.get(item.seriesId)?.name ?? null) : null}
                 tabbable={index === activeIndex}
                 onFocus={() => setActiveId(item.id)}
@@ -169,26 +139,25 @@ export function ReviewQueue({
 
 function QueueRow({
   item,
-  projectName,
   seriesName,
   tabbable,
   onFocus,
   now,
 }: {
   item: ContentItem;
-  projectName: string | null;
   seriesName: string | null;
   tabbable: boolean;
   onFocus: () => void;
   now: number;
 }) {
+  const workspaceParam = useWorkspaceParam();
   const deadline = deadlineOf(item.targetAt, now);
-  const context = [projectName, seriesName].filter(Boolean).join(" · ");
+  const context = seriesName ?? "";
   return (
     <li className="border-divider border-t first:border-t-0" data-item-id={item.id}>
       <Link
-        to="/content/$itemId"
-        params={{ itemId: item.id }}
+        to="/w/$workspace/content/$itemId"
+        params={{ workspace: workspaceParam, itemId: item.id }}
         data-queue-link=""
         tabIndex={tabbable ? 0 : -1}
         onFocus={onFocus}

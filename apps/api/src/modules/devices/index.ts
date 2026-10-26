@@ -40,7 +40,7 @@ export const PAIRING_LIMITS = {
  * - `DELETE /api/devices/:id` (session): revokes the device and its token.
  *
  * Loomcast is one workspace: every signed-in user sees and manages every device, as any device
- * may run any project's jobs.
+ * may run any workspace's jobs.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { config } = deps;

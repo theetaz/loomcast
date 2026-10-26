@@ -22,13 +22,13 @@ interface Settled {
 }
 
 /**
- * Server-side knowledge-base search across every project, for the palette.
+ * Server-side knowledge-base search, in one workspace or across every one, for the palette.
  * Waits `KB_SEARCH_DEBOUNCE_MS` after the last keystroke, needs at least
  * `KB_SEARCH_MIN_LENGTH` characters, and aborts the request for an older
  * query as soon as the query changes, so a slow answer never lands late.
  * While a search runs, the previous hits stay up to keep the list steady.
  */
-export function useKbSearch(query: string): KbSearchState {
+export function useKbSearch(query: string, workspaceId: string | null = null): KbSearchState {
   const q = query.trim();
   const active = q.length >= KB_SEARCH_MIN_LENGTH;
   const [settled, setSettled] = useState<Settled | null>(null);
@@ -39,7 +39,7 @@ export function useKbSearch(query: string): KbSearchState {
     const timer = setTimeout(() => {
       api
         .request("kb.search", {
-          query: { q, limit: KB_SEARCH_LIMIT },
+          query: { q, limit: KB_SEARCH_LIMIT, ...(workspaceId ? { workspaceId } : {}) },
           signal: controller.signal,
         })
         .then(
@@ -55,7 +55,7 @@ export function useKbSearch(query: string): KbSearchState {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q]);
+  }, [q, workspaceId]);
 
   if (!active) return { status: "idle", hits: [] };
   if (!settled) return { status: "pending", hits: [] };

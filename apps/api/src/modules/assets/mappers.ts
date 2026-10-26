@@ -5,7 +5,7 @@ import type { AssetRow } from "@loomcast/db";
 export function toAsset(row: AssetRow): Asset {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     itemId: row.itemId,
     kind: row.kind,
     status: row.status,

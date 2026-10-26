@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Loomcast session-end hook: files a short summary of a finished working session in a project's
+ * Loomcast session-end hook: files a short summary of a finished working session in a workspace's
  * knowledge base through the `kb.save_session_summary` MCP tool.
  *
  * Any client that runs a session-end hook with a JSON payload on stdin can use it. The payload
@@ -16,8 +16,8 @@
  *   LOOMCAST_SESSION_HOOK  1 (or true, on, yes) turns the hook on
  *   LOOMCAST_URL           the Loomcast server, for example https://loomcast.example.com
  *   LOOMCAST_MCP_TOKEN     an access token with write access
- *   LOOMCAST_PROJECT_ID    optional; else `.loomcast/project.json` above `cwd`, else the server
- *                          matches a `Loomcast/projects/<project id>` folder in `cwd`
+ *   LOOMCAST_WORKSPACE_ID    optional; else `.loomcast/workspace.json` above `cwd`, else the server
+ *                          matches a `Loomcast/projects/<workspace id>` folder in `cwd`
  */
 import { createReadStream, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -153,21 +153,21 @@ export function parsePayload(text) {
 }
 
 /**
- * The project the summary belongs to: `LOOMCAST_PROJECT_ID`, else the `projectId` in the nearest
- * `.loomcast/project.json` at or above `cwd`. Null when neither names one; the server then tries
- * the `Loomcast/projects/<project id>` folder in `cwd`.
+ * The workspace the summary belongs to: `LOOMCAST_WORKSPACE_ID`, else the `workspaceId` in the nearest
+ * `.loomcast/workspace.json` at or above `cwd`. Null when neither names one; the server then tries
+ * the `Loomcast/projects/<workspace id>` folder in `cwd`.
  */
-export async function resolveProject({ cwd, env }) {
-  const fromEnv = String(env.LOOMCAST_PROJECT_ID ?? "").trim();
+export async function resolveWorkspace({ cwd, env }) {
+  const fromEnv = String(env.LOOMCAST_WORKSPACE_ID ?? "").trim();
   if (fromEnv !== "") {
-    return ID_RE.test(fromEnv) ? { projectId: fromEnv.toLowerCase(), source: "env" } : null;
+    return ID_RE.test(fromEnv) ? { workspaceId: fromEnv.toLowerCase(), source: "env" } : null;
   }
   if (cwd === undefined || !isAbsolute(cwd)) {
     return null;
   }
   let dir = resolve(cwd);
   for (let depth = 0; depth < 64; depth += 1) {
-    const file = join(dir, ".loomcast", "project.json");
+    const file = join(dir, ".loomcast", "workspace.json");
     let text;
     try {
       text = await readFile(file, "utf8");
@@ -178,8 +178,8 @@ export async function resolveProject({ cwd, env }) {
       // The nearest file decides, even when it is unusable.
       try {
         const data = JSON.parse(text);
-        const id = typeof data?.projectId === "string" ? data.projectId.trim() : "";
-        return ID_RE.test(id) ? { projectId: id.toLowerCase(), source: file } : null;
+        const id = typeof data?.workspaceId === "string" ? data.workspaceId.trim() : "";
+        return ID_RE.test(id) ? { workspaceId: id.toLowerCase(), source: file } : null;
       } catch {
         return null;
       }
@@ -567,14 +567,14 @@ export async function run({
       return { status: "skipped", detail: "the payload names no session_id" };
     }
     const cwd = input.cwd !== undefined && isAbsolute(input.cwd) ? input.cwd : undefined;
-    const project = await resolveProject({ cwd, env });
+    const workspace = await resolveWorkspace({ cwd, env });
     const digest = await digestTranscript(input.transcriptPath);
     const summaryMd = renderSummary({ sessionId: input.sessionId, cwd, digest });
     const args = {
       sessionId: truncate(input.sessionId, 200),
       summaryMd,
       ...(cwd === undefined ? {} : { cwd: truncate(cwd, 1_024) }),
-      ...(project === null ? {} : { projectId: project.projectId }),
+      ...(workspace === null ? {} : { workspaceId: workspace.workspaceId }),
     };
     const outcome = await postSummary({ url, token, args, timeoutMs, fetchImpl });
     if (!outcome.ok) {

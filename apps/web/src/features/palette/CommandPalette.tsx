@@ -7,10 +7,11 @@ import {
   CommandList,
 } from "@loomcast/ui/components/command";
 import { cn } from "@loomcast/ui/lib/cn";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { HistoryIcon } from "lucide-react";
 import { useState } from "react";
 import { useMe } from "@/features/auth/queries";
+import { useOptionalCurrentWorkspace } from "@/features/workspace/current";
 import { type RecentEntry, useRecent } from "./recent";
 import { paletteSources } from "./registry";
 import type { PaletteContext, PaletteItem, PaletteSource, PaletteSourceResult } from "./types";
@@ -18,47 +19,53 @@ import type { PaletteContext, PaletteItem, PaletteSource, PaletteSourceResult } 
 export interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Opens the new project dialog; the palette has closed by then. */
-  onNewProject: () => void;
+  /** Opens the new workspace dialog; the palette has closed by then. */
+  onNewWorkspace: () => void;
 }
 
 /**
- * ⌘K: jump to a project, a knowledge-base entry or a page, or run an action.
+ * ⌘K: jump to a workspace, a knowledge-base entry or a page, or run an action.
  * It opens and closes instantly; nothing in it animates except the search spinner.
  * Sources live in `./sources`; each filters its own rows.
  */
-export function CommandPalette({ open, onOpenChange, onNewProject }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, onNewWorkspace }: CommandPaletteProps) {
   return (
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
       title="Search or jump to"
-      description="Find projects, knowledge-base entries, pages and actions."
+      description="Find workspaces, knowledge-base entries, pages and actions."
       commandProps={{ shouldFilter: false, loop: true, label: "Search or jump to" }}
     >
       <PaletteBody
         close={() => onOpenChange(false)}
-        openNewProject={() => {
+        openNewWorkspace={() => {
           onOpenChange(false);
-          onNewProject();
+          onNewWorkspace();
         }}
       />
     </CommandDialog>
   );
 }
 
-function PaletteBody({ close, openNewProject }: { close: () => void; openNewProject: () => void }) {
+function PaletteBody({
+  close,
+  openNewWorkspace,
+}: {
+  close: () => void;
+  openNewWorkspace: () => void;
+}) {
   const me = useMe();
   const navigate = useNavigate();
-  const params: { projectId?: string } = useParams({ strict: false });
+  const workspace = useOptionalCurrentWorkspace();
   const [input, setInput] = useState("");
   const recent = useRecent(me.id);
 
   const context: PaletteContext = {
     query: input.trim(),
     me,
-    projectParam: params.projectId ?? null,
-    openNewProject,
+    workspace,
+    openNewWorkspace,
   };
 
   const open = (href: string) => {
@@ -94,7 +101,7 @@ function PaletteBody({ close, openNewProject }: { close: () => void; openNewProj
       <CommandInput
         value={input}
         onValueChange={setInput}
-        placeholder="Search projects, knowledge and pages…"
+        placeholder="Search workspaces, knowledge and pages…"
         aria-label="Search or jump to"
       />
       <CommandList>

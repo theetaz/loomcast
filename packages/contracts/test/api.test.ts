@@ -25,7 +25,7 @@ import {
   routes,
   TOKEN_KINDS,
   TOKEN_PREFIXES,
-  UpdateProjectSchema,
+  UpdateWorkspaceSchema,
 } from "../src";
 import { ids, job, message } from "./fixtures";
 
@@ -80,10 +80,10 @@ describe("auth DTOs", () => {
   });
 });
 
-describe("project DTOs", () => {
+describe("workspace DTOs", () => {
   it("rejects an empty update", () => {
-    expect(UpdateProjectSchema.safeParse({}).success).toBe(false);
-    expect(UpdateProjectSchema.safeParse({ description: null }).success).toBe(true);
+    expect(UpdateWorkspaceSchema.safeParse({}).success).toBe(false);
+    expect(UpdateWorkspaceSchema.safeParse({ description: null }).success).toBe(true);
   });
 });
 
@@ -183,9 +183,11 @@ describe("token formats", () => {
 
 describe("shared API shapes", () => {
   it("parses error bodies with optional details", () => {
-    expect(ApiErrorSchema.parse({ error: { code: "not_found", message: "No project" } })).toEqual({
-      error: { code: "not_found", message: "No project" },
-    });
+    expect(ApiErrorSchema.parse({ error: { code: "not_found", message: "No workspace" } })).toEqual(
+      {
+        error: { code: "not_found", message: "No workspace" },
+      },
+    );
     expect(ApiErrorSchema.safeParse({ code: "not_found" }).success).toBe(false);
   });
 
@@ -230,8 +232,8 @@ describe("routes", () => {
     expect(buildPath(routes["messages.post"].path, { id: ids.conversation })).toBe(
       `/api/conversations/${ids.conversation}/messages`,
     );
-    expect(buildPath(routes["projects.get"].path, { idOrSlug: "a/b c" })).toBe(
-      "/api/projects/a%2Fb%20c",
+    expect(buildPath(routes["workspaces.get"].path, { idOrSlug: "a/b c" })).toBe(
+      "/api/workspaces/a%2Fb%20c",
     );
     expect(buildPath(routes["auth.me"].path, {})).toBe("/api/auth/me");
   });
@@ -252,8 +254,8 @@ describe("routes", () => {
     expectTypeOf<RouteResponse<"jobs.get">["status"]>().toEqualTypeOf<
       "queued" | "dispatched" | "running" | "succeeded" | "failed" | "cancelled"
     >();
-    expectTypeOf<PathParams<"/api/projects/:projectId/conversations">>().toEqualTypeOf<{
-      projectId: string;
+    expectTypeOf<PathParams<"/api/workspaces/:workspaceId/conversations">>().toEqualTypeOf<{
+      workspaceId: string;
     }>();
   });
 });

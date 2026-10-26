@@ -37,15 +37,20 @@ export function connectionQueryOptions(id: string) {
   });
 }
 
-/** Connects the chosen accounts of a pending connection, once. */
+export interface AcceptConnectionInput {
+  workspaceId: string;
+  accountIds: string[];
+}
+
+/** Connects the chosen accounts of a pending connection to a workspace, once. */
 export function useAcceptConnection(connectionId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (accountIds: string[]) =>
-      api.request("oauth.accept", { params: { id: connectionId }, body: { accountIds } }),
+    mutationFn: (body: AcceptConnectionInput) =>
+      api.request("oauth.accept", { params: { id: connectionId }, body }),
     onSuccess: (result: AcceptConnectionResponse) => {
       for (const channel of result.channels) applyChannel(queryClient, channel);
-      void queryClient.invalidateQueries({ queryKey: channelKeys.list });
+      void queryClient.invalidateQueries({ queryKey: channelKeys.lists });
       queryClient.removeQueries({ queryKey: connectKeys.connection(connectionId) });
     },
   });

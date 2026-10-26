@@ -29,7 +29,7 @@ import {
   createPipelineHarness,
   eventsOf,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import { appWith, enqueuePublish, insertPost, runDue, testKeyring } from "./publisher-support";
@@ -68,7 +68,7 @@ interface XServer {
   h: PipelineHarness;
   t: TestApp;
   deps: ModuleDeps;
-  projectId: string;
+  workspaceId: string;
   storage: StorageTarget;
   close(): Promise<void>;
 }
@@ -76,7 +76,7 @@ interface XServer {
 /** A server publishing live with the given X settings, on its own database and fake store. */
 async function xServer(settings: { flag: boolean; app: XAppConfig | null }): Promise<XServer> {
   const h = await createPipelineHarness();
-  const projectId = await insertProject(h);
+  const workspaceId = await insertWorkspace(h);
   const storage = await fakeStorageTarget();
   const { t, deps } = appWith(h.db, {
     clock: h.t.clock,
@@ -92,7 +92,7 @@ async function xServer(settings: { flag: boolean; app: XAppConfig | null }): Pro
     h,
     t,
     deps,
-    projectId,
+    workspaceId,
     storage,
     async close() {
       await t.deps.lifecycle.close();
@@ -117,6 +117,7 @@ async function insertXChannel(server: XServer, expiresInMs: number): Promise<XCh
   const externalId = fakeId();
   await server.h.db.insert(channels).values({
     id,
+    workspaceId: server.workspaceId,
     platform: "x",
     displayName: "X channel",
     externalId,
@@ -151,7 +152,7 @@ async function refreshSweep(server: XServer, channelId?: string): Promise<void> 
 /** A live post of a rendered, scheduled item on `channelId`, its render stored in the bucket. */
 async function livePost(server: XServer, channelId: string) {
   const item = await insertItem(server.h, {
-    projectId: server.projectId,
+    workspaceId: server.workspaceId,
     state: "scheduled",
     level: "render",
   });
@@ -278,9 +279,14 @@ describe("x wiring with the flag off", () => {
         }
 
         const channel = await insertXChannel(server, 60 * 60_000);
-        const listed = await send(server.t.app, "GET", "/api/channels", {
-          cookie: server.h.cookie,
-        });
+        const listed = await send(
+          server.t.app,
+          "GET",
+          `/api/workspaces/${server.workspaceId}/channels`,
+          {
+            cookie: server.h.cookie,
+          },
+        );
         const { items } = (await listed.json()) as { items: Channel[] };
         expect(items.find((item) => item.id === channel.id)?.liveBlocker).toBe(
           "platform_unavailable",
@@ -298,10 +304,15 @@ describe("x wiring with the flag off", () => {
 
       it("refuses to create an X channel with 403 forbidden", async () => {
         const before = await server.h.db.select().from(channels).where(eq(channels.platform, "x"));
-        const response = await send(server.t.app, "POST", "/api/channels", {
-          cookie: server.h.cookie,
-          body: { platform: "x", displayName: "X planning" },
-        });
+        const response = await send(
+          server.t.app,
+          "POST",
+          `/api/workspaces/${server.workspaceId}/channels`,
+          {
+            cookie: server.h.cookie,
+            body: { platform: "x", displayName: "X planning" },
+          },
+        );
         expect(response.status).toBe(403);
         expect(await response.json()).toEqual({
           error: { code: "forbidden", message: "X publishing is turned off on this server." },
@@ -310,10 +321,15 @@ describe("x wiring with the flag off", () => {
           await server.h.db.select().from(channels).where(eq(channels.platform, "x")),
         ).toHaveLength(before.length);
 
-        const other = await send(server.t.app, "POST", "/api/channels", {
-          cookie: server.h.cookie,
-          body: { platform: "threads", displayName: "Threads planning" },
-        });
+        const other = await send(
+          server.t.app,
+          "POST",
+          `/api/workspaces/${server.workspaceId}/channels`,
+          {
+            cookie: server.h.cookie,
+            body: { platform: "threads", displayName: "Threads planning" },
+          },
+        );
         expect(other.status).toBe(201);
       });
 
@@ -407,17 +423,27 @@ describe("x wiring with the flag on", () => {
     ).toBeNull();
 
     const channel = await insertXChannel(server, 60 * 60_000);
-    const listed = await send(server.t.app, "GET", "/api/channels", { cookie: server.h.cookie });
+    const listed = await send(
+      server.t.app,
+      "GET",
+      `/api/workspaces/${server.workspaceId}/channels`,
+      { cookie: server.h.cookie },
+    );
     const { items } = (await listed.json()) as { items: Channel[] };
     expect(items.find((item) => item.id === channel.id)?.liveBlocker).toBeNull();
     expect(fetches.calls()).toEqual([]);
   });
 
   it("creates an X planning channel", async () => {
-    const response = await send(server.t.app, "POST", "/api/channels", {
-      cookie: server.h.cookie,
-      body: { platform: "x", displayName: "X planning" },
-    });
+    const response = await send(
+      server.t.app,
+      "POST",
+      `/api/workspaces/${server.workspaceId}/channels`,
+      {
+        cookie: server.h.cookie,
+        body: { platform: "x", displayName: "X planning" },
+      },
+    );
     expect(response.status).toBe(201);
     expect((await response.json()) as Channel).toMatchObject({
       platform: "x",

@@ -3,7 +3,7 @@
 //
 //   pnpm --filter @loomcast/studio-agent exec tsx scripts/smoke-producer.ts
 //
-// It works in a temporary project workspace, which it deletes afterwards.
+// It works in a temporary workspace folder, which it deletes afterwards.
 
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -14,7 +14,7 @@ import { createLogger } from "../src/logger";
 import { resolveAgentPaths } from "../src/paths";
 import type { ProducerRunResult } from "../src/producer/runtime";
 import { SdkProducerRuntime } from "../src/producer/sdk-runtime";
-import { ensureProjectWorkspace } from "../src/producer/workspace";
+import { ensureWorkspaceWorkspace } from "../src/producer/workspace";
 
 const TURN_TIMEOUT_MS = 180_000;
 
@@ -48,7 +48,7 @@ async function turn(
 
 let exitCode = 0;
 try {
-  const { dir } = await ensureProjectWorkspace(root, randomUUID(), "Producer smoke test");
+  const { dir } = await ensureWorkspaceWorkspace(root, randomUUID(), "Producer smoke test");
   console.log(`workspace ${dir}`);
   const first = await turn(dir, "turn 1", "Reply with the word ready");
   const second = await turn(dir, "turn 2", "What did you just say?", first.sessionId);

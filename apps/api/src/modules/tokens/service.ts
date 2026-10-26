@@ -73,8 +73,8 @@ export interface RevokeResult {
 
 export interface MintJobTokenInput {
   jobId: string;
-  /** The job's project: the only project the token can reach. */
-  projectId: string;
+  /** The job's workspace: the only workspace the token can reach. */
+  workspaceId: string;
   /** The user the job runs for (`jobs.created_by`). */
   userId: string;
   /** The job type's `mcpAccess`; `none` never gets a token. */
@@ -106,7 +106,7 @@ export interface TokensService {
   /** The user's tokens of `kind` that are not revoked, newest first. */
   list(userId: string, kind: TokenKind): Promise<ApiTokenRow[]>;
   /**
-   * Mints a job token for one assignment of a job: bound to the job and its project, with the
+   * Mints a job token for one assignment of a job: bound to the job and its workspace, with the
    * scopes of `access`, expiring after `ttlMs`. Pass the dispatch transaction.
    */
   mintJobToken(input: MintJobTokenInput, executor?: Executor): Promise<MintedJobToken>;
@@ -163,11 +163,11 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
   return {
     async create(input, executor = db) {
       if (input.kind === "job") {
-        // A job token must name its job and project; only `mintJobToken` creates one.
+        // A job token must name its job and workspace; only `mintJobToken` creates one.
         throw new Error("job tokens are created with mintJobToken");
       }
       if (input.kind === "api") {
-        // An API client needs its project and grants; the api-clients service creates one.
+        // An API client needs its workspace and grants; the api-clients service creates one.
         throw new Error("API clients are created by the api-clients service");
       }
       const name = input.name.trim();
@@ -273,8 +273,8 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
             ? token.scopes
             : token.scopes.filter((scope) => !OWNER_ONLY_SCOPES.includes(scope)),
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
-        ...(token.kind === "job" ? { projectId: token.projectId, jobId: token.jobId } : {}),
-        ...(token.kind === "api" ? { projectId: token.projectId } : {}),
+        ...(token.kind === "job" ? { workspaceId: token.workspaceId, jobId: token.jobId } : {}),
+        ...(token.kind === "api" ? { workspaceId: token.workspaceId } : {}),
       };
     },
 
@@ -334,7 +334,7 @@ export function createTokensService(deps: { db: Database; clock: Clock }): Token
           prefix: generated.prefix,
           scopes,
           expiresAt,
-          projectId: input.projectId,
+          workspaceId: input.workspaceId,
           jobId: input.jobId,
           createdAt: now,
         })

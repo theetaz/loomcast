@@ -29,21 +29,21 @@ producer session (Mac) ──POST /mcp (job token)──┘
 | Surface | Credential | Notes |
 |---|---|---|
 | `/api/*` with `auth: "session"` (every route but four, outside `/api/v1`) | `__Host-lc_session` cookie (production): `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain` | 30-day sliding session. Default deny: unknown `/api` paths need a session too. Bearer tokens are never read here. `/api/api-clients` is owner-only |
-| `/api/v1/*` (`auth: "api_key"`, the machine API) | Bearer `lc_api_…` of an API client: one project and the channels the owner granted (`read`, `write` or `publish`) | Cookies are never read and no CSRF check applies (not a browser surface; no CORS). Default deny: unknown `/api/v1` paths need a key. Acts as the owner, who must still be the owner. 120 requests a minute per client. See [api.md](api.md) |
+| `/api/v1/*` (`auth: "api_key"`, the machine API) | Bearer `lc_api_…` of an API client: one workspace and the channels the owner granted (`read`, `write` or `publish`) | Cookies are never read and no CSRF check applies (not a browser surface; no CORS). Default deny: unknown `/api/v1` paths need a key. Acts as the owner, who must still be the owner. 120 requests a minute per client. See [api.md](api.md) |
 | `POST /api/auth/login`, `/api/auth/password-tokens/inspect`, `/api/auth/set-password` | None (the body is the credential) | Rate limited per address; same CSRF checks as session routes |
 | `POST /api/bridge/pair` | A 10-minute single-use pairing code | Rate limited per address; refuses foreign `Origin` and non-JSON bodies |
-| `/mcp` | Bearer `lc_mcp_…` (user) or `lc_job_…` (one job, its project only) | Cookies are never read. Foreign `Origin` refused. 120 or 240 requests a minute per token |
+| `/mcp` | Bearer `lc_mcp_…` (user) or `lc_job_…` (one job, its workspace only) | Cookies are never read. Foreign `Origin` refused. 120 or 240 requests a minute per token |
 | `/bridge/v1` (WebSocket) | Bearer device token with the `bridge` scope | Cookies are never read; revoking a device closes its socket with 4403 |
 | `/healthz`, `/readyz` | None | Statuses only, no details; rate limited per address |
 
 ### API clients
 
-The owner's other backends call the machine API under `/api/v1` with an API client's key. A
-client is bound to one project and reaches only the channels the owner granted it, each at a
-level: `read` (status, permalinks, errors and metrics), `write` (create and schedule posts that
-wait for the owner's approval) or `publish` (also approved on the owner's behalf). A channel
-that requires approval keeps every post for the owner whatever the level, and dry-run and the
-publishing switches apply as usual.
+The owner's other backends call the machine API under `/api/v1` with an API client's key. A client
+is bound to one workspace and reaches only the channels of that workspace the owner granted it, each
+at a level: `read` (status, permalinks, errors and metrics), `write` (create and schedule posts that
+wait for the owner's approval) or `publish` (also approved on the owner's behalf). A channel that
+requires approval keeps every post for the owner whatever the level, and dry-run and the publishing
+switches apply as usual.
 
 - A channel the client was not granted reads like one that does not exist (`400` with the same
   message), and a post it cannot see is a `404`; it can change only the posts it created.
@@ -172,7 +172,7 @@ Status: **fixed** (with tests, in this review), or **open** with the risk and th
 | H6 | Bridge | Failed device-token upgrades on `/bridge/v1` are not rate limited: the hub verifies tokens itself, outside the auth guards. Each attempt costs one indexed hash lookup; device tokens are 256-bit random, so guessing is not practical | Low | Open. Recommendation: count failed upgrades with the same per-address limiter (a small change in `modules/bridge/hub.ts`), or add an nginx `limit_req` zone named `loomcast_bridge` on `location /bridge/` |
 | H7 | Login | The per-account login limit is keyed by address and email, so guesses spread over many addresses are limited only by argon2's cost | Low (single owner, strong passwords) | Open, accepted. A global per-email limit would let anyone lock the owner out. Use a long generated password; watch `auth.login.failed` in the audit log |
 | H8 | Tokens | MCP tokens may be created without an expiry | Low | Open. Recommendation: give MCP tokens an expiry (90 days) and rotate them; see the owner runbook |
-| H9 | Mac | A job token is passed to the producer session on its command line, so other processes of the same macOS user can read it in `ps` while a job runs | Low | Open, accepted (M2-04): job tokens are bound to one job and project, expire with the job's timeout and are revoked on every terminal transition |
+| H9 | Mac | A job token is passed to the producer session on its command line, so other processes of the same macOS user can read it in `ps` while a job runs | Low | Open, accepted (M2-04): job tokens are bound to one job and workspace, expire with the job's timeout and are revoked on every terminal transition |
 | H10 | CSP | `style-src` allows `'unsafe-inline'` (component libraries set inline styles) | Low | Open. Scripts stay locked to `'self'`; revisit with style nonces if a library allows it |
 | H11 | Rate limits | Limits are per process and reset on restart | Low | Open, accepted while the api runs as one process. Move them to Postgres before scaling out |
 | H12 | Revocation | Revoking a device or token with SQL (instead of the web app or the api) does not close live bridge sockets; only the `device.revoked` event does | Low | Documented in the incident runbook: restart the api after revoking with SQL |

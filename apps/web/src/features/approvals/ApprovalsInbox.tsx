@@ -6,13 +6,6 @@ import {
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { StatusPill } from "@loomcast/ui/components/StatusPill";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@loomcast/ui/components/select";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { Textarea } from "@loomcast/ui/components/textarea";
 import { cn } from "@loomcast/ui/lib/cn";
@@ -32,8 +25,8 @@ import { channelLabel, PlatformDot, platformLabel } from "@/features/channels/pl
 import { channelsQueryOptions } from "@/features/channels/queries";
 import { useSeriesOptions } from "@/features/library/queries";
 import { FormatIcon, formatLabel } from "@/features/post-formats/FormatBadge";
-import { projectsQueryOptions } from "@/features/projects/queries";
 import { Poster } from "@/features/review-queue/Poster";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { type CountdownTone, slotCountdown } from "./countdown";
@@ -47,7 +40,6 @@ import {
 } from "./queries";
 import { RescheduleDialog } from "./RescheduleDialog";
 
-const ALL_PROJECTS = "all";
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 const TONES: Record<CountdownTone, string> = {
@@ -58,27 +50,20 @@ const TONES: Record<CountdownTone, string> = {
 };
 
 /**
- * Videos in review with the time left before their first slot, nearest first, approved or sent
- * back from the row; and posts whose time came before their video was approved, to reschedule.
+ * The workspace's videos in review with the time left before their first slot, nearest first,
+ * approved or sent back from the row; and posts whose time came before their video was approved,
+ * to reschedule.
  */
-export function ApprovalsInbox({
-  projectId,
-  onProjectChange,
-}: {
-  projectId: string | null;
-  onProjectChange: (projectId: string | null) => void;
-}) {
+export function ApprovalsInbox({ workspaceId }: { workspaceId: string }) {
   useApprovalsLive();
   const now = useNow();
-  const query = useQuery(approvalsQueryOptions(projectId));
-  const projects = useQuery(projectsQueryOptions());
-  const channels = useQuery(channelsQueryOptions());
-  const { byId: seriesById } = useSeriesOptions(null);
+  const query = useQuery(approvalsQueryOptions(workspaceId));
+  const channels = useQuery(channelsQueryOptions(workspaceId));
+  const { byId: seriesById } = useSeriesOptions(workspaceId);
   const [rescheduling, setRescheduling] = useState<ScheduledPost | null>(null);
 
   const items = useMemo(() => [...(query.data?.items ?? [])].sort(compareApprovals), [query.data]);
   const missed = useMemo(() => [...(query.data?.missed ?? [])].sort(compareMissed), [query.data]);
-  const projectById = new Map((projects.data ?? []).map((project) => [project.id, project]));
   const channelById = new Map((channels.data?.items ?? []).map((channel) => [channel.id, channel]));
   const urgent = items.filter(
     (entry) => entry.deadlineAt !== null && Date.parse(entry.deadlineAt) - now < 24 * 60 * 60_000,
@@ -87,22 +72,6 @@ export function ApprovalsInbox({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={projectId ?? ALL_PROJECTS}
-          onValueChange={(value) => onProjectChange(value === ALL_PROJECTS ? null : value)}
-        >
-          <SelectTrigger aria-label="Project" className="w-56 max-w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_PROJECTS}>All projects</SelectItem>
-            {(projects.data ?? []).map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         {query.data ? (
           <p className="text-control text-muted-foreground" aria-live="polite">
             {items.length === 1 ? "1 video waiting" : `${items.length} videos waiting`}
@@ -144,9 +113,6 @@ export function ApprovalsInbox({
                 key={entry.item.id}
                 entry={entry}
                 now={now}
-                projectName={
-                  projectId ? null : (projectById.get(entry.item.projectId)?.name ?? null)
-                }
                 seriesName={
                   entry.item.seriesId ? (seriesById.get(entry.item.seriesId)?.name ?? null) : null
                 }
@@ -219,13 +185,11 @@ function InboxSection({
 function ApprovalRow({
   entry,
   now,
-  projectName,
   seriesName,
   channelById,
 }: {
   entry: ApprovalItem;
   now: number;
-  projectName: string | null;
   seriesName: string | null;
   channelById: Map<string, Channel>;
 }) {
@@ -239,7 +203,8 @@ function ApprovalRow({
   const [revise, setRevise] = useState(true);
   const [missing, setMissing] = useState(false);
   const countdown = slotCountdown(deadlineAt, now);
-  const context = [projectName, seriesName].filter(Boolean).join(" · ");
+  const context = seriesName ?? "";
+  const workspaceParam = useWorkspaceParam();
 
   // The outcome toasts come from `useDecide`, so they show even once this row has unmounted.
   const onDecide = (input: Decision, onDone?: () => void) => {
@@ -269,8 +234,8 @@ function ApprovalRow({
         <div className="flex min-w-0 flex-1 basis-52 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             <Link
-              to="/content/$itemId"
-              params={{ itemId: item.id }}
+              to="/w/$workspace/content/$itemId"
+              params={{ workspace: workspaceParam, itemId: item.id }}
               className="truncate rounded-sm font-medium text-body text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
             >
               {item.title}
@@ -433,6 +398,7 @@ function MissedRow({
   channel: Channel | undefined;
   onReschedule: () => void;
 }) {
+  const workspaceParam = useWorkspaceParam();
   const where = channel ? channelLabel(channel) : platformLabel(post.platform);
   return (
     <li
@@ -445,8 +411,8 @@ function MissedRow({
         <span className="flex min-w-0 items-center gap-1.5">
           <FormatIcon format={post.item.format} label />
           <Link
-            to="/content/$itemId"
-            params={{ itemId: post.itemId }}
+            to="/w/$workspace/content/$itemId"
+            params={{ workspace: workspaceParam, itemId: post.itemId }}
             className="truncate rounded-sm font-medium text-body text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             {post.item.title}

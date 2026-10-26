@@ -12,13 +12,13 @@ const rowLink = cn(
 );
 
 /** A 36px row: kind icon, title, up to two tags and the age. The list draws the dividers. */
-export function KbRow({ entry, projectParam }: { entry: KbEntry; projectParam: string }) {
+export function KbRow({ entry, workspaceParam }: { entry: KbEntry; workspaceParam: string }) {
   const meta = KIND_META[entry.kind];
   const Icon = meta.icon;
   return (
     <Link
-      to="/projects/$projectId/kb/$entryId"
-      params={{ projectId: projectParam, entryId: entry.id }}
+      to="/w/$workspace/kb/$entryId"
+      params={{ workspace: workspaceParam, entryId: entry.id }}
       className={cn(rowLink, "h-9")}
     >
       <Icon aria-hidden="true" className={cn("size-3.5 shrink-0", meta.tone)} />
@@ -51,13 +51,13 @@ export function KbRow({ entry, projectParam }: { entry: KbEntry; projectParam: s
 }
 
 /** A search result: kind icon and title, with the matched passage below. */
-export function KbHitRow({ hit, projectParam }: { hit: KbSearchHit; projectParam: string }) {
+export function KbHitRow({ hit, workspaceParam }: { hit: KbSearchHit; workspaceParam: string }) {
   const meta = KIND_META[hit.kind];
   const Icon = meta.icon;
   return (
     <Link
-      to="/projects/$projectId/kb/$entryId"
-      params={{ projectId: projectParam, entryId: hit.entryId }}
+      to="/w/$workspace/kb/$entryId"
+      params={{ workspace: workspaceParam, entryId: hit.entryId }}
       className={cn(rowLink, "items-start py-2")}
     >
       <Icon aria-hidden="true" className={cn("mt-[3px] size-3.5 shrink-0", meta.tone)} />

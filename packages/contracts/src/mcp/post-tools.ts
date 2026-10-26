@@ -173,9 +173,9 @@ export function postFormatCatalog(): PostFormatsOutput {
 
 const CaptionSchema = z.string().trim().max(CAPTION_MAX_LENGTH);
 
-/** A new composed post in a project. The caption may come now or with `post.compose`. */
+/** A new composed post in a workspace. The caption may come now or with `post.compose`. */
 export const PostCreateInputSchema = z.object({
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   title: ContentTitleSchema,
   format: PostFormatSchema,
   caption: CaptionSchema.optional(),
@@ -274,7 +274,7 @@ export const postTools = {
     name: "post.formats",
     scope: "mcp:read",
     jobTokens: "allow",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "List the post formats (reel, video, image, carousel, story, text), the photos and videos each carries, the platforms that publish each, the MIME types per media type and the per-platform options post.schedule takes.",
     input: PostFormatsInputSchema,
@@ -284,9 +284,9 @@ export const postTools = {
     name: "post.create",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
-      "Owner only. Create a composed post in a project: a photo (image), carousel, story, text post, Facebook video or a Reel from an uploaded video, with no studio production. Next: upload each file with content.upload_asset (kind media, this itemId) and content.finalize_asset, then call post.compose. A text post with a caption is ready for post.schedule at once. For a studio video use content.create_idea.",
+      "Owner only. Create a composed post in a workspace: a photo (image), carousel, story, text post, Facebook video or a Reel from an uploaded video, with no studio production. Next: upload each file with content.upload_asset (kind media, this itemId) and content.finalize_asset, then call post.compose. A text post with a caption is ready for post.schedule at once. For a studio video use content.create_idea.",
     input: PostCreateInputSchema,
     output: PostComposedOutputSchema,
   },
@@ -294,7 +294,7 @@ export const postTools = {
     name: "post.compose",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Owner only. Save a new version of a composed post: its format, its files in order (ready media assets of the item; photo or video is read from the file type, altText describes a photo) and its caption. Fields left out are kept; media replaces the whole list. issues lists what the format still misses; when empty the item is in render and post.schedule can schedule it.",
     input: PostComposeInputSchema,
@@ -304,7 +304,7 @@ export const postTools = {
     name: "post.schedule",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Owner only. Schedule an item on one or more channels at one time, at least two minutes ahead. An item in render is submitted and approved, one in review approved, as the owner's review; an approved or scheduled item is just scheduled. All or nothing: when a channel is unknown, disabled, already has the item or does not publish its format (see post.formats), nothing changes and the error lists every refused channel.",
     input: PostScheduleInputSchema,

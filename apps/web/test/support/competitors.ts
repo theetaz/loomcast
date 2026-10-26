@@ -6,23 +6,24 @@ import {
   mockCompetitorReport,
   mockCompetitorScan,
 } from "@/mocks/competitors";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { onlineStudio } from "./kb";
 
-export const COMPETITORS_PROJECT_SLUG = "rust-in-60-seconds";
+export const COMPETITORS_WORKSPACE_SLUG = "rust-in-60-seconds";
 
 const CREATED = "2026-10-01T08:00:00.000Z";
 const SCANNED = "2026-10-10T08:00:00.000Z";
 
 /**
- * A signed-in db with one project, a connected Instagram channel and three competitors:
+ * A signed-in db with one workspace, a connected Instagram channel and three competitors:
  * - `fastrust` on Instagram (248.3K followers), with a finished scan of three videos and a report;
  * - `rustaceans`, a Facebook Page, never scanned;
  * - `ferris_daily` on Threads, with a scan of two videos still analysing (one done).
  */
 export function competitorsSetup() {
-  const project = mockProject({ name: "Rust in 60 seconds", slug: COMPETITORS_PROJECT_SLUG });
+  const workspace = mockWorkspace({ name: "Rust in 60 seconds", slug: COMPETITORS_WORKSPACE_SLUG });
   const instagram = mockChannel({
+    workspaceId: workspace.id,
     platform: "instagram",
     displayName: "@rustin60",
     connected: true,
@@ -31,20 +32,20 @@ export function competitorsSetup() {
   });
 
   const fastrust = mockCompetitor({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "instagram",
     handle: "fastrust",
     account: { displayName: "Fast Rust", followersCount: 248_300, mediaCount: 412 },
     createdAt: "2026-10-03T08:00:00.000Z",
   });
   const page = mockCompetitor({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "facebook",
     handle: "rustaceans",
     createdAt: "2026-10-02T08:00:00.000Z",
   });
   const threads = mockCompetitor({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "threads",
     handle: "ferris_daily",
     createdAt: CREATED,
@@ -59,7 +60,7 @@ export function competitorsSetup() {
     analysisStatus: "done" | "failed" | "running" | "queued",
   ) => {
     const entry = mockCompetitorReference({
-      projectId: project.id,
+      workspaceId: workspace.id,
       platform,
       handle,
       url,
@@ -89,7 +90,7 @@ export function competitorsSetup() {
     reference("fastrust", "instagram", "https://www.instagram.com/reel/CCC333/", null, "failed"),
   ];
   const report = mockCompetitorReport({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "instagram",
     handle: "fastrust",
     at: "2026-10-10T09:00:00.000Z",
@@ -98,7 +99,7 @@ export function competitorsSetup() {
   const views = [1_480_000, 652_000, 12_400];
   const finished = mockCompetitorScan({
     competitorId: fastrust.id,
-    projectId: project.id,
+    workspaceId: workspace.id,
     status: "partial",
     topN: 3,
     createdAt: SCANNED,
@@ -139,7 +140,7 @@ export function competitorsSetup() {
   ];
   const active: CompetitorScan = mockCompetitorScan({
     competitorId: threads.id,
-    projectId: project.id,
+    workspaceId: workspace.id,
     status: "analyzing",
     source: "links",
     topN: 2,
@@ -157,7 +158,7 @@ export function competitorsSetup() {
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     channels: [instagram],
     kbEntries: entries,
@@ -166,7 +167,7 @@ export function competitorsSetup() {
   });
   return {
     db,
-    project,
+    workspace,
     competitors: { fastrust, page, threads },
     scans: { finished, active },
     report,

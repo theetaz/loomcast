@@ -1,4 +1,4 @@
-import type { Me } from "@loomcast/contracts";
+import type { Me, Workspace } from "@loomcast/contracts";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -7,10 +7,10 @@ export interface PaletteContext {
   /** The search text, trimmed. Empty until the user types. */
   query: string;
   me: Me;
-  /** The `projectId` route parameter (an id or a slug) when a project page is open. */
-  projectParam: string | null;
-  /** Closes the palette and opens the new project dialog. */
-  openNewProject: () => void;
+  /** The open workspace; searches and actions are scoped to it. Null outside a workspace. */
+  workspace: Workspace | null;
+  /** Closes the palette and opens the new workspace dialog. */
+  openNewWorkspace: () => void;
 }
 
 /** One row of the palette. */
@@ -23,7 +23,7 @@ export interface PaletteItem {
   iconClassName?: string;
   /** A second line under the label. */
   secondary?: ReactNode;
-  /** Short trailing text, such as the project of a search hit. */
+  /** Short trailing text, such as the workspace of a search hit. */
   meta?: ReactNode;
   /**
    * An in-app path to open. Items with one are remembered in Recent, using

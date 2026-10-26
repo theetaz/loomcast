@@ -22,7 +22,7 @@ import {
   readStdin,
   redact,
   renderSummary,
-  resolveProject,
+  resolveWorkspace,
   run,
   TOOL_NAME,
 } from "../../hooks/session-end.mjs";
@@ -147,7 +147,7 @@ function sampleRecords(cwd: string) {
 describe("digest", () => {
   it("takes the first real prompt, the last reply, edited files, tool counts and duration", async () => {
     const dir = tempDir();
-    const cwd = join(dir, "project");
+    const cwd = join(dir, "workspace");
     const path = writeTranscript(dir, sampleRecords(cwd));
 
     const digest = await digestTranscript(path);
@@ -165,7 +165,7 @@ describe("digest", () => {
 
   it("renders bounded markdown with paths relative to the working directory", async () => {
     const dir = tempDir();
-    const cwd = join(dir, "project");
+    const cwd = join(dir, "workspace");
     const records = sampleRecords(cwd);
     records.push({
       type: "user",
@@ -295,45 +295,51 @@ describe("redaction", () => {
   });
 });
 
-describe("project resolution", () => {
+describe("workspace resolution", () => {
   const id = "0b6c2f7e-8d4a-4c1e-9f3b-2a1d4e5f6a70";
   const other = "2d8e4b9a-af6c-4e3a-9b5d-4c3f6a7b8c92";
 
-  it("prefers LOOMCAST_PROJECT_ID and ignores an invalid one", async () => {
+  it("prefers LOOMCAST_WORKSPACE_ID and ignores an invalid one", async () => {
     expect(
-      await resolveProject({ cwd: "/", env: { LOOMCAST_PROJECT_ID: id.toUpperCase() } }),
+      await resolveWorkspace({ cwd: "/", env: { LOOMCAST_WORKSPACE_ID: id.toUpperCase() } }),
     ).toEqual({
-      projectId: id,
+      workspaceId: id,
       source: "env",
     });
-    expect(await resolveProject({ cwd: "/", env: { LOOMCAST_PROJECT_ID: "nope" } })).toBeNull();
+    expect(await resolveWorkspace({ cwd: "/", env: { LOOMCAST_WORKSPACE_ID: "nope" } })).toBeNull();
   });
 
-  it("finds the nearest .loomcast/project.json above the working directory", async () => {
+  it("finds the nearest .loomcast/workspace.json above the working directory", async () => {
     const root = tempDir();
     mkdirSync(join(root, ".loomcast"));
-    writeFileSync(join(root, ".loomcast", "project.json"), JSON.stringify({ projectId: other }));
+    writeFileSync(
+      join(root, ".loomcast", "workspace.json"),
+      JSON.stringify({ workspaceId: other }),
+    );
     const nested = join(root, "a", "b", "c");
     mkdirSync(nested, { recursive: true });
-    expect(await resolveProject({ cwd: nested, env: {} })).toEqual({
-      projectId: other,
-      source: join(root, ".loomcast", "project.json"),
+    expect(await resolveWorkspace({ cwd: nested, env: {} })).toEqual({
+      workspaceId: other,
+      source: join(root, ".loomcast", "workspace.json"),
     });
 
     mkdirSync(join(root, "a", ".loomcast"));
-    writeFileSync(join(root, "a", ".loomcast", "project.json"), JSON.stringify({ projectId: id }));
-    expect((await resolveProject({ cwd: nested, env: {} }))?.projectId).toBe(id);
+    writeFileSync(
+      join(root, "a", ".loomcast", "workspace.json"),
+      JSON.stringify({ workspaceId: id }),
+    );
+    expect((await resolveWorkspace({ cwd: nested, env: {} }))?.workspaceId).toBe(id);
   });
 
   it("returns null when the nearest file is unusable or there is none", async () => {
     const root = tempDir();
     mkdirSync(join(root, ".loomcast"));
-    writeFileSync(join(root, ".loomcast", "project.json"), "{not json");
-    expect(await resolveProject({ cwd: root, env: {} })).toBeNull();
-    writeFileSync(join(root, ".loomcast", "project.json"), JSON.stringify({ projectId: 42 }));
-    expect(await resolveProject({ cwd: root, env: {} })).toBeNull();
-    expect(await resolveProject({ cwd: undefined, env: {} })).toBeNull();
-    expect(await resolveProject({ cwd: "relative/dir", env: {} })).toBeNull();
+    writeFileSync(join(root, ".loomcast", "workspace.json"), "{not json");
+    expect(await resolveWorkspace({ cwd: root, env: {} })).toBeNull();
+    writeFileSync(join(root, ".loomcast", "workspace.json"), JSON.stringify({ workspaceId: 42 }));
+    expect(await resolveWorkspace({ cwd: root, env: {} })).toBeNull();
+    expect(await resolveWorkspace({ cwd: undefined, env: {} })).toBeNull();
+    expect(await resolveWorkspace({ cwd: "relative/dir", env: {} })).toBeNull();
   });
 });
 
@@ -414,7 +420,7 @@ describe("posting", () => {
   it("calls kb.save_session_summary with the digest and reads a JSON answer", async () => {
     const token = ["lc", "mcp", randomAlnum(40)].join("_");
     const entryId = randomUUID();
-    const projectId = randomUUID();
+    const workspaceId = randomUUID();
     let seen: { headers: IncomingMessage["headers"]; body: Record<string, unknown> } | undefined;
     const base = await mcpServer((request, body, response) => {
       seen = { headers: request.headers, body: JSON.parse(body) };
@@ -422,7 +428,7 @@ describe("posting", () => {
       response.end(JSON.stringify(rpcResult(entryId)));
     });
     const dir = tempDir();
-    const cwd = join(dir, "project");
+    const cwd = join(dir, "workspace");
     const transcriptPath = writeTranscript(dir, sampleRecords(cwd));
 
     const outcome = await run({
@@ -431,7 +437,7 @@ describe("posting", () => {
         LOOMCAST_SESSION_HOOK: "1",
         LOOMCAST_URL: base,
         LOOMCAST_MCP_TOKEN: token,
-        LOOMCAST_PROJECT_ID: projectId,
+        LOOMCAST_WORKSPACE_ID: workspaceId,
       },
     });
 
@@ -441,7 +447,7 @@ describe("posting", () => {
     expect(seen?.body).toMatchObject({
       jsonrpc: "2.0",
       method: "tools/call",
-      params: { name: TOOL_NAME, arguments: { sessionId: "s-1", cwd, projectId } },
+      params: { name: TOOL_NAME, arguments: { sessionId: "s-1", cwd, workspaceId } },
     });
     if (seen === undefined) throw new Error("the server saw no request");
     const args = (seen.body.params as { arguments: { summaryMd: string } }).arguments;
@@ -461,7 +467,7 @@ describe("posting", () => {
             id: 1,
             result: {
               isError: true,
-              content: [{ type: "text", text: "project_unresolved: Name the project." }],
+              content: [{ type: "text", text: "workspace_unresolved: Name the workspace." }],
             },
           })}\n\n`,
         );
@@ -481,7 +487,7 @@ describe("posting", () => {
     });
     expect(await run({ stdin: '{"session_id":"fails"}', env })).toEqual({
       status: "failed",
-      detail: "project_unresolved: Name the project.",
+      detail: "workspace_unresolved: Name the workspace.",
     });
   });
 

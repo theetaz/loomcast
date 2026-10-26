@@ -17,7 +17,7 @@ export type RunningJob<T extends JobType> = Omit<AssignedJob, "type" | "payload"
 
 /**
  * Job-scoped MCP access: the platform's MCP endpoint and a job token (`lc_job_…`) bound to the job's
- * project. The token lives in memory for the running job only. It is not enumerable, so it never
+ * workspace. The token lives in memory for the running job only. It is not enumerable, so it never
  * appears when the credentials are serialised or inspected, and `toJSON` redacts it.
  */
 export interface McpCredentials {

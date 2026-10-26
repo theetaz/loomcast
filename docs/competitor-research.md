@@ -1,8 +1,8 @@
 # Competitor research
 
-A project follows competitors' profiles. A scan picks a competitor's most popular videos, analyses
+A workspace follows competitors' profiles. A scan picks a competitor's most popular videos, analyses
 each one on the studio agent (download, transcript, frames, analysis), then writes one report into
-the project's knowledge base. Producer sessions find the analyses and reports with `kb.search` like
+the workspace's knowledge base. Producer sessions find the analyses and reports with `kb.search` like
 any other entry, so later scripts, formats and new pages can build on them.
 
 The feature is for internal research. Downloaded videos stay on the studio agent's Mac only for the
@@ -13,19 +13,20 @@ numbers and the analysis, never the video.
 
 1. **Follow.** A user pastes a profile link (`instagram.com/<handle>`, `facebook.com/<page>`,
    `threads.net/@<handle>`) or `@handle` (Instagram). `parseCompetitorUrl` reads the platform and
-   the handle; nothing is fetched. One live competitor per project, platform and handle.
+   the handle; nothing is fetched. One live competitor per workspace, platform and handle.
 2. **Scan.** `POST /api/competitors/:id/scans` with `topN` (1 to 20, default 10) and optional
    `links`.
    - **Official API (`official_api`).** Instagram without `links`: the API server calls the
-     Instagram Graph API's Business Discovery on the competitor's handle with the token of an
-     active Instagram channel. It reads up to 200 recent posts (pages of 50), keeps Reels and other
+     Instagram Graph API's Business Discovery on the competitor's handle with the token of an active
+     Instagram channel (the workspace's own first, else the first one connected in another workspace:
+     the lookup posts nothing). It reads up to 200 recent posts (pages of 50), keeps Reels and other
      videos, ranks them by `view_count` (then likes plus comments), and picks the top `topN`. It
      also stores the account's name, followers and post count on the competitor. Business
      Discovery only answers for business and creator accounts; any other account is
      `422 not_professional_account`, and the user pastes links instead.
    - **Links (`links`).** Facebook and Threads always, Instagram optionally: exactly the pasted
      links, in the order given. Each must pass `isPublicVideoUrl` for the competitor's platform.
-3. **References.** Each picked video becomes a `reference` entry of the project, tagged
+3. **References.** Each picked video becomes a `reference` entry of the workspace, tagged
    `competitor` and `competitorTag(platform, handle)` (for example `competitor-ig-nasa`). The
    reference URL is the video's permalink, so the knowledge base's per-URL dedupe makes a video
    picked again reuse its entry. A row in `competitor_scan_videos` records the rank and the numbers
@@ -53,7 +54,7 @@ The `competitors` module (`apps/api/src/modules/competitors/`) serves the routes
 `packages/contracts/src/api/routes.ts` (`competitors.*`, `competitorScans.*`), all with a session.
 
 - **Errors.** A link that is not a profile is `400 validation_failed` (path `url`); a duplicate is
-  `409 conflict` with `reason: "duplicate"`, and a project at the limit `reason: "limit"`. Pasted
+  `409 conflict` with `reason: "duplicate"`, and a workspace at the limit `reason: "limit"`. Pasted
   links that are not public videos of the competitor's platform are `422 invalid_link`, with one
   `{ path: "links.<n>" }` per bad link. Besides `links_required`, `no_instagram_channel` and
   `not_professional_account`, a scan can be refused with `422 no_videos` (the account has no
@@ -100,7 +101,7 @@ The `competitors` module (`apps/api/src/modules/competitors/`) serves the routes
    measured facts (trusted, computed by the agent) and the frame paths, which the session may open
    with `Read`. Words per minute is the transcript's word count over the duration.
 7. **Clean up.** The video and the frames are deleted in a `finally` block, whatever the outcome;
-   only `transcript.txt` stays in the project workspace.
+   only `transcript.txt` stays in the workspace folder.
 
 The result carries `media` (`ReferenceMediaFacts`) so the server and the report see the measured
 numbers, not a guess.
@@ -120,16 +121,16 @@ reference analyses.
   only after `isPublicVideoUrl` (on the server when the job is queued, and again on the agent).
 - **Tokens stay on the server.** The Instagram channel token used for Business Discovery is read
   from the vault on the API server and never put in a job payload. The agent gets only a job token,
-  read-only, bound to the project.
+  read-only, bound to the workspace.
 - **Untrusted content stays data.** Captions, transcripts and analyses are wrapped in
   untrusted-data blocks. Analysis and report sessions cannot write files, fetch the web, run
   commands or change the knowledge base; their reply is validated against a schema with bounded
   strings and lists before the server stores it.
 - **Bounded downloads.** One public video per job, capped in size, length and time, written to the
-  job's own directory inside the project workspace and deleted afterwards. Nothing downloaded is
+  job's own directory inside the workspace folder and deleted afterwards. Nothing downloaded is
   ever executed; `yt-dlp` runs without a shell, config files, cookies or post-processing hooks.
 - **Bounded work.** At most 20 videos per scan, one active scan per competitor, 50 competitors per
-  project.
+  workspace.
 
 ## Limits and terms
 

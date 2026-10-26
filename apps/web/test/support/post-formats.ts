@@ -1,31 +1,34 @@
 import type { Channel, ContentItem, ContentVersion, PostFormat } from "@loomcast/contracts";
 import { mockChannel } from "@/mocks/calendar";
 import { mockComposedItem, mockMedia } from "@/mocks/content";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { mockUploads } from "@/mocks/uploads";
 import { onlineStudio } from "./kb";
 
 const CREATED = "2026-10-01T08:00:00.000Z";
 
 /**
- * A signed-in db with one project and three channels: Instagram and Threads (active), and a
+ * A signed-in db with one workspace and three channels: Instagram and Threads (active), and a
  * disabled Facebook Page. Composed items can be added with `compose`.
  */
 export function postSetup(options: { facebook?: boolean } = {}) {
-  const project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
+  const workspace = mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
   const instagram = mockChannel({
+    workspaceId: workspace.id,
     platform: "instagram",
     displayName: "@rustin60",
     status: "active",
     createdAt: CREATED,
   });
   const threads = mockChannel({
+    workspaceId: workspace.id,
     platform: "threads",
     displayName: "Rust threads",
     status: "active",
     createdAt: CREATED,
   });
   const facebook = mockChannel({
+    workspaceId: workspace.id,
     platform: "facebook",
     displayName: "Rust in 60 seconds",
     status: options.facebook ? "active" : "disabled",
@@ -34,7 +37,7 @@ export function postSetup(options: { facebook?: boolean } = {}) {
   const channels: Channel[] = [instagram, threads, facebook];
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     channels,
   });
@@ -47,7 +50,7 @@ export function postSetup(options: { facebook?: boolean } = {}) {
     caption: string | null = null,
   ): { item: ContentItem; version: ContentVersion } => {
     const { item, versions } = mockComposedItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       title,
       format,
       state,
@@ -62,7 +65,7 @@ export function postSetup(options: { facebook?: boolean } = {}) {
     return { item, version: versions.at(-1) as ContentVersion };
   };
 
-  return { db, project, channels: { instagram, threads, facebook }, compose };
+  return { db, workspace, channels: { instagram, threads, facebook }, compose };
 }
 
 /**

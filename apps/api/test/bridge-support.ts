@@ -14,7 +14,7 @@ import {
   type ServerToAgent,
   type ServerToAgentType,
 } from "@loomcast/contracts";
-import { conversations, type Database, devices, projects } from "@loomcast/db";
+import { conversations, type Database, devices, workspaces } from "@loomcast/db";
 import type { Hono } from "hono";
 import { vi } from "vitest";
 import WebSocket from "ws";
@@ -144,19 +144,19 @@ export async function startBridgeServer(
 
 export interface Fixtures {
   userId: string;
-  projectId: string;
+  workspaceId: string;
 }
 
-export async function seedProject(db: Database): Promise<Fixtures> {
+export async function seedWorkspace(db: Database): Promise<Fixtures> {
   const user = await insertUser(db);
-  const [project] = await db
-    .insert(projects)
+  const [workspace] = await db
+    .insert(workspaces)
     .values({ slug: `bridge-${randomUUID()}`, name: "Bridge", createdBy: user.id })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return { userId: user.id, projectId: project.id };
+  return { userId: user.id, workspaceId: workspace.id };
 }
 
 export interface TestDevice {
@@ -187,7 +187,7 @@ export async function pairDevice(
 export async function createConversation(db: Database, fixtures: Fixtures): Promise<string> {
   const [conversation] = await db
     .insert(conversations)
-    .values({ projectId: fixtures.projectId, createdBy: fixtures.userId, title: "Chat" })
+    .values({ workspaceId: fixtures.workspaceId, createdBy: fixtures.userId, title: "Chat" })
     .returning();
   if (conversation === undefined) {
     throw new Error("conversation was not inserted");
@@ -213,7 +213,7 @@ export async function enqueue(
 export function producerChatPayload(fixtures: Fixtures, conversationId: string) {
   return {
     conversationId,
-    projectId: fixtures.projectId,
+    workspaceId: fixtures.workspaceId,
     messageId: randomUUID(),
     text: "Draft a hook about bridges",
   };

@@ -1,8 +1,6 @@
 import { useTheme } from "@loomcast/ui/lib/theme";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { LightbulbIcon, MoonIcon, PlusIcon, SunIcon, ZapIcon } from "lucide-react";
-import { projectsQueryOptions } from "@/features/projects/queries";
 import { rankByMatch } from "../match";
 import type { PaletteItem, PaletteSource } from "../types";
 
@@ -14,34 +12,30 @@ export const source: PaletteSource = {
   heading: "Actions",
   order: 30,
   icon: ZapIcon,
-  useItems: ({ query, projectParam, openNewProject }) => {
+  useItems: ({ query, workspace, openNewWorkspace }) => {
     const navigate = useNavigate();
-    const { data: projects = [] } = useQuery(projectsQueryOptions());
     const { resolvedTheme, setPreference } = useTheme();
 
     const actions: Action[] = [
       {
-        id: "action:new-project",
-        label: "New project",
+        id: "action:new-workspace",
+        label: "New workspace",
         icon: PlusIcon,
-        keywords: ["create", "add", "project"],
-        run: openNewProject,
+        keywords: ["create", "add", "workspace"],
+        run: openNewWorkspace,
       },
     ];
 
-    if (projectParam) {
-      const project = projects.find(
-        (item) => item.id === projectParam || item.slug === projectParam,
-      );
+    if (workspace) {
       actions.push({
         id: "action:new-brainstorm",
-        label: project ? `New brainstorm in ${project.name}` : "New brainstorm in this project",
+        label: `New brainstorm in ${workspace.name}`,
         icon: LightbulbIcon,
         keywords: ["create", "add", "idea", "kb", "knowledge", "note"],
         run: () =>
           void navigate({
-            to: "/projects/$projectId/kb/new",
-            params: { projectId: projectParam },
+            to: "/w/$workspace/kb/new",
+            params: { workspace: workspace.slug },
             search: { kind: "brainstorm" },
           }),
       });

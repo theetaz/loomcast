@@ -23,7 +23,7 @@ import {
   call,
   createPipelineHarness,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
   userOf,
 } from "./pipeline-support";
@@ -37,8 +37,8 @@ const HOUR = 60 * 60_000;
 
 let h: PipelineHarness;
 const keyring = testKeyring();
-let projectA: string;
-let projectB: string;
+let workspaceA: string;
+let workspaceB: string;
 let seriesId: string;
 const posts: Record<string, PostPerformance> = {};
 const histories: Record<string, PostMetrics[]> = {};
@@ -72,7 +72,7 @@ async function published(
     item: {
       itemId: string;
       versionId: string;
-      projectId: string;
+      workspaceId: string;
       seriesId: string | null;
       title: string;
     };
@@ -109,7 +109,7 @@ async function published(
   posts[key] = {
     postId,
     itemId: input.item.itemId,
-    projectId: input.item.projectId,
+    workspaceId: input.item.workspaceId,
     seriesId: input.item.seriesId,
     channelId: channel.id,
     platform: input.platform,
@@ -130,52 +130,52 @@ function post(key: string): PostPerformance {
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectA = await insertProject(h);
-  projectB = await insertProject(h);
+  workspaceA = await insertWorkspace(h);
+  workspaceB = await insertWorkspace(h);
   const format = await formatsServiceFor(h.deps).create(
-    projectA,
+    workspaceA,
     { name: "Rust format", rules: structuredClone(DEFAULT_FORMAT_RULES) },
     userOf(h),
   );
   const series = await seriesServiceFor(h.deps).create(
-    projectA,
+    workspaceA,
     { name: "Rust in 60", formatId: format.id },
     userOf(h),
   );
   seriesId = series.id;
 
   const one = await insertItem(h, {
-    projectId: projectA,
+    workspaceId: workspaceA,
     seriesId,
     title: "Ownership",
     state: "published",
     level: "render",
   });
   const two = await insertItem(h, {
-    projectId: projectA,
+    workspaceId: workspaceA,
     seriesId,
     title: "Borrowing",
     state: "published",
     level: "render",
   });
   const three = await insertItem(h, {
-    projectId: projectB,
+    workspaceId: workspaceB,
     title: "Agents",
     state: "published",
     level: "render",
   });
   itemOne = one.itemId;
-  const itemOf = (item: typeof one, title: string, series: string | null, projectId: string) => ({
+  const itemOf = (item: typeof one, title: string, series: string | null, workspaceId: string) => ({
     itemId: item.itemId,
     versionId: item.versionId,
-    projectId,
+    workspaceId,
     seriesId: series,
     title,
   });
 
   const p1At = new Date("2026-09-01T10:00:00.000Z");
   await published("p1", {
-    item: itemOf(one, "Ownership", seriesId, projectA),
+    item: itemOf(one, "Ownership", seriesId, workspaceA),
     platform: "instagram",
     publishedAt: p1At.toISOString(),
     captures: [
@@ -190,7 +190,7 @@ beforeAll(async () => {
     ],
   });
   await published("p2", {
-    item: itemOf(one, "Ownership", seriesId, projectA),
+    item: itemOf(one, "Ownership", seriesId, workspaceA),
     platform: "facebook",
     publishedAt: "2026-09-01T11:00:00.000Z",
     captures: [
@@ -204,18 +204,18 @@ beforeAll(async () => {
     ],
   });
   await published("p3", {
-    item: itemOf(two, "Borrowing", seriesId, projectA),
+    item: itemOf(two, "Borrowing", seriesId, workspaceA),
     platform: "threads",
     publishedAt: "2026-09-10T08:00:00.000Z",
   });
   await published("p4", {
-    item: itemOf(three, "Agents", null, projectB),
+    item: itemOf(three, "Agents", null, workspaceB),
     platform: "instagram",
     publishedAt: "2026-09-02T17:00:00.000Z",
     captures: [capture(new Date("2026-09-03T17:00:00.000Z"), { views: 1_000, likes: 70 })],
   });
   dryRunPost = await published("dry", {
-    item: itemOf(two, "Borrowing", seriesId, projectA),
+    item: itemOf(two, "Borrowing", seriesId, workspaceA),
     platform: "facebook",
     publishedAt: "2026-09-10T09:00:00.000Z",
     dryRun: true,
@@ -354,9 +354,9 @@ describe("GET /api/analytics/overview", () => {
     expect(body.topPosts).toEqual([post("p4"), post("p1"), post("p2"), post("p3")]);
   });
 
-  it("narrows to one project", async () => {
+  it("narrows to one workspace", async () => {
     const { body } = await getJson<AnalyticsOverview>(
-      `/api/analytics/overview?${range}&projectId=${projectB}`,
+      `/api/analytics/overview?${range}&workspaceId=${workspaceB}`,
     );
     expect(body.topPosts).toEqual([post("p4")]);
     expect(body.totals.posts).toBe(1);
@@ -378,7 +378,7 @@ describe("GET /api/analytics/overview", () => {
 describe("aggregates", () => {
   const base = {
     itemId: crypto.randomUUID(),
-    projectId: crypto.randomUUID(),
+    workspaceId: crypto.randomUUID(),
     seriesId: null,
     channelId: crypto.randomUUID(),
     title: "t",

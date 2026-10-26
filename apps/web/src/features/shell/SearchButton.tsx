@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { preloadPalette, usePaletteModule, whenIdle } from "@/features/palette/load";
 import { IS_MAC, usePaletteShortcut } from "@/features/palette/use-palette-shortcut";
-import { NewProjectDialog } from "@/features/projects/NewProjectDialog";
+import { NewWorkspaceDialog } from "@/features/workspaces/NewWorkspaceDialog";
 
 /** Starts loading the palette chunk; a failure is retried on the next attempt. */
 function warmPalette() {
@@ -22,7 +22,7 @@ function warmPalette() {
  */
 export function SearchButton() {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const palette = usePaletteModule();
 
   useEffect(() => whenIdle(warmPalette), []);
@@ -63,10 +63,10 @@ export function SearchButton() {
         <palette.CommandPalette
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
-          onNewProject={() => setNewProjectOpen(true)}
+          onNewWorkspace={() => setNewWorkspaceOpen(true)}
         />
       ) : null}
-      <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
+      <NewWorkspaceDialog open={newWorkspaceOpen} onOpenChange={setNewWorkspaceOpen} />
     </>
   );
 }

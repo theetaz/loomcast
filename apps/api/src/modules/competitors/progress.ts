@@ -142,7 +142,7 @@ export async function advanceScan(
   }
 
   const payload = KbCompetitorReportPayloadSchema.safeParse({
-    projectId: scan.projectId,
+    workspaceId: scan.workspaceId,
     scanId: scan.id,
     competitor: {
       platform: competitor.platform,
@@ -182,7 +182,7 @@ export async function advanceScan(
   const { job } = await jobsService.enqueue(tx, {
     type: "kb.competitor_report",
     payload: payload.data,
-    projectId: scan.projectId,
+    workspaceId: scan.workspaceId,
     conversationId: null,
     idempotencyKey: scanReportKey(scan.id),
     createdBy,

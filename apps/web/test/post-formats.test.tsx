@@ -398,7 +398,7 @@ describe("composer", () => {
   });
 
   it("reorders, describes and saves the media, then submits, approves and schedules", async () => {
-    const { db, project, channels } = postSetup();
+    const { db, workspace, channels } = postSetup();
     StorageXhr.reset(db);
     vi.stubGlobal("XMLHttpRequest", StorageXhr);
     const requests = recordRequests();
@@ -427,7 +427,7 @@ describe("composer", () => {
     expect(StorageXhr.sent).toHaveLength(2);
 
     const create = requests.find(
-      (request) => request.path === `/api/projects/${project.id}/content`,
+      (request) => request.path === `/api/workspaces/${workspace.id}/content`,
     );
     expect(create?.body).toEqual({ title: "Brand colours", format: "carousel" });
     const edit = requests.find((request) => /\/api\/content\/[^/]+\/versions$/.test(request.path));

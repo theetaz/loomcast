@@ -68,7 +68,7 @@ pnpm admin:token --email you@example.com --name Laptop --scopes mcp:read,mcp:wri
 pnpm admin:reset-password --email you@example.com
 ```
 
-Optionally, `pnpm --filter @loomcast/db seed:dev` adds a sample project with a filled knowledge
+Optionally, `pnpm --filter @loomcast/db seed:dev` adds a sample workspace with a filled knowledge
 base for the first owner.
 
 ## Running
@@ -88,8 +88,8 @@ Stop the servers with Ctrl-C and the stack with `pnpm stack:down` (the data volu
 
 ## Pairing a studio agent
 
-1. In the web app, open **Settings → Devices** and choose **Pair a device**. The dialog shows a
-   single-use code, valid for 10 minutes, and the command to run.
+1. In the web app, open **Account settings → Devices** and choose **Pair a device**. The dialog
+   shows a single-use code, valid for 10 minutes, and the command to run.
 2. In a terminal at the repository root, run the command from the dialog:
 
    ```bash
@@ -105,8 +105,8 @@ Stop the servers with Ctrl-C and the stack with `pnpm stack:down` (the data volu
    pnpm agent run
    ```
 
-   The dialog closes and the device shows **Online** in Settings → Devices and in the top bar.
-   `pnpm agent status` prints the configuration with the token redacted.
+   The dialog closes and the device shows **Online** in Account settings → Devices and in the top
+   bar. `pnpm agent status` prints the configuration with the token redacted.
 
 `pnpm agent` runs the CLI from source. The [studio agent README](../apps/studio-agent/README.md)
 covers the built binary and the launchd service. The protocol is described in
@@ -124,16 +124,16 @@ useful for UI work on a machine without them:
 pnpm --filter @loomcast/e2e fake-agent --server http://localhost:5173 --code ABCD-EFGH
 ```
 
-It keeps no state: pair it with a fresh code each time, and revoke the old devices in Settings
-when you are done.
+It keeps no state: pair it with a fresh code each time, and revoke the old devices in Account
+settings when you are done.
 
 ## Connecting an MCP client
 
-1. In the web app, open **Settings → Access tokens** and create a token. Choose **Read** and
-   **Write** to use `project.create`. Copy the secret (`lc_mcp_…`); it is shown once.
-2. Add the server to the MCP client as a streamable HTTP server with a bearer header. The exact
-   file and keys depend on the client; most accept this shape (the Settings page shows it with
-   the right URL):
+1. In the web app, open **Account settings → Access tokens** and create a token. Choose **Read** and
+   **Write** to use `workspace.create`. Copy the secret (`lc_mcp_…`); it is shown once.
+2. Add the server to the MCP client as a streamable HTTP server with a bearer header. The exact file
+   and keys depend on the client; most accept this shape (**Account settings → Access tokens** shows
+   it with the right URL):
 
    ```json
    {
@@ -201,9 +201,9 @@ ports, creates a scratch database `loomcast_e2e_<time>_<random>`, migrates it, s
   and approve it from the review queue with every version kept. The fake agent reads the item
   over MCP with its job tokens and uploads synthetic media through presigned PUTs to the local
   store. It revokes its device when it ends.
-- `specs/smoke.spec.ts` (M1): sign in, create a project, queue a message in its Chat tab with no
+- `specs/smoke.spec.ts` (M1): sign in, create a workspace, queue a message in its Chat with no
   agent, pair through the dialog's code, watch the reply stream in, resume the producer session,
-  go offline and back, call the MCP tools with a token from Settings, and sign out.
+  go offline and back, call the MCP tools with a token from Account settings, and sign out.
 
 When it ends it stops both servers and drops the database; databases left by an aborted run are
 dropped by a later run after six hours.
@@ -232,22 +232,24 @@ Milestone 1 is done when this passes on the workstation.
    pnpm admin:create --email you@example.com --name "Your Name" --role owner
    ```
 
-2. Run `pnpm dev` and sign in at http://localhost:5173.
-3. Create a project in the UI (**Projects → New project**). It appears in the list.
-4. Pair the studio agent (**Settings → Devices → Pair a device**), then run the command shown,
-   `pnpm agent pair --server http://localhost:5173 --code …`, and `pnpm agent run`. The device
-   shows as online.
-5. Open the project, switch to its **Chat** tab (`/projects/<slug>/chat`; the project opens on
+2. Run `pnpm dev` and sign in at http://localhost:5173. With no workspace yet, the app opens the
+   workspaces list (`/workspaces`).
+3. Create a workspace in the UI (**New workspace**). It opens on its overview (`/w/<slug>`), and
+   the switcher at the top of the sidebar and **All workspaces** list it.
+4. Pair the studio agent (**Account settings → Devices → Pair a device**), then run the command
+   shown, `pnpm agent pair --server http://localhost:5173 --code …`, and `pnpm agent run`. The
+   device shows as online.
+5. Open the workspace's **Chat** from the sidebar (`/w/<slug>/chat`; the workspace opens on
    **Overview**) and send a message. The `producer.chat` job reaches the agent, a producer
    session answers, the reply streams into the conversation, and it is still there after a
    reload.
 6. Send a follow-up. The reply keeps the context: the conversation's producer session is resumed
    on the same device instead of a new one being started.
-7. Stop the agent (Ctrl-C) and send another message in the Chat tab: the status line reads "Waiting for studio agent
-   (offline)". Start the agent again and the queued job runs.
-8. Create an access token in **Settings → Access tokens** with Read and Write, add the server to
-   an MCP client as shown above, and call `project.create`. The new project appears in the open
-   project list without a reload.
+7. Stop the agent (Ctrl-C) and send another message in Chat: the status line reads "Waiting for
+   studio agent (offline)". Start the agent again and the queued job runs.
+8. Create an access token in **Account settings → Access tokens** with Read and Write, add the
+   server to an MCP client as shown above, and call `workspace.create`. The new workspace appears in
+   the open workspaces list (`/workspaces`) and the switcher without a reload.
 
 Steps 1 to 8 are also what `pnpm test:e2e` checks, with the fake studio agent in place of a
 producer session.
@@ -259,11 +261,11 @@ the session-end hook. It is done when this passes on the workstation, on top of 
 (stack up, migrated, owner created, `pnpm dev` running, studio agent paired and running). The
 [knowledge base guide](knowledge-base.md) describes each part.
 
-1. **A producer chat saves a brainstorm through MCP, and it appears live.** Open a project's
-   **Knowledge** tab in one browser tab and its **Chat** tab in another. In the chat, ask the
-   studio agent to brainstorm a few hooks and save them to the knowledge base. The producer
-   session calls `kb.save_brainstorm` with its job token, and the entry appears in the Knowledge
-   tab without a reload.
+1. **A producer chat saves a brainstorm through MCP, and it appears live.** Open a workspace's
+   **Knowledge** page (`/w/<slug>/kb`) in one browser tab and its **Chat** in another. In the chat,
+   ask the studio agent to brainstorm a few hooks and save them to the knowledge base. The producer
+   session calls `kb.save_brainstorm` with its job token, and the entry appears on the Knowledge
+   page without a reload.
 2. **A pasted reference is analyzed by the producer session.** In **Knowledge → New entry →
    Reference**, paste a link to a short video, say why you liked it, paste its transcript (or
    load a `.srt`, `.vtt`, `.txt` or `.json` file) and save. Choose **Analyze**: the status moves
@@ -271,8 +273,8 @@ the session-end hook. It is done when this passes on the workstation, on top of 
    takeaways) appears next to the transcript. The link itself is never opened by Loomcast.
 3. **⌘K search finds it.** Press ⌘K (Ctrl+K), type a word from the brainstorm or the
    reference, and choose the hit: the entry opens.
-4. **An invited user sets a password and signs in.** As the owner, open **Settings → Members →
-   Invite member**, or call the API:
+4. **An invited user sets a password and signs in.** As the owner, open
+   **Account settings → Members → Invite member**, or call the API:
 
    ```bash
    # with the owner's session cookie in $COOKIE
@@ -286,7 +288,7 @@ the session-end hook. It is done when this passes on the workstation, on top of 
    login page it leads to. Opening the link a second time says it was already used.
 5. **Optional: the session-end hook files a session summary.** Set it up as in the
    [session hook guide](session-hook.md#checking-it); after a session the summary appears under
-   **Sessions** in the project's Knowledge tab.
+   **Sessions** on the workspace's Knowledge page.
 
 `pnpm test:e2e` checks steps 1 to 5 with the fake studio agent, whose analysis is a fixed sample
 rather than a producer session's.
@@ -358,22 +360,23 @@ approval rules, dry-run, dead letters and time zones. Locally everything publish
   is how often it looks for due ones. `PUBLISHING_ENABLED=false` pauses publishing.
 - `CADENCE_HORIZON_DAYS` (14) is how far ahead series are planned.
 - `LOOMCAST_ENCRYPTION_KEY` is needed only to connect real accounts. Planning channels
-  (**Settings → Channels → Add planning channel**) need nothing: they are disconnected and always
-  dry-run.
+  (**Workspace settings → Channels → Add planning channel**) need nothing: they are disconnected and
+  always dry-run.
 
 ## M4 acceptance runbook
 
 Milestone 4 is done when this passes on the workstation, on top of the M3 setup (stack up,
 `pnpm dev` running, studio agent paired and running, skills seeded) with `PUBLISHING_MODE=dry-run`.
 
-1. **A planning channel.** In **Settings → Channels**, add a planning channel (Instagram, say).
+1. **A planning channel.** In a workspace's **Workspace settings → Channels**
+   (`/w/<slug>/settings/channels`), add a planning channel (Instagram, say).
    It shows **Dry run** on and a banner says the server only dry-runs.
 2. **A cadence.** Open a series' format and set a voice, every day at a time a few minutes past
    the next hour, your time zone, a one-hour lead time and **Publish automatically**. Save. The
    series page's **Cadence** card lists the next slots.
 3. **The calendar fills.** On the series page, switch the channel on in the **Channels** card.
-   Within a few seconds **Calendar** shows one planned post a day for the next 14 days, titled
-   `<series> · <date>`.
+   Within a few seconds the workspace's **Calendar** shows one planned post a day for the next 14
+   days, titled `<series> · <date>`.
 4. **Items are produced ahead of each slot.** An hour before the first slot, its item is produced
    (script, storyboard, voice, render) on the studio agent. On reaching review the system approves
    it: the post turns **Queued** and the item **Scheduled**, with a system review in its history.
@@ -388,7 +391,7 @@ Milestone 4 is done when this passes on the workstation, on top of the M3 setup 
    `GET /api/scheduled-posts/<postId>/attempts` (with the session cookie) shows the attempt with
    `dryRun: true`, the requests the platform would have received (caption, video URL on
    `dry-run.invalid`, credentials `[redacted]`) and the `dryrun://<platform>/<postId>` permalink.
-8. **Nothing is dead.** **Settings → Scheduler** lists no dead tasks.
+8. **Nothing is dead.** **Account settings → Scheduler** lists no dead tasks.
 
 `pnpm test:e2e` checks steps 1 to 8 with the fake studio agent (`specs/calendar.spec.ts`), with
 a slot a few minutes ahead instead of the next hour.
@@ -412,23 +415,23 @@ a slot a few minutes ahead instead of the next hour.
 | **Analyze** is disabled | The reference has no transcript. Edit it and paste one |
 | An analysis fails with "analysis_invalid" | The producer session's answer did not match the analysis schema twice. Use **Re-analyze** |
 | ⌘K finds nothing for a word you can see | The body, tags and transcript match whole words (English stemming); only titles also match by prefix and close spelling. Type the full word; the palette searches from two characters |
-| A set-password link says it expired or was already used | Links work once; invitations last 7 days and reset links 24 hours. Create a new one from Settings → Members |
+| A set-password link says it expired or was already used | Links work once; invitations last 7 days and reset links 24 hours. Create a new one from Account settings → Members |
 | The session-end hook reports `skipped` or `failed` | See the messages table in the [session hook guide](session-hook.md#checking-it) |
 | A reply fails with "The producer session on the studio agent is signed out" | Sign the producer runtime in on the workstation, then use Retry |
 | A reply fails with "The studio agent lost its connection while working on this" | The agent was away for longer than the 10-minute lease. Use Retry |
 | MCP answers 401 | The token is missing, revoked or mistyped; cookies are never accepted on `/mcp` |
 | MCP answers 406 | The client must send `Accept: application/json, text/event-stream` |
 | MCP answers 403 | The request carried an `Origin` header other than the app's. Browser pages cannot call `/mcp`; MCP clients send no `Origin` |
-| An MCP tool call returns `forbidden: …` | The token lacks the tool's scope, for example `mcp:write` for `project.create`. Create a token with that scope |
+| An MCP tool call returns `forbidden: …` | The token lacks the tool's scope, for example `mcp:write` for `workspace.create`. Create a token with that scope |
 | Tests fail with "TEST_DATABASE_ADMIN_URL is not set" | Copy `.env.example` to `.env` or export the variable |
 | `pnpm test:e2e` cannot launch Chromium | Run `pnpm --filter @loomcast/e2e exec playwright install chromium` |
 | `pnpm test:e2e` skips the pipeline spec | Nothing answered at the object store. Run `pnpm stack:up` (or `docker compose up -d s3 s3-init`) |
 | Uploads or media links answer 503 `storage_unavailable` | The API started without `S3_*`. Copy them from `.env.example` and restart `pnpm dev` |
 | Production stops before the voice with `voice_not_configured` | The format has no voice ID. Set one in the format editor and produce again |
 | A voice or render job fails | See the [studio runtime troubleshooting](studio-runtime.md#troubleshooting) |
-| A series has slots but nothing appears on the calendar | It has no channel switched on, the series or its project is paused, or the slot is less than two minutes away. Switch a channel on in the series' **Channels** card |
+| A series has slots but nothing appears on the calendar | It has no channel switched on, the series is paused, or the slot is less than two minutes away. Switch a channel on in the series' **Channels** card |
 | A post turns **Missed** | Its time came before its video was approved (or produced). Approve the video and reschedule the post from **Approvals → Missed posts** |
 | A channel's **Dry run** switch is locked (`409 dry_run_locked` from the API) | Its tooltip says why: the server is in `PUBLISHING_MODE=dry-run`, or the channel is a planning channel or needs reconnecting. See [dry-run and going live](scheduling-and-publishing.md#dry-run-and-going-live) |
-| Due posts stay **Queued** | Publishing is paused (`PUBLISHING_ENABLED=false`) or the scheduler is off (`SCHEDULER_ENABLED=false`); **Settings → Scheduler** shows its last run |
-| A task shows in **Settings → Scheduler** as dead | Every attempt failed. Read its last error, fix the cause and use **Retry** |
+| Due posts stay **Queued** | Publishing is paused (`PUBLISHING_ENABLED=false`) or the scheduler is off (`SCHEDULER_ENABLED=false`); **Account settings → Scheduler** shows its last run |
+| A task shows in **Account settings → Scheduler** as dead | Every attempt failed. Read its last error, fix the cause and use **Retry** |
 | Old `t_*`, `loomcast_template_*` or `loomcast_e2e_*` databases pile up | Test runs drop their own databases; a crashed run may leave some. They are safe to drop when no tests are running (templates first need `alter database <name> is_template false`) |

@@ -15,8 +15,8 @@ import { useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { Page, PageHeader } from "@/components/PageHeader";
-import { projectQueryOptions } from "@/features/projects/queries";
 import { seriesQueryOptions } from "@/features/series/queries";
+import { useCurrentWorkspace } from "@/features/workspace/current";
 import { isApiError } from "@/lib/api";
 import { useTitle } from "@/lib/use-title";
 import { ChartFrame, type ChartNotice, Legend } from "./ChartFrame";
@@ -91,17 +91,18 @@ export function SeriesAnalyticsPage({
   onRangeChange: (range: SeriesRange) => void;
 }) {
   useAnalyticsLive();
+  const workspace = useCurrentWorkspace();
   const series = useQuery(seriesQueryOptions(seriesId));
-  const project = useQuery({
-    ...projectQueryOptions(series.data?.projectId ?? ""),
-    enabled: series.data !== undefined,
-  });
   const query = useQuery(seriesAnalyticsQueryOptions(seriesId, seriesRange(range)));
   useTitle(series.data ? `${series.data.name} analytics` : "Series analytics");
   const posts = useMemo(() => postsByDate(query.data?.posts ?? []), [query.data]);
   const busy = query.isPlaceholderData;
 
-  if (series.isError && isApiError(series.error, 404)) {
+  // A series of another workspace is not found here, like any other id.
+  if (
+    (series.isError && isApiError(series.error, 404)) ||
+    (series.data && series.data.workspaceId !== workspace.id)
+  ) {
     return (
       <Page className="flex-1 justify-center">
         <EmptyState
@@ -110,7 +111,9 @@ export function SeriesAnalyticsPage({
           description="It may have been removed, or the link points somewhere else."
           action={
             <Button asChild variant="outline">
-              <Link to="/analytics">Open the analytics</Link>
+              <Link to="/w/$workspace/analytics" params={{ workspace: workspace.slug }}>
+                Open the analytics
+              </Link>
             </Button>
           }
         />
@@ -151,17 +154,13 @@ export function SeriesAnalyticsPage({
             />
           )
         }
-        description={
-          project.data
-            ? `${project.data.name} · views and watch time of every post in the series`
-            : "Views and watch time of every post in the series"
-        }
+        description="Views and watch time of every post in the series"
         actions={
           series.data ? (
             <Button asChild variant="outline">
               <Link
-                to="/projects/$projectId/series/$seriesId"
-                params={{ projectId: series.data.projectId, seriesId: series.data.id }}
+                to="/w/$workspace/series/$seriesId"
+                params={{ workspace: workspace.slug, seriesId: series.data.id }}
               >
                 Open the series
               </Link>

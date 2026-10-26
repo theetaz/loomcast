@@ -93,30 +93,30 @@ migration.
 
 ### A member's account or session is compromised
 
-1. **Settings → Members → Disable** the account. This ends its sessions, MCP and job tokens and
-   unused links, and revokes the devices it paired (their bridge connections close).
+1. **Account settings → Members → Disable** the account. This ends its sessions, MCP and job tokens
+   and unused links, and revokes the devices it paired (their bridge connections close).
 2. For the owner's account, which cannot be disabled: reset the password
    (`dc exec -it api node dist/cli/admin.mjs reset-password --email <owner>`), which ends every
-   session, then revoke every MCP token on **Settings → Access tokens**.
+   session, then revoke every MCP token on **Account settings → Access tokens**.
 3. Review what the account did: `audit_log` where `actor_id` is the user (and their token ids).
 
 ### An MCP token leaked
 
-1. **Settings → Access tokens → Revoke**. The next request with it gets 401.
+1. **Account settings → Access tokens → Revoke**. The next request with it gets 401.
 2. Check `audit_log` for `mcp.tool.called` rows whose `actor_id` is that token id, and the api logs
    for `/mcp` requests from unknown addresses.
 
 ### A device token leaked or a Mac is lost
 
-Revoke the device on **Settings → Devices** and follow
+Revoke the device on **Account settings → Devices** and follow
 [owner-runbook.md](owner-runbook.md#7-a-lost-or-stolen-mac).
 
 ### A pairing code or set-password link leaked
 
-Pairing codes expire after 10 minutes and are single use: check **Settings → Devices** for a
+Pairing codes expire after 10 minutes and are single use: check **Account settings → Devices** for a
 device you did not pair and revoke it. For a set-password link, issue a new reset link from
-**Settings → Members** (the earlier ones stop working) or, if it was used, treat the account as
-compromised.
+**Account settings → Members** (the earlier ones stop working) or, if it was used, treat the account
+as compromised.
 
 ### Platform credentials or app secrets leaked
 

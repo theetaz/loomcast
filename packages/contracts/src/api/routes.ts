@@ -111,12 +111,6 @@ import {
   type OAuthStartQuery,
   OAuthStartQuerySchema,
 } from "./oauth";
-import {
-  CreateProjectSchema,
-  ListProjectsQuerySchema,
-  ProjectSchema,
-  UpdateProjectSchema,
-} from "./projects";
 import { PublishAttemptSchema, PublisherStatusSchema } from "./publisher";
 import {
   CreateReviewRequestSchema,
@@ -148,6 +142,13 @@ import {
   SetPasswordRequestSchema,
   UserSummarySchema,
 } from "./users";
+import {
+  CreateWorkspaceSchema,
+  ListWorkspacesQuerySchema,
+  SetWorkspaceIconSchema,
+  UpdateWorkspaceSchema,
+  WorkspaceSchema,
+} from "./workspaces";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -189,7 +190,7 @@ function route<const R extends RouteDefinition>(definition: R): R {
 }
 
 const IdParamsSchema = z.object({ id: IdSchema });
-const ProjectIdParamsSchema = z.object({ projectId: IdSchema });
+const WorkspaceIdParamsSchema = z.object({ workspaceId: IdSchema });
 const IdOrSlugParamsSchema = z.object({ idOrSlug: z.string().min(1).max(64) });
 const VersionParamsSchema = z.object({ id: IdSchema, versionId: IdSchema });
 const SkillNameParamsSchema = z.object({ name: SkillNameSchema });
@@ -287,61 +288,92 @@ export const routes = {
     status: 200,
   }),
 
-  "projects.list": route({
+  "workspaces.list": route({
     method: "GET",
-    path: "/api/projects",
+    path: "/api/workspaces",
     auth: "session",
-    query: ListProjectsQuerySchema,
-    response: listSchema(ProjectSchema),
+    query: ListWorkspacesQuerySchema,
+    response: listSchema(WorkspaceSchema),
     status: 200,
   }),
-  "projects.create": route({
+  "workspaces.create": route({
     method: "POST",
-    path: "/api/projects",
+    path: "/api/workspaces",
     auth: "session",
-    body: CreateProjectSchema,
-    response: ProjectSchema,
+    body: CreateWorkspaceSchema,
+    response: WorkspaceSchema,
     status: 201,
   }),
-  "projects.get": route({
+  "workspaces.get": route({
     method: "GET",
-    path: "/api/projects/:idOrSlug",
+    path: "/api/workspaces/:idOrSlug",
     auth: "session",
     params: IdOrSlugParamsSchema,
-    response: ProjectSchema,
+    response: WorkspaceSchema,
     status: 200,
   }),
-  "projects.update": route({
+  "workspaces.update": route({
     method: "PATCH",
-    path: "/api/projects/:idOrSlug",
+    path: "/api/workspaces/:idOrSlug",
     auth: "session",
     params: IdOrSlugParamsSchema,
-    body: UpdateProjectSchema,
-    response: ProjectSchema,
+    body: UpdateWorkspaceSchema,
+    response: WorkspaceSchema,
     status: 200,
   }),
-  "projects.archive": route({
+  "workspaces.archive": route({
     method: "POST",
-    path: "/api/projects/:id/archive",
+    path: "/api/workspaces/:id/archive",
     auth: "session",
     params: IdParamsSchema,
-    response: ProjectSchema,
+    response: WorkspaceSchema,
+    status: 200,
+  }),
+  /** The workspace's icon image. `404 not_found` when it has none. */
+  "workspaces.icon": route({
+    method: "GET",
+    path: "/api/workspaces/:id/icon",
+    auth: "session",
+    params: IdParamsSchema,
+    response: null,
+    image: true,
+    status: 200,
+  }),
+  /**
+   * Sets the icon from an uploaded image or from a channel's profile picture. `422` when the image
+   * is too large or not a PNG, JPEG or WebP, or the channel belongs to another workspace.
+   */
+  "workspaces.setIcon": route({
+    method: "PUT",
+    path: "/api/workspaces/:id/icon",
+    auth: "session",
+    params: IdParamsSchema,
+    body: SetWorkspaceIconSchema,
+    response: WorkspaceSchema,
+    status: 200,
+  }),
+  "workspaces.clearIcon": route({
+    method: "DELETE",
+    path: "/api/workspaces/:id/icon",
+    auth: "session",
+    params: IdParamsSchema,
+    response: WorkspaceSchema,
     status: 200,
   }),
 
   "conversations.list": route({
     method: "GET",
-    path: "/api/projects/:projectId/conversations",
+    path: "/api/workspaces/:workspaceId/conversations",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     response: listSchema(ConversationSchema),
     status: 200,
   }),
   "conversations.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/conversations",
+    path: "/api/workspaces/:workspaceId/conversations",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateConversationSchema,
     response: ConversationSchema,
     status: 201,
@@ -392,18 +424,18 @@ export const routes = {
 
   "competitors.list": route({
     method: "GET",
-    path: "/api/projects/:projectId/competitors",
+    path: "/api/workspaces/:workspaceId/competitors",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     response: listSchema(CompetitorSchema),
     status: 200,
   }),
-  /** `409 conflict` (`reason: "duplicate"`) when the project already follows the profile. */
+  /** `409 conflict` (`reason: "duplicate"`) when the workspace already follows the profile. */
   "competitors.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/competitors",
+    path: "/api/workspaces/:workspaceId/competitors",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateCompetitorRequestSchema,
     response: CompetitorSchema,
     status: 201,
@@ -473,36 +505,36 @@ export const routes = {
 
   "kb.list": route({
     method: "GET",
-    path: "/api/projects/:projectId/kb",
+    path: "/api/workspaces/:workspaceId/kb",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     query: ListKbQuerySchema,
     response: cursorPageSchema(KbEntrySchema),
     status: 200,
   }),
   "kb.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/kb",
+    path: "/api/workspaces/:workspaceId/kb",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateKbEntrySchema,
     response: KbEntryDetailSchema,
     status: 201,
   }),
   "kb.capture": route({
     method: "POST",
-    path: "/api/projects/:projectId/kb/capture",
+    path: "/api/workspaces/:workspaceId/kb/capture",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CaptureConversationSchema,
     response: KbEntryDetailSchema,
     status: 201,
   }),
   "kb.tags": route({
     method: "GET",
-    path: "/api/projects/:projectId/kb/tags",
+    path: "/api/workspaces/:workspaceId/kb/tags",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     response: listSchema(KbTagCountSchema),
     status: 200,
   }),
@@ -552,17 +584,17 @@ export const routes = {
 
   "formats.list": route({
     method: "GET",
-    path: "/api/projects/:projectId/formats",
+    path: "/api/workspaces/:workspaceId/formats",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     response: listSchema(FormatSchema),
     status: 200,
   }),
   "formats.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/formats",
+    path: "/api/workspaces/:workspaceId/formats",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateFormatRequestSchema,
     response: FormatSchema,
     status: 201,
@@ -597,18 +629,18 @@ export const routes = {
 
   "series.list": route({
     method: "GET",
-    path: "/api/projects/:projectId/series",
+    path: "/api/workspaces/:workspaceId/series",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     query: ListSeriesQuerySchema,
     response: listSchema(SeriesSchema),
     status: 200,
   }),
   "series.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/series",
+    path: "/api/workspaces/:workspaceId/series",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateSeriesRequestSchema,
     response: SeriesSchema,
     status: 201,
@@ -685,9 +717,9 @@ export const routes = {
   }),
   "content.create": route({
     method: "POST",
-    path: "/api/projects/:projectId/content",
+    path: "/api/workspaces/:workspaceId/content",
     auth: "session",
-    params: ProjectIdParamsSchema,
+    params: WorkspaceIdParamsSchema,
     body: CreateContentItemRequestSchema,
     response: ContentItemDetailSchema,
     status: 201,
@@ -825,7 +857,7 @@ export const routes = {
 
   /**
    * Answers `upload: null` when a ready asset with the same kind and SHA-256 already exists for
-   * the same item (or, without `itemId`, among the project's project-level media).
+   * the same item (or, without `itemId`, among the workspace's workspace-level media).
    */
   "assets.createUpload": route({
     method: "POST",
@@ -889,18 +921,21 @@ export const routes = {
     status: 200,
   }),
 
+  /** The workspace's channels. */
   "channels.list": route({
     method: "GET",
-    path: "/api/channels",
+    path: "/api/workspaces/:workspaceId/channels",
     auth: "session",
+    params: WorkspaceIdParamsSchema,
     response: listSchema(ChannelSchema),
     status: 200,
   }),
-  /** Adds a planning channel: disconnected, dry-run on. */
+  /** Adds a planning channel to the workspace: disconnected, dry-run on. */
   "channels.create": route({
     method: "POST",
-    path: "/api/channels",
+    path: "/api/workspaces/:workspaceId/channels",
     auth: "session",
+    params: WorkspaceIdParamsSchema,
     body: CreateChannelRequestSchema,
     response: ChannelSchema,
     status: 201,

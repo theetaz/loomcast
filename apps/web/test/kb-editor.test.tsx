@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { draftKey } from "@/features/kb/draft";
 import { updateKbEntry } from "@/mocks/kb";
-import { kbSetup, PROJECT_SLUG, recordRequests } from "./support/kb";
+import { kbSetup, recordRequests, WORKSPACE_SLUG } from "./support/kb";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
@@ -12,7 +12,7 @@ function renderPath(db: ReturnType<typeof kbSetup>["db"], path: string) {
   return renderApp(path, db, [], { createEventSource: stream.factory });
 }
 
-const entryPath = (id: string) => `/projects/${PROJECT_SLUG}/kb/${id}`;
+const entryPath = (id: string) => `/w/${WORKSPACE_SLUG}/kb/${id}`;
 const bodyField = () => screen.getByLabelText("Text") as HTMLTextAreaElement;
 
 describe("note and brainstorm editor", () => {
@@ -115,13 +115,16 @@ describe("note and brainstorm editor", () => {
     await waitFor(() => expect(window.localStorage.getItem(key)).toContain("draft text"));
 
     await act(() =>
-      router.navigate({ to: "/projects/$projectId/kb", params: { projectId: PROJECT_SLUG } }),
+      router.navigate({
+        to: "/w/$workspace/kb",
+        params: { workspace: WORKSPACE_SLUG },
+      }),
     );
     await screen.findByRole("list", { name: "All entries" });
     await act(() =>
       router.navigate({
-        to: "/projects/$projectId/kb/$entryId",
-        params: { projectId: PROJECT_SLUG, entryId: note.id },
+        to: "/w/$workspace/kb/$entryId",
+        params: { workspace: WORKSPACE_SLUG, entryId: note.id },
       }),
     );
 
@@ -136,7 +139,7 @@ describe("note and brainstorm editor", () => {
   it("creates a brainstorm with tags and previews markdown without raw HTML", async () => {
     const { db } = kbSetup();
     const requests = recordRequests();
-    const { user, router } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/new?kind=brainstorm`);
+    const { user, router } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/new?kind=brainstorm`);
 
     const title = await screen.findByLabelText("Title");
     expect(title).toHaveFocus();
@@ -177,7 +180,7 @@ describe("note and brainstorm editor", () => {
 
   it("asks for a title before saving", async () => {
     const { db } = kbSetup();
-    const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/new?kind=note`);
+    const { user } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/new?kind=note`);
     await user.click(await screen.findByRole("button", { name: /save note/i }));
     expect(screen.getByText("Give the entry a title.")).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveFocus();
@@ -187,7 +190,7 @@ describe("note and brainstorm editor", () => {
 describe("decision log", () => {
   it("lists decisions as a timeline and supersedes one", async () => {
     const { db, decision } = kbSetup();
-    const { user, router } = renderPath(db, `/projects/${PROJECT_SLUG}/kb?kind=decision`);
+    const { user, router } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb?kind=decision`);
 
     const log = await screen.findByRole("list", { name: "Decision log" });
     expect(within(log).getByText("Captions in the lower third")).toBeInTheDocument();
@@ -215,8 +218,8 @@ describe("decision log", () => {
 
     await act(() =>
       router.navigate({
-        to: "/projects/$projectId/kb",
-        params: { projectId: PROJECT_SLUG },
+        to: "/w/$workspace/kb",
+        params: { workspace: WORKSPACE_SLUG },
         search: { kind: "decision" },
       }),
     );
@@ -229,7 +232,7 @@ describe("decision log", () => {
 
   it("requires the decision text", async () => {
     const { db } = kbSetup();
-    const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/new?kind=decision`);
+    const { user } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/new?kind=decision`);
     await user.type(await screen.findByLabelText("Title"), "Something");
     await user.keyboard("{Meta>}s{/Meta}");
     expect(screen.getByText("Say what was decided.")).toBeInTheDocument();

@@ -10,7 +10,7 @@ import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import { CREATABLE_KINDS, KIND_META } from "./kinds";
 
 /** "New entry" with a choice of kind. */
-export function NewEntryMenu({ projectParam }: { projectParam: string }) {
+export function NewEntryMenu({ workspaceParam }: { workspaceParam: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -26,8 +26,8 @@ export function NewEntryMenu({ projectParam }: { projectParam: string }) {
           return (
             <DropdownMenuItem key={kind} asChild>
               <Link
-                to="/projects/$projectId/kb/new"
-                params={{ projectId: projectParam }}
+                to="/w/$workspace/kb/new"
+                params={{ workspace: workspaceParam }}
                 search={{ kind }}
               >
                 <meta.icon aria-hidden="true" />
@@ -43,17 +43,17 @@ export function NewEntryMenu({ projectParam }: { projectParam: string }) {
 
 /** The button an empty list offers for its kind. */
 export function NewEntryButton({
-  projectParam,
+  workspaceParam,
   kind,
   label,
 }: {
-  projectParam: string;
+  workspaceParam: string;
   kind: (typeof CREATABLE_KINDS)[number];
   label: string;
 }) {
   return (
     <Button asChild>
-      <Link to="/projects/$projectId/kb/new" params={{ projectId: projectParam }} search={{ kind }}>
+      <Link to="/w/$workspace/kb/new" params={{ workspace: workspaceParam }} search={{ kind }}>
         <PlusIcon aria-hidden="true" />
         {label}
       </Link>

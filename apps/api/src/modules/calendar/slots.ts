@@ -14,10 +14,10 @@ import {
   channels,
   formats,
   formatVersions,
-  projects,
   scheduledPosts,
   series,
   seriesChannels,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, eq, gte, inArray, lt, ne, type SQL } from "drizzle-orm";
 import type { Executor } from "../../lib/db";
@@ -38,10 +38,10 @@ export interface PlanChannel {
 /** A series with what planning needs: its cadence and publish mode, and its channels. */
 export interface SeriesPlan {
   id: string;
-  projectId: string;
+  workspaceId: string;
   name: string;
   status: SeriesStatus;
-  /** False when the series or its project is not active: it gets no slots. */
+  /** False when the series or its workspace is not active: it gets no slots. */
   active: boolean;
   /** Null when the format's rules carry no usable cadence. */
   cadence: Cadence | null;
@@ -51,11 +51,11 @@ export interface SeriesPlan {
 }
 
 export interface SeriesFilter {
-  projectId?: string;
+  workspaceId?: string;
   seriesIds?: readonly string[];
   /** Only these channels are listed in each plan. */
   channelIds?: readonly string[];
-  /** Leave out series that are not active (and series of archived projects). */
+  /** Leave out series that are not active (and series of archived workspaces). */
   activeOnly?: boolean;
 }
 
@@ -81,11 +81,11 @@ export async function loadSeriesPlans(
   filter: SeriesFilter = {},
 ): Promise<SeriesPlan[]> {
   const conditions: (SQL | undefined)[] = [
-    filter.projectId === undefined ? undefined : eq(series.projectId, filter.projectId),
+    filter.workspaceId === undefined ? undefined : eq(series.workspaceId, filter.workspaceId),
     filter.seriesIds === undefined ? undefined : inArray(series.id, [...filter.seriesIds]),
   ];
   if (filter.activeOnly === true) {
-    conditions.push(eq(series.status, "active"), eq(projects.status, "active"));
+    conditions.push(eq(series.status, "active"), eq(workspaces.status, "active"));
   }
   if (filter.seriesIds !== undefined && filter.seriesIds.length === 0) {
     return [];
@@ -93,14 +93,14 @@ export async function loadSeriesPlans(
   const rows = await executor
     .select({
       id: series.id,
-      projectId: series.projectId,
+      workspaceId: series.workspaceId,
       name: series.name,
       status: series.status,
-      projectStatus: projects.status,
+      workspaceStatus: workspaces.status,
       rules: formatVersions.rules,
     })
     .from(series)
-    .innerJoin(projects, eq(projects.id, series.projectId))
+    .innerJoin(workspaces, eq(workspaces.id, series.workspaceId))
     .innerJoin(formats, eq(formats.id, series.formatId))
     .innerJoin(formatVersions, eq(formatVersions.id, formats.currentVersionId))
     .where(and(...conditions))
@@ -139,10 +139,10 @@ export async function loadSeriesPlans(
   }
   return rows.map((row) => ({
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     name: row.name,
     status: row.status,
-    active: row.status === "active" && row.projectStatus === "active",
+    active: row.status === "active" && row.workspaceStatus === "active",
     cadence: cadenceOf(row.rules),
     publishMode: publishModeOf(row.rules),
     rules: row.rules,

@@ -5,7 +5,7 @@
 Key facts:
 
 - Base URL: `https://<host>/api/v1`. JSON only (`Content-Type: application/json` on bodies, at most 1 MiB). Server-to-server: no CORS, no cookies.
-- Auth: `Authorization: Bearer lc_api_<43 letters and digits>`. The owner creates the key (an "API client") in Settings → API clients; it is shown once. A client belongs to one project and is granted channels, each at `read`, `write` or `publish`.
+- Auth: `Authorization: Bearer lc_api_<43 letters and digits>`. The owner creates the key (an "API client") in Settings → API clients; it is shown once. A client belongs to one workspace and is granted channels, each at `read`, `write` or `publish`.
 - Rate limit: 120 requests per client, refilling over 60 seconds. `429 rate_limited` with `Retry-After` (seconds). Headers `RateLimit-Limit`, `RateLimit-Remaining`.
 - Timestamps are ISO 8601 with offset (`2026-11-02T09:00:00.000Z`). Ids are UUIDs. Answers carry `Cache-Control: no-store`.
 - No webhooks: poll `GET /api/v1/posts/{id}`.
@@ -21,7 +21,7 @@ Key facts:
 
 ## Endpoints
 
-- `GET /api/v1/me` → `{client: {id, name, prefix, createdAt, expiresAt}, project: {id, slug, name}, grants: [{channelId, access}], rateLimit: {requests: 120, perSeconds: 60}}`
+- `GET /api/v1/me` → `{client: {id, name, prefix, createdAt, expiresAt}, workspace: {id, slug, name}, project (deprecated copy of workspace), grants: [{channelId, access}], rateLimit: {requests: 120, perSeconds: 60}}`
 - `GET /api/v1/channels` → `{items: [{id, platform: "facebook"|"instagram"|"threads"|"x", name, username, status: "active"|"disconnected"|"needs_reauth"|"disabled", dryRun, requiresApproval, access, formats: [format]}]}`
 - `GET /api/v1/formats` → `{formats: [{format, label, render, min, max, types: ["image"|"video"], platforms}], platforms: [{platform, label, formats}], mediaTypes: [{type, mimes}], photoOnlyCarouselPlatforms: ["facebook"], options: [{platform, field, type, formats, description}]}`
 - `POST /api/v1/posts` (optional header `Idempotency-Key`) → `201` Post plus `uploads`. Needs `write` on every channel.
@@ -159,7 +159,7 @@ Facebook link post (no upload, scheduled in one call): `{"format":"text","captio
 - Endpoint `https://<host>/mcp`, streamable HTTP, stateless JSON-RPC over `POST` (`Accept: application/json, text/event-stream`), 120 requests a minute per token.
 - Auth: an MCP access token `Authorization: Bearer lc_mcp_...` from Settings → Access tokens (scopes `mcp:read`, `mcp:write`, `mcp:admin`). API keys do not work on `/mcp`; MCP tokens do not work on `/api/v1`.
 - Posting needs the owner's token with `mcp:admin`; it acts as the owner on every channel, and its posts are approved as the owner's review.
-- Flow: `post.formats` → `channel.list` → `post.create {projectId, title, format, caption?}` → `content.upload_asset {kind: "media", itemId, filename, mime, bytes, sha256}` → PUT the bytes → `content.finalize_asset {assetId}` → `post.compose {itemId, media: [{assetId, altText?}], caption?}` → `post.schedule {itemId, channelIds, scheduledAt, options?}`. Follow up with `calendar.list_posts`, `calendar.reschedule_post`, `calendar.cancel_post`.
+- Flow: `post.formats` → `channel.list` → `post.create {workspaceId, title, format, caption?}` → `content.upload_asset {kind: "media", itemId, filename, mime, bytes, sha256}` → PUT the bytes → `content.finalize_asset {assetId}` → `post.compose {itemId, media: [{assetId, altText?}], caption?}` → `post.schedule {itemId, channelIds, scheduledAt, options?}`. Follow up with `calendar.list_posts`, `calendar.reschedule_post`, `calendar.cancel_post`.
 
 ## Optional
 

@@ -81,8 +81,8 @@ export type LibrarySearch = z.infer<typeof LibrarySearchSchema>;
 
 /** What the library shows, with the address's defaults filled in. */
 export interface LibraryFilter {
-  /** Set when the library is a project's Content tab. */
-  projectId: string | null;
+  /** The workspace whose library this is; null for a search across every workspace. */
+  workspaceId: string | null;
   states: PipelineState[];
   seriesId: string | null;
   from: string | null;
@@ -90,9 +90,9 @@ export interface LibraryFilter {
   q: string;
 }
 
-export function filterFromSearch(search: LibrarySearch, projectId: string | null): LibraryFilter {
+export function filterFromSearch(search: LibrarySearch, workspaceId: string | null): LibraryFilter {
   return {
-    projectId,
+    workspaceId,
     states: parseStates(search.states),
     seriesId: search.series ?? null,
     from: search.from ?? null,
@@ -138,7 +138,7 @@ export function endOfDay(day: string): string {
 /** The `content.list` query for a filter. States go comma-separated, as the contracts expect. */
 export function contentListQuery(filter: LibraryFilter) {
   return {
-    ...(filter.projectId ? { projectId: filter.projectId } : {}),
+    ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
     ...(filter.states.length > 0 ? { states: filter.states.join(",") } : {}),
     ...(filter.seriesId ? { seriesId: filter.seriesId } : {}),
     ...(filter.q ? { q: filter.q } : {}),

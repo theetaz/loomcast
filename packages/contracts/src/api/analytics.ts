@@ -18,7 +18,7 @@ export const ANALYTICS_TOP_POSTS = 10;
 export const PostPerformanceSchema = z.object({
   postId: IdSchema,
   itemId: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   seriesId: IdSchema.nullable(),
   channelId: IdSchema,
   platform: PlatformSchema,
@@ -75,13 +75,13 @@ export type SeriesAnalytics = z.infer<typeof SeriesAnalyticsSchema>;
 
 /**
  * `GET /api/analytics/overview`: posts published in `[from, to)`, at most
- * `MAX_ANALYTICS_RANGE_DAYS` long, optionally for one project.
+ * `MAX_ANALYTICS_RANGE_DAYS` long, optionally for one workspace.
  */
 export const AnalyticsOverviewQuerySchema = z
   .object({
     from: TimestampSchema,
     to: TimestampSchema,
-    projectId: IdSchema.optional(),
+    workspaceId: IdSchema.optional(),
   })
   .superRefine((range, ctx) => {
     const span = Date.parse(range.to) - Date.parse(range.from);

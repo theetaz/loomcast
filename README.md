@@ -8,6 +8,8 @@
 
 Loomcast is a small, invite-only platform for producing short technology videos (reels and shorts). Scripts are drafted and reviewed in a web app. Videos are rendered by a studio running on a local workstation and published to Instagram, Threads and YouTube Shorts on a schedule.
 
+Work is organised by workspace, one per brand (for example Unfolded or Maths is Beautiful). Each workspace has its own channels, calendar, library, review queue, analytics, chat, knowledge base, series, competitor research and API clients, and every signed-in user sees every workspace.
+
 The platform is used by a few people, so there is no public sign-up. Accounts are created by an administrator from the command line or through an MCP tool.
 
 ## Architecture
@@ -70,7 +72,7 @@ Open `design/brand/loomcast-brand.html` in a browser to see the theme and compon
 | [Production pipeline](docs/pipeline.md) | Series and formats, pipeline states, actions and job types, autopilot, versions, reviews, timing after the voice, and skills |
 | [Scheduling and publishing](docs/scheduling-and-publishing.md) | Cadences and planning, post states, approval rules, dry-run and going live, dead letters and time zones |
 | [Studio runtime](docs/studio-runtime.md) | Rendering on the Mac: requirements, telemetry, the TTS provider key, how a version is rendered, smoke checks and troubleshooting |
-| [Knowledge base](docs/knowledge-base.md) | Entry kinds, the Knowledge tab, reference analysis, search and the ⌘K palette |
+| [Knowledge base](docs/knowledge-base.md) | Entry kinds, the Knowledge page, reference analysis, search and the ⌘K palette |
 | [Session-end hook](docs/session-hook.md) | The optional hook that files session summaries in the knowledge base: what it sends, redaction, setup |
 | [Bridge protocol](docs/bridge-protocol.md) | Pairing, the `/bridge/v1` WebSocket protocol, the job lifecycle and its reliability rules |
 | [MCP server](docs/mcp.md) | Endpoint, authentication, client configuration and the tool reference |

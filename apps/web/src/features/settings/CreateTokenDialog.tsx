@@ -134,8 +134,8 @@ function CreateTokenForm({ onCreated }: { onCreated: (revealed: Revealed) => voi
       <DialogHeader>
         <DialogTitle>New access token</DialogTitle>
         <DialogDescription>
-          Tools use a token to reach your projects over MCP. Create one per tool, so you can revoke
-          it on its own.
+          Tools use a token to reach your workspaces over MCP. Create one per tool, so you can
+          revoke it on its own.
         </DialogDescription>
       </DialogHeader>
 

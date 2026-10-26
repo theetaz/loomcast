@@ -155,7 +155,7 @@ describe("SdkProducerRuntime", () => {
       runInput({
         jobType: "producer.chat",
         mcp: { url: new URL("http://127.0.0.1:8790/mcp"), token },
-        brief: "Project brief",
+        brief: "Workspace brief",
       }).input,
     );
     const options = fake.calls[0]?.options;
@@ -170,11 +170,11 @@ describe("SdkProducerRuntime", () => {
     });
     expect(options?.strictMcpConfig).toBe(true);
     expect(options?.allowedTools).toBeUndefined();
-    expect(options?.systemPrompt).toMatchObject({ append: "Project brief" });
+    expect(options?.systemPrompt).toMatchObject({ append: "Workspace brief" });
     expect(options?.disallowedTools).toEqual(
       expect.arrayContaining([
         "mcp__loomcast__kb_save_session_summary",
-        "mcp__loomcast__project_create",
+        "mcp__loomcast__workspace_create",
         "mcp__loomcast__admin_create_user",
       ]),
     );
@@ -182,7 +182,7 @@ describe("SdkProducerRuntime", () => {
     expect(options?.disallowedTools).not.toContain("WebFetch");
     const decision = await options?.canUseTool?.(
       "mcp__loomcast__kb_save_brainstorm",
-      { projectId: "p" },
+      { workspaceId: "p" },
       { signal: new AbortController().signal, toolUseID: "t1", requestId: "r1" },
     );
     expect(decision?.behavior).toBe("allow");

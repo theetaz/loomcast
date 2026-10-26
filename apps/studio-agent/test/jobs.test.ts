@@ -8,7 +8,7 @@ import { ids, tempAgentPaths, testConfig } from "./helpers";
 
 function pingContext(events: string[]): JobContext<"system.ping"> {
   return {
-    job: { id: ids.job, type: "system.ping", attempt: 1, projectId: ids.project, payload: {} },
+    job: { id: ids.job, type: "system.ping", attempt: 1, workspaceId: ids.workspace, payload: {} },
     credentials: {},
     emit: (kind) => {
       events.push(kind);

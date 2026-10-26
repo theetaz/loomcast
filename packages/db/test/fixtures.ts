@@ -33,12 +33,12 @@ import {
   type NewUserRow,
   oauthConnections,
   oauthStates,
-  projects,
   scheduledPosts,
   series,
   skills,
   skillVersions,
   users,
+  workspaces,
 } from "../src/schema";
 
 export async function insertUser(db: Database, overrides: Partial<NewUserRow> = {}) {
@@ -56,25 +56,25 @@ export async function insertUser(db: Database, overrides: Partial<NewUserRow> = 
   return user;
 }
 
-export async function insertProject(db: Database, createdBy: string) {
-  const [project] = await db
-    .insert(projects)
-    .values({ slug: `project-${randomUUID()}`, name: "Test Project", createdBy })
+export async function insertWorkspace(db: Database, createdBy: string) {
+  const [workspace] = await db
+    .insert(workspaces)
+    .values({ slug: `workspace-${randomUUID()}`, name: "Test Workspace", createdBy })
     .returning();
-  if (project === undefined) throw new Error("project was not inserted");
-  return project;
+  if (workspace === undefined) throw new Error("workspace was not inserted");
+  return workspace;
 }
 
-export async function insertConversation(db: Database, projectId: string, createdBy: string) {
+export async function insertConversation(db: Database, workspaceId: string, createdBy: string) {
   const [conversation] = await db
     .insert(conversations)
-    .values({ projectId, createdBy })
+    .values({ workspaceId, createdBy })
     .returning();
   if (conversation === undefined) throw new Error("conversation was not inserted");
   return conversation;
 }
 
-type JobFixture = Pick<NewJobRow, "projectId" | "createdBy"> & Partial<NewJobRow>;
+type JobFixture = Pick<NewJobRow, "workspaceId" | "createdBy"> & Partial<NewJobRow>;
 
 export function jobValues(values: JobFixture): NewJobRow {
   return { type: "system.ping", payload: {}, ...values };
@@ -91,7 +91,7 @@ export function randomHash(): string {
   return createHash("sha256").update(randomUUID()).digest("hex");
 }
 
-type KbEntryFixture = Pick<NewKbEntryRow, "projectId"> & Partial<NewKbEntryRow>;
+type KbEntryFixture = Pick<NewKbEntryRow, "workspaceId"> & Partial<NewKbEntryRow>;
 
 export async function insertKbEntry(db: Database, values: KbEntryFixture) {
   const [entry] = await db
@@ -146,7 +146,7 @@ export const PG = {
 type Writer = Pick<Database, "insert">;
 
 /** Inserts a format and its version 1 in one transaction, as the API does. */
-export async function insertFormat(db: Database, projectId: string, createdBy?: string) {
+export async function insertFormat(db: Database, workspaceId: string, createdBy?: string) {
   const formatId = randomUUID();
   const versionId = randomUUID();
   return db.transaction(async (tx) => {
@@ -154,7 +154,7 @@ export async function insertFormat(db: Database, projectId: string, createdBy?: 
       .insert(formats)
       .values({
         id: formatId,
-        projectId,
+        workspaceId,
         name: "Test Format",
         slug: `format-${formatId}`,
         currentVersionId: versionId,
@@ -175,7 +175,7 @@ export async function insertFormat(db: Database, projectId: string, createdBy?: 
   });
 }
 
-type ContentItemFixture = Pick<NewContentItemRow, "projectId"> &
+type ContentItemFixture = Pick<NewContentItemRow, "workspaceId"> &
   Partial<Omit<NewContentItemRow, "id" | "currentVersionId">>;
 
 /** Inserts a content item and its version 1 (the bare idea) through `db`, which may be a tx. */
@@ -205,34 +205,110 @@ export function insertContentItem(db: Database, values: ContentItemFixture) {
   return db.transaction((tx) => insertItemWith(tx, values));
 }
 
+// Rows for a database of an earlier release, before projects were renamed to workspaces
+// (0017): the current schema names tables and columns that do not exist there yet, so these
+// write plain SQL with the old names (`projects`, `project_id`) and only the columns of the time.
+
+/** A row of `projects`, the table that became `workspaces`. */
+export async function insertLegacyWorkspace(
+  db: Database,
+  createdBy: string,
+  values: { slug?: string; name?: string } = {},
+) {
+  const slug = values.slug ?? `project-${randomUUID()}`;
+  const name = values.name ?? "Test Project";
+  const result = await db.execute<{ id: string }>(
+    sql`insert into projects (slug, name, created_by) values (${slug}, ${name}, ${createdBy})
+        returning id`,
+  );
+  const id = result.rows[0]?.id;
+  if (id === undefined) throw new Error("project was not inserted");
+  return { id, slug, name };
+}
+
+/** `insertFormat` with the old names: a format and its version 1 in one transaction. */
+export function insertLegacyFormat(db: Database, projectId: string, createdBy?: string) {
+  const formatId = randomUUID();
+  const versionId = randomUUID();
+  const rules = JSON.stringify(DEFAULT_FORMAT_RULES);
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`insert into formats (id, project_id, name, slug, current_version_id)
+          values (${formatId}, ${projectId}, 'Test Format', ${`format-${formatId}`}, ${versionId})`,
+    );
+    await tx.execute(
+      sql`insert into format_versions (id, format_id, version_no, rules, created_by)
+          values (${versionId}, ${formatId}, 1, ${rules}::jsonb, ${createdBy ?? null})`,
+    );
+    return { format: { id: formatId }, version: { id: versionId } };
+  });
+}
+
+/** `insertSeries` with the old names: a series of a new format in `projectId`. */
+export async function insertLegacySeries(
+  db: Database,
+  projectId: string,
+  values: { createdBy?: string; slug?: string } = {},
+) {
+  const { format } = await insertLegacyFormat(db, projectId, values.createdBy);
+  const slug = values.slug ?? `series-${randomUUID()}`;
+  const result = await db.execute<{ id: string }>(
+    sql`insert into series (project_id, name, slug, format_id)
+        values (${projectId}, 'Test Series', ${slug}, ${format.id}) returning id`,
+  );
+  const id = result.rows[0]?.id;
+  if (id === undefined) throw new Error("series was not inserted");
+  return { id, formatId: format.id };
+}
+
+interface LegacyContentItemFixture {
+  projectId: string;
+  seriesId?: string;
+  createdBy?: string;
+  targetAt?: Date;
+}
+
 /**
- * `insertContentItem` for a database of an earlier release, before `content_versions` had the
- * post format columns: the version goes in with plain SQL naming only the columns it had.
+ * `insertContentItem` with the old names: the item and its version 1 (the bare idea), naming only
+ * the columns they had before the post formats (0015).
  */
-export function insertLegacyContentItem(db: Database, values: ContentItemFixture) {
+export function insertLegacyContentItem(db: Database, values: LegacyContentItemFixture) {
   return db.transaction(async (tx) => {
     const itemId = randomUUID();
     const versionId = randomUUID();
-    const [item] = await tx
-      .insert(contentItems)
-      .values({
-        title: "Test Item",
-        createdVia: "ui",
-        ...values,
-        id: itemId,
-        currentVersionId: versionId,
-      })
-      .returning();
+    await tx.execute(
+      sql`insert into content_items (id, project_id, series_id, title, current_version_id,
+                                     target_at, created_via, created_by)
+          values (${itemId}, ${values.projectId}, ${values.seriesId ?? null}, 'Test Item',
+                  ${versionId}, ${values.targetAt?.toISOString() ?? null}, 'ui',
+                  ${values.createdBy ?? null})`,
+    );
     await tx.execute(
       sql`insert into content_versions (id, item_id, version_no, stage, created_via)
           values (${versionId}, ${itemId}, 1, 'idea', 'system')`,
     );
-    if (item === undefined) throw new Error("item was not inserted");
-    return { item, version: { id: versionId } };
+    return { item: { id: itemId }, version: { id: versionId } };
   });
 }
 
-type AssetFixture = Pick<NewAssetRow, "projectId"> & Partial<NewAssetRow>;
+/** Inserts an asset in `projectId`; the table's other columns are unchanged since 0007. */
+export function insertLegacyAsset(
+  db: Database,
+  projectId: string,
+  values: Partial<NewAssetRow> = {},
+) {
+  const row = assetValues({ ...values, workspaceId: projectId });
+  return db.execute<{ id: string }>(
+    sql`insert into assets (project_id, item_id, kind, status, bucket, storage_key, filename,
+                            mime, bytes, sha256, meta)
+        values (${row.workspaceId}, ${row.itemId ?? null}, ${row.kind}, ${row.status ?? "pending"},
+                ${row.bucket}, ${row.storageKey}, ${row.filename}, ${row.mime}, ${row.bytes},
+                ${row.sha256}, ${JSON.stringify(row.meta ?? {})}::jsonb)
+        returning id`,
+  );
+}
+
+type AssetFixture = Pick<NewAssetRow, "workspaceId"> & Partial<NewAssetRow>;
 
 /** Asset values with a random storage key and SHA-256 (as stored: lowercase hex). */
 export function assetValues(values: AssetFixture): NewAssetRow {
@@ -291,21 +367,21 @@ export function sealedSecret(keyVersion = 1) {
   };
 }
 
-type ChannelFixture = Partial<NewChannelRow>;
+type ChannelFixture = Pick<NewChannelRow, "workspaceId"> & Partial<NewChannelRow>;
 
-/** A planning channel (no credentials, `disconnected`) unless overridden. */
-export function channelValues(values: ChannelFixture = {}): NewChannelRow {
+/** A planning channel (no credentials, `disconnected`) of `workspaceId` unless overridden. */
+export function channelValues(values: ChannelFixture): NewChannelRow {
   return { platform: "instagram", displayName: "Test Channel", ...values };
 }
 
-export async function insertChannel(db: Writer, values: ChannelFixture = {}) {
+export async function insertChannel(db: Writer, values: ChannelFixture) {
   const [channel] = await db.insert(channels).values(channelValues(values)).returning();
   if (channel === undefined) throw new Error("channel was not inserted");
   return channel;
 }
 
 /** A connected, active channel with a random external id. */
-export function insertActiveChannel(db: Writer, values: ChannelFixture = {}) {
+export function insertActiveChannel(db: Writer, values: ChannelFixture) {
   return insertChannel(db, {
     externalId: `acct-${randomUUID()}`,
     status: "active",
@@ -314,12 +390,17 @@ export function insertActiveChannel(db: Writer, values: ChannelFixture = {}) {
   });
 }
 
-/** Inserts a series of a new format in `projectId`. */
-export async function insertSeries(db: Database, projectId: string, createdBy?: string) {
-  const { format } = await insertFormat(db, projectId, createdBy);
+/** Inserts a series of a new format in `workspaceId`. */
+export async function insertSeries(db: Database, workspaceId: string, createdBy?: string) {
+  const { format } = await insertFormat(db, workspaceId, createdBy);
   const [created] = await db
     .insert(series)
-    .values({ projectId, name: "Test Series", slug: `series-${randomUUID()}`, formatId: format.id })
+    .values({
+      workspaceId,
+      name: "Test Series",
+      slug: `series-${randomUUID()}`,
+      formatId: format.id,
+    })
     .returning();
   if (created === undefined) throw new Error("series was not inserted");
   return created;

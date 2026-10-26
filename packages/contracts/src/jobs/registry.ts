@@ -34,7 +34,7 @@ import type { JobEventKind } from "./durable-events";
 
 /**
  * MCP access of a job's producer session. For `read` and `read_write` the server mints a job token
- * (`lc_job_…`) with the matching scopes, bound to the job's project, and sends it in `job.assign`
+ * (`lc_job_…`) with the matching scopes, bound to the job's workspace, and sends it in `job.assign`
  * as `credentials.mcp`. For `none` no token is minted and `credentials` is left out.
  */
 export const MCP_ACCESS_LEVELS = ["none", "read", "read_write"] as const;
@@ -93,7 +93,7 @@ export type SystemPingResult = z.infer<typeof SystemPingResultSchema>;
  */
 export const ProducerChatPayloadSchema = z.object({
   conversationId: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   messageId: IdSchema,
   text: MessageTextSchema,
   producerSessionId: z.string().min(1).max(200).optional(),
@@ -121,7 +121,7 @@ export type ProducerChatResult = z.infer<typeof ProducerChatResultSchema>;
  */
 export const KbAnalyzeReferencePayloadSchema = z
   .object({
-    projectId: IdSchema,
+    workspaceId: IdSchema,
     entryId: IdSchema,
     url: ReferenceUrlSchema,
     platform: ReferencePlatformSchema,
@@ -192,7 +192,7 @@ export type CompetitorReportVideo = z.infer<typeof CompetitorReportVideoSchema>;
  * the result as a `note` entry and links it to the scan.
  */
 export const KbCompetitorReportPayloadSchema = z.object({
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   scanId: IdSchema,
   competitor: z.object({
     platform: CompetitorPlatformSchema,
@@ -229,7 +229,7 @@ export type FormatSnapshot = z.infer<typeof FormatSnapshotSchema>;
  * snapshot. Artifacts are read through MCP (`content.get`), never sent in the payload.
  */
 const ContentJobFields = {
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   itemId: IdSchema,
   /** The item's current version when the job was queued; the result builds on it. */
   versionId: IdSchema,

@@ -10,18 +10,23 @@ import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@ta
 import { api, isApiError } from "@/lib/api";
 import { useLiveEvent } from "@/lib/live";
 
-/** Channel, series-channel and publisher query keys. The calendar shares the channel list. */
+/**
+ * Channel, series-channel and publisher query keys. Channels are listed per workspace; the calendar
+ * shares the list.
+ */
 export const channelKeys = {
   all: ["channels"] as const,
-  list: ["channels", "list"] as const,
+  lists: ["channels", "list"] as const,
+  list: (workspaceId: string) => ["channels", "list", workspaceId] as const,
   series: (seriesId: string) => ["series", "channels", seriesId] as const,
   publisher: ["publisher", "status"] as const,
 };
 
-export function channelsQueryOptions() {
+/** The workspace's channels. */
+export function channelsQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: channelKeys.list,
-    queryFn: ({ signal }) => api.request("channels.list", { signal }),
+    queryKey: channelKeys.list(workspaceId),
+    queryFn: ({ signal }) => api.request("channels.list", { params: { workspaceId }, signal }),
     staleTime: 60_000,
   });
 }
@@ -42,9 +47,22 @@ export function seriesChannelsQueryOptions(seriesId: string) {
   });
 }
 
-/** Replaces or adds a channel in the cached list. Older copies never replace newer ones. */
+/**
+ * Replaces or adds a channel in its workspace's cached list, and drops it from any other
+ * workspace's. Older copies never replace newer ones.
+ */
 export function applyChannel(queryClient: QueryClient, channel: Channel) {
-  queryClient.setQueryData<List<Channel>>(channelKeys.list, (list) => {
+  for (const [queryKey, list] of queryClient.getQueriesData<List<Channel>>({
+    queryKey: channelKeys.lists,
+  })) {
+    if (queryKey[2] === channel.workspaceId || !list) continue;
+    if (list.items.some((entry) => entry.id === channel.id)) {
+      queryClient.setQueryData<List<Channel>>(queryKey, {
+        items: list.items.filter((entry) => entry.id !== channel.id),
+      });
+    }
+  }
+  queryClient.setQueryData<List<Channel>>(channelKeys.list(channel.workspaceId), (list) => {
     if (!list) return list;
     const cached = list.items.find((entry) => entry.id === channel.id);
     if (cached && cached.updatedAt > channel.updatedAt) return list;
@@ -80,8 +98,9 @@ export function useUpdateChannel(
     mutationFn: ({ channel, change }: UpdateChannelInput) =>
       api.request("channels.update", { params: { id: channel.id }, body: change }),
     onMutate: async ({ channel, change }) => {
-      await queryClient.cancelQueries({ queryKey: channelKeys.list });
-      queryClient.setQueryData<List<Channel>>(channelKeys.list, (list) =>
+      const key = channelKeys.list(channel.workspaceId);
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData<List<Channel>>(key, (list) =>
         list
           ? {
               items: list.items.map((entry) =>
@@ -94,8 +113,9 @@ export function useUpdateChannel(
     },
     onSuccess: (channel) => applyChannel(queryClient, channel),
     onError: (error, input, context) => {
+      const key = channelKeys.list(input.channel.workspaceId);
       if (context) {
-        queryClient.setQueryData<List<Channel>>(channelKeys.list, (list) =>
+        queryClient.setQueryData<List<Channel>>(key, (list) =>
           list
             ? {
                 items: list.items.map((entry) =>
@@ -106,18 +126,19 @@ export function useUpdateChannel(
         );
       }
       if (isApiError(error, 409) || isApiError(error, 404)) {
-        void queryClient.invalidateQueries({ queryKey: channelKeys.list });
+        void queryClient.invalidateQueries({ queryKey: key });
       }
       options.onFailure?.(error, input);
     },
   });
 }
 
-/** Adds a planning channel: not connected, dry-run on. */
-export function useCreateChannel() {
+/** Adds a planning channel to the workspace: not connected, dry-run on. */
+export function useCreateChannel(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateChannelRequest) => api.request("channels.create", { body }),
+    mutationFn: (body: CreateChannelRequest) =>
+      api.request("channels.create", { params: { workspaceId }, body }),
     onSuccess: (channel) => applyChannel(queryClient, channel),
   });
 }
@@ -187,9 +208,9 @@ export function useDisconnectChannel() {
     mutationFn: (channel: Channel) =>
       api.request("channels.disconnect", { params: { id: channel.id } }),
     onSuccess: (channel) => applyChannel(queryClient, channel),
-    onError: (error) => {
+    onError: (error, channel) => {
       if (isApiError(error, 404))
-        void queryClient.invalidateQueries({ queryKey: channelKeys.list });
+        void queryClient.invalidateQueries({ queryKey: channelKeys.list(channel.workspaceId) });
     },
   });
 }

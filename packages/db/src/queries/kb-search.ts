@@ -12,8 +12,8 @@ import type { Database } from "../client";
 export interface KbSearchOptions {
   /** The user's query in web-search syntax: `"exact phrase"`, `-exclude`, `or`. */
   q: string;
-  /** Limits the search to one project. Without it every project is searched. */
-  projectId?: string;
+  /** Limits the search to one workspace. Without it every workspace is searched. */
+  workspaceId?: string;
   /** Limits the search to these entry kinds. An empty list matches nothing. */
   kinds?: readonly KbEntryKind[];
   /** Most hits returned, 1 to `KB_SEARCH_MAX_LIMIT`. Defaults to `KB_SEARCH_DEFAULT_LIMIT`. */
@@ -44,7 +44,7 @@ export function escapeLikePattern(text: string): string {
 
 interface KbSearchRow extends Record<string, unknown> {
   entryId: string;
-  projectId: string;
+  workspaceId: string;
   kind: KbEntryKind;
   title: string;
   snippet: string;
@@ -81,8 +81,8 @@ export async function kbSearch(
   const prefix = `${escapeLikePattern(q)}%`;
 
   const filters: SQL[] = [sql`kb_entries.deleted_at is null`];
-  if (options.projectId !== undefined) {
-    filters.push(sql`kb_entries.project_id = ${options.projectId}`);
+  if (options.workspaceId !== undefined) {
+    filters.push(sql`kb_entries.workspace_id = ${options.workspaceId}`);
   }
   if (options.kinds !== undefined) {
     const kinds = sql.join(
@@ -101,7 +101,7 @@ export async function kbSearch(
     ranked as (
       select
         kb_entries.id,
-        kb_entries.project_id,
+        kb_entries.workspace_id,
         kb_entries.kind,
         kb_entries.title,
         kb_entries.body_md,
@@ -143,7 +143,7 @@ export async function kbSearch(
     )
     select
       snippets.id as "entryId",
-      snippets.project_id as "projectId",
+      snippets.workspace_id as "workspaceId",
       snippets.kind,
       snippets.title,
       left(
@@ -160,7 +160,7 @@ export async function kbSearch(
 
   return result.rows.map((row) => ({
     entryId: row.entryId,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     kind: row.kind,
     title: row.title,
     snippet: row.snippet,

@@ -6,15 +6,15 @@ import {
   DEFAULT_FORMAT_RULES,
   kbTools,
   MCP_JOB_TOKEN_POLICIES,
-  MCP_PROJECT_BINDINGS,
   MCP_TOKEN_SCOPES,
+  MCP_WORKSPACE_BINDINGS,
   mcpTools,
   ownerTools,
   PostOptionsSchema,
   pipelineTools,
   postFormatCatalog,
   postTools,
-  projectTools,
+  workspaceTools,
 } from "../src";
 import {
   alignment,
@@ -37,7 +37,7 @@ const tools = Object.entries(mcpTools);
 describe("mcp tool contracts", () => {
   it("collects every tool once", () => {
     const names = [
-      projectTools,
+      workspaceTools,
       kbTools,
       adminTools,
       pipelineTools,
@@ -54,7 +54,7 @@ describe("mcp tool contracts", () => {
     expect(tool.name).toBe(key);
     expect(MCP_TOKEN_SCOPES).toContain(tool.scope);
     expect(MCP_JOB_TOKEN_POLICIES).toContain(tool.jobTokens);
-    expect(MCP_PROJECT_BINDINGS).toContain(tool.projectBinding);
+    expect(MCP_WORKSPACE_BINDINGS).toContain(tool.workspaceBinding);
     expect(tool.description.length).toBeGreaterThan(0);
   });
 
@@ -63,7 +63,7 @@ describe("mcp tool contracts", () => {
     expect(() => z.toJSONSchema(tool.output)).not.toThrow();
   });
 
-  it("lets job tokens use the knowledge base and production tools, but not create projects or users or publish skills", () => {
+  it("lets job tokens use the knowledge base and production tools, but not create workspaces or users or publish skills", () => {
     const allowed = tools
       .filter(([, tool]) => tool.jobTokens === "allow")
       .map(([name]) => name)
@@ -84,17 +84,17 @@ describe("mcp tool contracts", () => {
       "kb.save_brainstorm",
       "kb.search",
       "post.formats",
-      "project.get",
-      "project.list",
       "skill.pull",
+      "workspace.get",
+      "workspace.list",
     ]);
   });
 
-  it("binds a project through the input wherever one is named", () => {
+  it("binds a workspace through the input wherever one is named", () => {
     for (const [name, tool] of tools) {
       const fields = Object.keys(tool.input.shape);
-      const namesProject = [
-        "projectId",
+      const namesWorkspace = [
+        "workspaceId",
         "idOrSlug",
         "entryId",
         "seriesId",
@@ -102,7 +102,7 @@ describe("mcp tool contracts", () => {
         "assetId",
       ].some((field) => fields.includes(field));
 
-      expect([name, tool.projectBinding]).toEqual([name, namesProject ? "input" : "none"]);
+      expect([name, tool.workspaceBinding]).toEqual([name, namesWorkspace ? "input" : "none"]);
     }
   });
 
@@ -143,7 +143,7 @@ describe("pipeline tools", () => {
 
   it("creates an idea with a pitch", () => {
     const { input, output } = pipelineTools["content.create_idea"];
-    const idea = { projectId: ids.project, title: "Lifetimes", pitch: "Why 'a exists." };
+    const idea = { workspaceId: ids.workspace, title: "Lifetimes", pitch: "Why 'a exists." };
 
     expect(input.safeParse(idea).success).toBe(true);
     expect(input.safeParse({ ...idea, pitch: " " }).success).toBe(false);
@@ -256,8 +256,8 @@ describe("pipeline tools", () => {
 });
 
 describe("calendar tools", () => {
-  it("reads slots of a series or channel, bound to a project", () => {
-    const { input, output, projectBinding } = calendarTools["calendar.get_slots"];
+  it("reads slots of a series or channel, bound to a workspace", () => {
+    const { input, output, workspaceBinding } = calendarTools["calendar.get_slots"];
     const range = { from: "2026-10-12T00:00:00.000Z", to: "2026-10-19T00:00:00.000Z" };
     const slots = [
       { at: "2026-10-12T13:00:00.000Z", seriesId: ids.series, channelId: ids.channel },
@@ -269,12 +269,12 @@ describe("calendar tools", () => {
       },
     ];
 
-    expect(projectBinding).toBe("input");
+    expect(workspaceBinding).toBe("input");
     expect(input.safeParse(range).success).toBe(true);
     expect(
       input.safeParse({ ...range, seriesId: ids.series, channelId: ids.channel }).success,
     ).toBe(true);
-    expect(input.safeParse({ ...range, projectId: ids.project }).success).toBe(true);
+    expect(input.safeParse({ ...range, workspaceId: ids.workspace }).success).toBe(true);
     expect(input.safeParse({ ...range, seriesId: "rust" }).success).toBe(false);
     expect(input.safeParse({ from: range.from }).success).toBe(false);
     expect(output.parse({ slots })).toEqual({ slots });
@@ -286,7 +286,7 @@ describe("kb tools", () => {
   it("saves a brainstorm and returns its link", () => {
     const { input, output } = kbTools["kb.save_brainstorm"];
     const brainstorm = {
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       title: "Hooks",
       bodyMd: "- result first",
       tags: ["Hooks"],
@@ -295,7 +295,7 @@ describe("kb tools", () => {
 
     expect(input.parse(brainstorm)).toEqual({ ...brainstorm, tags: ["hooks"] });
     expect(input.safeParse({ ...brainstorm, bodyMd: "  " }).success).toBe(false);
-    expect(input.safeParse({ ...brainstorm, projectId: "rust" }).success).toBe(false);
+    expect(input.safeParse({ ...brainstorm, workspaceId: "rust" }).success).toBe(false);
     expect(
       output.safeParse({ entryId: ids.entry, url: "https://loomcast.example.test/kb/1" }).success,
     ).toBe(true);
@@ -303,7 +303,7 @@ describe("kb tools", () => {
 
   it("adds a reference with an optional platform and analysis", () => {
     const { input, output } = kbTools["kb.add_reference"];
-    const reference = { projectId: ids.project, url: "https://youtu.be/abc?si=x" };
+    const reference = { workspaceId: ids.workspace, url: "https://youtu.be/abc?si=x" };
 
     expect(input.safeParse(reference).success).toBe(true);
     expect(input.safeParse({ ...reference, platform: "youtube", analysis }).success).toBe(true);
@@ -319,10 +319,10 @@ describe("kb tools", () => {
     const { input } = kbTools["kb.add_decision"];
 
     expect(
-      input.safeParse({ projectId: ids.project, title: "Format", decision: "Vertical only" })
+      input.safeParse({ workspaceId: ids.workspace, title: "Format", decision: "Vertical only" })
         .success,
     ).toBe(true);
-    expect(input.safeParse({ projectId: ids.project, title: "Format" }).success).toBe(false);
+    expect(input.safeParse({ workspaceId: ids.workspace, title: "Format" }).success).toBe(false);
   });
 
   it("searches with a bounded query and limit", () => {
@@ -338,7 +338,7 @@ describe("kb tools", () => {
     expect(input.safeParse({ query: "hooks", kinds: [] }).success).toBe(false);
     const hit = {
       entryId: ids.entry,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       kind: "decision",
       title: "Format",
       snippet: "\u0002vertical\u0003 only",
@@ -354,14 +354,15 @@ describe("kb tools", () => {
     expect(output.safeParse({ entry: { ...kbEntry, reference: null } }).success).toBe(true);
   });
 
-  it("saves a session summary with or without a project", () => {
+  it("saves a session summary with or without a workspace", () => {
     const { input } = kbTools["kb.save_session_summary"];
 
     expect(input.safeParse({ sessionId: "s1", summaryMd: "Did things", cwd: "/w" }).success).toBe(
       true,
     );
     expect(
-      input.safeParse({ projectId: ids.project, sessionId: "s1", summaryMd: "Did things" }).success,
+      input.safeParse({ workspaceId: ids.workspace, sessionId: "s1", summaryMd: "Did things" })
+        .success,
     ).toBe(true);
     expect(input.safeParse({ sessionId: "", summaryMd: "x" }).success).toBe(false);
   });
@@ -507,12 +508,12 @@ describe("post tools", () => {
     const schedule = postTools["post.schedule"].input;
 
     expect(
-      create.safeParse({ projectId: ids.project, title: "Launch", format: "image" }).success,
+      create.safeParse({ workspaceId: ids.workspace, title: "Launch", format: "image" }).success,
     ).toBe(true);
-    expect(create.safeParse({ projectId: ids.project, title: "Launch" }).success).toBe(false);
-    expect(create.safeParse({ projectId: ids.project, title: "x", format: "gif" }).success).toBe(
-      false,
-    );
+    expect(create.safeParse({ workspaceId: ids.workspace, title: "Launch" }).success).toBe(false);
+    expect(
+      create.safeParse({ workspaceId: ids.workspace, title: "x", format: "gif" }).success,
+    ).toBe(false);
 
     expect(compose.safeParse({ itemId: ids.item }).success).toBe(false);
     expect(compose.safeParse({ itemId: ids.item, caption: null }).success).toBe(true);

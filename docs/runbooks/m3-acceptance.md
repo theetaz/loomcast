@@ -26,9 +26,9 @@ pnpm stack:up && pnpm db:migrate     # Postgres and object storage (SeaweedFS wi
 pnpm dev                             # API and web app on http://localhost:5173
 ```
 
-Sign in, then pair the studio agent (**Settings → Devices → Pair a device**) and start it with
-`pnpm agent run`. The producer runtime must be signed in on the Mac: a chat message in a
-project's **Chat** tab should get a reply.
+Sign in, then pair the studio agent (**Account settings → Devices → Pair a device**) and start it
+with `pnpm agent run`. The producer runtime must be signed in on the Mac: a chat message in a
+workspace's **Chat** should get a reply.
 
 ## 2. Render tools
 
@@ -82,7 +82,7 @@ unchanged files publishes nothing new.
 
 ## 5. The acceptance run
 
-1. **Series and format.** In a project's **Series** tab choose **New series**, name it and keep
+1. **Series and format.** In a workspace's **Series** page choose **New series**, name it and keep
    "New format with default rules". In the format editor set:
    - **Voice ID**: the voice from step 3 (and **Speed** if wanted);
    - **Length**: for example 30 to 45 seconds;
@@ -92,11 +92,11 @@ unchanged files publishes nothing new.
    **Save version**. The version history shows version 2.
 2. **Idea.** On the series page choose **New idea**, give it a title and a pitch, and **Add
    idea**.
-3. **Produce.** In the project's **Content** tab, open the idea's actions menu and choose
+3. **Produce.** In the workspace's **Library**, open the idea's actions menu and choose
    **Produce through review** (or **Produce** on its page). On the item page the job banner shows
    each step: script, storyboard (producer sessions), voice and render (the studio runtime, with
    progress every 10%). The item reaches **In review** with version 5.
-4. **Review.** Open **Review** in the sidebar and the item from the queue. Check:
+4. **Review.** Open the workspace's **Review** in the sidebar and the item from the queue. Check:
    - **Video** plays the render with sound (it never autoplays), with the poster, 1080 × 1920 and
      a length within the format's range (a note on the version says when it is not);
    - **Script** shows the segments with their spoken timestamps;
@@ -135,7 +135,7 @@ Record the date, the item and the render length in the milestone notes.
 | The render fails with `render_tools_missing` | Step 2: ffmpeg, ffprobe or the render browser is missing |
 | The render fails with `frame_too_long`, `frame_too_short` or `beyond_voice` | The storyboard did not fit its cards after it was re-timed to the voice. Request changes asking for a different storyboard, or produce again |
 | Script or storyboard jobs fail as signed out | The producer runtime on the Mac is signed out. Sign it in and produce again |
-| Jobs stay queued | The agent is offline, or busy with another job of the same class (one producer job and one render job at a time). Check **Settings → Devices** and the agent's log |
+| Jobs stay queued | The agent is offline, or busy with another job of the same class (one producer job and one render job at a time). Check **Account settings → Devices** and the agent's log |
 | Uploads fail with `transfer_failed` | The object store is not reachable: `docker compose ps` should show `s3` healthy |
 
 More detail: [pipeline](../pipeline.md), [studio runtime](../studio-runtime.md) and the

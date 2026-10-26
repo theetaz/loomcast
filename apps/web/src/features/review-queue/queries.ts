@@ -13,7 +13,7 @@ export const REVIEW_PAGE_SIZE = 50;
 
 export const reviewQueueKeys = {
   all: ["reviews", "queue"] as const,
-  list: (projectId: string | null) => ["reviews", "queue", projectId ?? "all"] as const,
+  list: (workspaceId: string | null) => ["reviews", "queue", workspaceId ?? "all"] as const,
 };
 
 export type ReviewQueuePages = InfiniteData<CursorPage<ContentItem>, string | undefined>;
@@ -28,13 +28,13 @@ export function compareQueue(a: ContentItem, b: ContentItem): number {
   return a.updatedAt.localeCompare(b.updatedAt) || a.id.localeCompare(b.id);
 }
 
-export function reviewQueueQueryOptions(projectId: string | null) {
+export function reviewQueueQueryOptions(workspaceId: string | null) {
   return infiniteQueryOptions({
-    queryKey: reviewQueueKeys.list(projectId),
+    queryKey: reviewQueueKeys.list(workspaceId),
     queryFn: ({ pageParam, signal }) =>
       api.request("reviews.queue", {
         query: {
-          ...(projectId ? { projectId } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
           limit: REVIEW_PAGE_SIZE,
           ...(pageParam ? { cursor: pageParam } : {}),
         },
@@ -58,7 +58,7 @@ export function applyToQueues(queryClient: QueryClient, item: ContentItem) {
   })) {
     if (!data) continue;
     const scope = queryKey[2];
-    if (scope !== "all" && scope !== item.projectId) continue;
+    if (scope !== "all" && scope !== item.workspaceId) continue;
     const rows = data.pages.flatMap((page) => page.items);
     const cached = rows.find((entry) => entry.id === item.id);
     if (cached && cached.updatedAt > item.updatedAt) continue;

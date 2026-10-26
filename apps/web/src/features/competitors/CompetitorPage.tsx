@@ -2,7 +2,7 @@ import {
   COMPETITOR_NOTES_MAX_LENGTH,
   type Competitor,
   type CompetitorScan,
-  type Project,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
@@ -48,22 +48,22 @@ export const backLink = cn(
 
 /** One competitor: who it is, the notes on it, and its scans. */
 export function CompetitorPage({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
   competitorId,
 }: {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   competitorId: string;
 }) {
   const query = useQuery(competitorQueryOptions(competitorId));
-  const competitor = query.data && query.data.projectId === project.id ? query.data : null;
-  useTitle(competitor ? `${competitorName(competitor)} · ${project.name}` : "Competitor");
+  const competitor = query.data && query.data.workspaceId === workspace.id ? query.data : null;
+  useTitle(competitor ? `${competitorName(competitor)} · ${workspace.name}` : "Competitor");
 
   const back = (
     <Link
-      to="/projects/$projectId/competitors"
-      params={{ projectId: projectParam }}
+      to="/w/$workspace/competitors"
+      params={{ workspace: workspaceParam }}
       className={backLink}
     >
       <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
@@ -106,10 +106,10 @@ export function CompetitorPage({
       <EmptyState
         icon={UserXIcon}
         title="Competitor not found"
-        description="The project may have stopped following it, or the link points somewhere else."
+        description="The workspace may have stopped following it, or the link points somewhere else."
         action={
           <Button asChild variant="outline">
-            <Link to="/projects/$projectId/competitors" params={{ projectId: projectParam }}>
+            <Link to="/w/$workspace/competitors" params={{ workspace: workspaceParam }}>
               All competitors
             </Link>
           </Button>
@@ -121,21 +121,25 @@ export function CompetitorPage({
   return (
     <div className="flex flex-col gap-5">
       {back}
-      <CompetitorHeader competitor={competitor} project={project} projectParam={projectParam} />
+      <CompetitorHeader
+        competitor={competitor}
+        workspace={workspace}
+        workspaceParam={workspaceParam}
+      />
       <NotesCard competitor={competitor} />
-      <ScansSection competitor={competitor} projectParam={projectParam} />
+      <ScansSection competitor={competitor} workspaceParam={workspaceParam} />
     </div>
   );
 }
 
 function CompetitorHeader({
   competitor,
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
 }: {
   competitor: Competitor;
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
 }) {
   const navigate = useNavigate();
   const facts = accountFacts(competitor.account);
@@ -145,7 +149,7 @@ function CompetitorHeader({
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <PlatformTile platform={competitor.platform} className="mt-0.5 size-9 text-[13px]" />
         <div className="flex min-w-0 flex-col gap-0.5">
-          <h2 className="text-title break-words">
+          <h1 className="text-title break-words">
             <a
               href={competitor.profileUrl}
               target="_blank"
@@ -156,7 +160,7 @@ function CompetitorHeader({
               <ExternalLinkIcon aria-hidden="true" className="size-4 shrink-0 text-text-3" />
               <span className="sr-only">(opens the profile in a new tab)</span>
             </a>
-          </h2>
+          </h1>
           <p className="text-small text-muted-foreground">
             {[platformLabel(competitor.platform), competitor.account.displayName, ...facts]
               .filter(Boolean)
@@ -165,8 +169,8 @@ function CompetitorHeader({
         </div>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-        {project.status === "active" ? (
-          <ScanDialog competitor={competitor} projectParam={projectParam}>
+        {workspace.status === "active" ? (
+          <ScanDialog competitor={competitor} workspaceParam={workspaceParam}>
             <Button>
               <RadarIcon aria-hidden="true" />
               Scan
@@ -177,8 +181,8 @@ function CompetitorHeader({
           competitor={competitor}
           onDeleted={() =>
             void navigate({
-              to: "/projects/$projectId/competitors",
-              params: { projectId: projectParam },
+              to: "/w/$workspace/competitors",
+              params: { workspace: workspaceParam },
               replace: true,
             })
           }
@@ -275,10 +279,10 @@ function NotesCard({ competitor }: { competitor: Competitor }) {
 
 function ScansSection({
   competitor,
-  projectParam,
+  workspaceParam,
 }: {
   competitor: Competitor;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   const id = useId();
   const query = useQuery(competitorScansQueryOptions(competitor.id));
@@ -321,7 +325,7 @@ function ScansSection({
                 key={scan.id}
                 scan={scan}
                 competitor={competitor}
-                projectParam={projectParam}
+                workspaceParam={workspaceParam}
               />
             ))}
           </ul>
@@ -334,18 +338,18 @@ function ScansSection({
 function ScanRow({
   scan,
   competitor,
-  projectParam,
+  workspaceParam,
 }: {
   scan: CompetitorScan;
   competitor: Competitor;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   const active = isActiveScan(scan.status);
   return (
     <li className="border-divider border-t first:border-t-0">
       <Link
-        to="/projects/$projectId/competitors/$competitorId/scans/$scanId"
-        params={{ projectId: projectParam, competitorId: competitor.id, scanId: scan.id }}
+        to="/w/$workspace/competitors/$competitorId/scans/$scanId"
+        params={{ workspace: workspaceParam, competitorId: competitor.id, scanId: scan.id }}
         className={cn(
           "flex items-center gap-3 px-3.5 py-2.5 outline-none transition-colors",
           "hover:bg-secondary focus-visible:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",

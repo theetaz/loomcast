@@ -22,7 +22,7 @@ import {
   resolveStorageTarget,
   type StorageTarget,
 } from "./storage-support";
-import { errorCode } from "./support";
+import { errorCode, insertWorkspace } from "./support";
 
 // The machine API end to end: API keys, access levels, channel isolation, format refusals,
 // idempotency, the upload and finalize flow for photos and carousels, text posts, rescheduling,
@@ -41,12 +41,22 @@ const storedKeys: string[] = [];
 
 beforeAll(async () => {
   h = await createApiHarness({ config: { storage: target.config } });
-  facebookId = (await insertChannel(h.testDb.db, keyring, { platform: "facebook" })).id;
-  instagramId = (await insertChannel(h.testDb.db, keyring, { platform: "instagram" })).id;
-  gatedId = (
-    await insertChannel(h.testDb.db, keyring, { platform: "facebook", requiresApproval: true })
+  facebookId = (
+    await insertChannel(h.testDb.db, keyring, { workspaceId: h.workspaceId, platform: "facebook" })
   ).id;
-  hiddenId = (await insertChannel(h.testDb.db, keyring, { platform: "facebook" })).id;
+  instagramId = (
+    await insertChannel(h.testDb.db, keyring, { workspaceId: h.workspaceId, platform: "instagram" })
+  ).id;
+  gatedId = (
+    await insertChannel(h.testDb.db, keyring, {
+      workspaceId: h.workspaceId,
+      platform: "facebook",
+      requiresApproval: true,
+    })
+  ).id;
+  hiddenId = (
+    await insertChannel(h.testDb.db, keyring, { workspaceId: h.workspaceId, platform: "facebook" })
+  ).id;
 });
 
 afterAll(async () => {
@@ -86,12 +96,15 @@ describe("authentication", () => {
     expect(me.status).toBe(200);
     expect(me.headers.get("cache-control")).toBe("no-store");
     expect(me.headers.get("ratelimit-limit")).toBe(String(API_V1_RATE_LIMIT.capacity));
-    expect(ApiV1MeSchema.parse(await me.json())).toMatchObject({
+    const meBody = (await me.json()) as { workspace: unknown; project: unknown };
+    expect(ApiV1MeSchema.parse(meBody)).toMatchObject({
       client: { id: client.id, name: client.name, prefix: client.prefix },
-      project: { id: h.projectId },
+      workspace: { id: h.workspaceId, name: "API posts" },
       grants: [{ channelId: facebookId, access: "read" }],
       rateLimit: { requests: 120, perSeconds: 60 },
     });
+    // The deprecated `project` field repeats the workspace for clients written before the rename.
+    expect(meBody.project).toEqual(meBody.workspace);
 
     const missing = await machine(h.t, null, "GET", "/api/v1/me");
     expect(missing.status).toBe(401);
@@ -186,6 +199,30 @@ describe("access levels", () => {
     expect(new Set(body.error.details.map((issue) => issue.message)).size).toBe(1);
   });
 
+  it("refuses a channel of another workspace as it refuses an unknown one", async () => {
+    const other = await insertWorkspace(h.testDb.db, { createdBy: h.ownerId, name: "Other" });
+    const foreign = (
+      await insertChannel(h.testDb.db, keyring, { workspaceId: other, platform: "facebook" })
+    ).id;
+    const { secret } = await h.createClient([{ channelId: facebookId, access: "publish" }]);
+    const response = await machine(h.t, secret, "POST", "/api/v1/posts", {
+      body: textPost([facebookId, foreign, randomUUID()]),
+    });
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: { code: string; details: { path: string; message: string }[] };
+    };
+    expect(body.error.code).toBe("validation_failed");
+    expect(body.error.details.map((issue) => issue.path)).toEqual([
+      "channels.1.channelId",
+      "channels.2.channelId",
+    ]);
+    expect(new Set(body.error.details.map((issue) => issue.message)).size).toBe(1);
+    expect(
+      await h.testDb.db.select().from(scheduledPosts).where(eq(scheduledPosts.channelId, foreign)),
+    ).toEqual([]);
+  });
+
   it("lets a write client schedule a post that waits for the owner's approval", async () => {
     const { secret } = await h.createClient([{ channelId: facebookId, access: "write" }]);
     const post = await created(
@@ -201,7 +238,7 @@ describe("access levels", () => {
       .select()
       .from(contentItems)
       .where(eq(contentItems.id, post.id));
-    expect(item).toMatchObject({ state: "review", createdVia: "api", projectId: h.projectId });
+    expect(item).toMatchObject({ state: "review", createdVia: "api", workspaceId: h.workspaceId });
 
     const inbox = (await (await h.owner("GET", "/api/approvals")).json()) as {
       items: { item: { id: string } }[];
@@ -329,7 +366,7 @@ describe("uploads and finalize", () => {
   }
 
   function remember(itemId: string, mime: string, sha256: string) {
-    storedKeys.push(assetStorageKey({ projectId: h.projectId, itemId }, "media", sha256, mime));
+    storedKeys.push(assetStorageKey({ workspaceId: h.workspaceId, itemId }, "media", sha256, mime));
   }
 
   it("uploads a photo, finalizes it and schedules it on Instagram and Facebook", async () => {
@@ -667,7 +704,7 @@ describe("publishing", () => {
     );
     storedKeys.push(
       assetStorageKey(
-        { projectId: h.projectId, itemId: post.id },
+        { workspaceId: h.workspaceId, itemId: post.id },
         "media",
         video.sha256,
         "video/mp4",

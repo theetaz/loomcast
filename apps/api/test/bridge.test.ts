@@ -13,7 +13,7 @@ import {
   type Fixtures,
   pairDevice,
   producerChatPayload,
-  seedProject,
+  seedWorkspace,
   startBridgeServer,
   type TestDevice,
   trackUnhandledRejections,
@@ -29,7 +29,7 @@ const agents: FakeAgent[] = [];
 
 beforeAll(async () => {
   testDb = await createTestDb({ max: 10 });
-  fixtures = await seedProject(testDb.db);
+  fixtures = await seedWorkspace(testDb.db);
 });
 
 afterEach(async () => {
@@ -247,7 +247,7 @@ describe("dispatch", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
 
@@ -264,7 +264,9 @@ describe("dispatch", () => {
       type: "system.ping",
       attempt: 1,
       payload: {},
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
+      // The legacy name, for agents older than the workspace rename.
+      projectId: fixtures.workspaceId,
     });
     expect(assign.payload.leaseMs).toBe(BRIDGE_TIMINGS.leaseMs);
     expect(await jobRow(job.id)).toMatchObject({
@@ -288,7 +290,7 @@ describe("dispatch", () => {
     const agent = await connect(server, device);
     await agent.hello();
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     expect((await agent.next("job.assign")).payload.job.id).toBe(job.id);
@@ -301,7 +303,7 @@ describe("dispatch", () => {
     for (let i = 0; i < 3; i += 1) {
       queued.push(
         await enqueue(testDb.db, server.bus, {
-          projectId: fixtures.projectId,
+          workspaceId: fixtures.workspaceId,
           createdBy: fixtures.userId,
         }),
       );
@@ -345,7 +347,7 @@ describe("dispatch", () => {
     const mine = await pairDevice(testDb.db, fixtures.userId, "Affinity Mac");
     const other = await pairDevice(testDb.db, fixtures.userId, "Other Mac");
     const pinned = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
       deviceAffinity: mine.deviceId,
     });
@@ -370,7 +372,7 @@ describe("dispatch", () => {
       .where(eq(devices.id, gone.deviceId));
     const other = await pairDevice(testDb.db, fixtures.userId, "Other Mac");
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
       deviceAffinity: gone.deviceId,
     });
@@ -386,7 +388,7 @@ describe("dispatch", () => {
     const chat = await enqueue(testDb.db, server.bus, {
       type: "producer.chat",
       payload: producerChatPayload(fixtures, conversationId),
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       conversationId,
       createdBy: fixtures.userId,
     });
@@ -401,7 +403,7 @@ describe("dispatch", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -421,7 +423,7 @@ describe("dispatch", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -436,7 +438,7 @@ describe("dispatch", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -464,7 +466,7 @@ describe("dispatch", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const first = await connect(server, device);
@@ -484,7 +486,7 @@ describe("durable events", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -528,7 +530,7 @@ describe("durable events", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -558,7 +560,7 @@ describe("resume and leases", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const first = await connect(server, device);
@@ -615,7 +617,7 @@ describe("resume and leases", () => {
     const job = await enqueue(testDb.db, server.bus, {
       type: "producer.chat",
       payload: producerChatPayload(fixtures, conversationId),
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       conversationId,
       createdBy: fixtures.userId,
     });
@@ -661,7 +663,7 @@ describe("resume and leases", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -697,7 +699,7 @@ describe("outcomes", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -727,7 +729,7 @@ describe("outcomes", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -744,7 +746,7 @@ describe("outcomes", () => {
     const holder = await pairDevice(testDb.db, fixtures.userId, "Holder");
     const intruder = await pairDevice(testDb.db, fixtures.userId, "Intruder");
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, holder);
@@ -774,7 +776,7 @@ describe("producer.chat", () => {
     const job = await enqueue(testDb.db, server.bus, {
       type: "producer.chat",
       payload: producerChatPayload(fixtures, conversationId),
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       conversationId,
       createdBy: fixtures.userId,
     });
@@ -871,7 +873,7 @@ describe("producer.chat", () => {
     const job = await enqueue(testDb.db, server.bus, {
       type: "producer.chat",
       payload: producerChatPayload(fixtures, conversationId),
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       conversationId,
       createdBy: fixtures.userId,
     });
@@ -971,7 +973,7 @@ describe("cancel", () => {
     const server = await start();
     const cookie = await signIn(server);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
 
@@ -1005,7 +1007,7 @@ describe("cancel", () => {
     const cookie = await signIn(server);
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);
@@ -1035,7 +1037,7 @@ describe("cancel", () => {
     const cookie = await signIn(server);
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const first = await connect(server, device);

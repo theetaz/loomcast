@@ -52,6 +52,7 @@ import { toast } from "sonner";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { useMe } from "@/features/auth/queries";
+import { ChannelSettingsLink } from "@/features/channels/ChannelSettingsLink";
 import { channelsQueryOptions } from "@/features/channels/queries";
 import { seriesListQueryOptions } from "@/features/library/queries";
 import {
@@ -66,7 +67,8 @@ import {
   type PostMediaProgress,
   postMediaType,
 } from "@/features/post-formats/media-upload";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { useOptionalWorkspaceParam } from "@/features/workspace/current";
+import { workspacesQueryOptions } from "@/features/workspaces/queries";
 import { errorMessage } from "@/lib/api";
 import {
   acceptFor,
@@ -95,17 +97,17 @@ const draftKey = () => {
 };
 
 /**
- * Wraps a trigger button. Composes a post from photos, videos or words: the project, the format
+ * Wraps a trigger button. Composes a post from photos, videos or words: the workspace, the format
  * (only those a channel publishes), a title, the caption and the media, with a live preview and
  * what the format still needs. Saving creates the item, uploads the media and writes its version;
  * the post can then be scheduled from the same dialog once it may be. The form starts empty every
  * time the dialog opens.
  */
 export function NewPostDialog({
-  projectId = null,
+  workspaceId = null,
   children,
 }: {
-  projectId?: string | null;
+  workspaceId?: string | null;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +127,7 @@ export function NewPostDialog({
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-[880px]">
         <Composer
           key={formKey}
-          fixedProjectId={projectId}
+          fixedWorkspaceId={workspaceId}
           onBusyChange={setBusy}
           onClose={() => setOpen(false)}
         />
@@ -135,11 +137,11 @@ export function NewPostDialog({
 }
 
 function Composer({
-  fixedProjectId,
+  fixedWorkspaceId,
   onBusyChange,
   onClose,
 }: {
-  fixedProjectId: string | null;
+  fixedWorkspaceId: string | null;
   onBusyChange: (busy: boolean) => void;
   onClose: () => void;
 }) {
@@ -151,17 +153,23 @@ function Composer({
   const save = useSavePost();
   const me = useMe();
 
-  const projects = useQuery({ ...projectsQueryOptions(), enabled: fixedProjectId === null });
-  const activeProjects = (projects.data ?? []).filter((project) => project.status === "active");
-  const [chosenProjectId, setChosenProjectId] = useState<string | null>(null);
-  const projectId = fixedProjectId ?? chosenProjectId ?? activeProjects[0]?.id ?? null;
+  const workspaceParam = useOptionalWorkspaceParam();
+  const workspaces = useQuery({ ...workspacesQueryOptions(), enabled: fixedWorkspaceId === null });
+  const activeWorkspaces = (workspaces.data ?? []).filter(
+    (workspace) => workspace.status === "active",
+  );
+  const [chosenWorkspaceId, setChosenWorkspaceId] = useState<string | null>(null);
+  const workspaceId = fixedWorkspaceId ?? chosenWorkspaceId ?? activeWorkspaces[0]?.id ?? null;
   const series = useQuery({
-    ...seriesListQueryOptions(projectId ?? ""),
-    enabled: projectId !== null,
+    ...seriesListQueryOptions(workspaceId ?? ""),
+    enabled: workspaceId !== null,
   });
   const activeSeries = (series.data?.items ?? []).filter((entry) => entry.status !== "archived");
 
-  const channels = useQuery(channelsQueryOptions());
+  const channels = useQuery({
+    ...channelsQueryOptions(workspaceId ?? ""),
+    enabled: workspaceId !== null,
+  });
   const usable = schedulableChannels(channels.data?.items ?? []);
   const formats = publishableFormats(usable);
 
@@ -269,7 +277,7 @@ function Composer({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (save.isPending || !projectId || !format) return;
+    if (save.isPending || !workspaceId || !format) return;
     const parsed = ContentTitleSchema.safeParse(title);
     if (!parsed.success) {
       setTitleError("Give the post a title.");
@@ -279,7 +287,7 @@ function Composer({
     save.mutate(
       {
         input: {
-          projectId,
+          workspaceId,
           format,
           title: parsed.data,
           seriesId: chosenSeries,
@@ -311,19 +319,21 @@ function Composer({
     );
   };
 
-  if (fixedProjectId === null && projects.isSuccess && activeProjects.length === 0) {
+  if (fixedWorkspaceId === null && workspaces.isSuccess && activeWorkspaces.length === 0) {
     return (
       <div className="grid gap-4">
         <DialogHeader>
           <DialogTitle>New post</DialogTitle>
-          <DialogDescription>Posts belong to a project. Create a project first.</DialogDescription>
+          <DialogDescription>
+            Posts belong to a workspace. Create a workspace first.
+          </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
           <Button asChild>
-            <Link to="/projects">Go to projects</Link>
+            <Link to="/workspaces">Go to workspaces</Link>
           </Button>
         </DialogFooter>
       </div>
@@ -375,7 +385,10 @@ function Composer({
             variant="outline"
             onClick={() => {
               onClose();
-              void navigate({ to: "/content/$itemId", params: { itemId: item.id } });
+              void navigate({
+                to: "/w/$workspace/content/$itemId",
+                params: { workspace: workspaceParam ?? item.workspaceId, itemId: item.id },
+              });
             }}
           >
             Open post
@@ -449,24 +462,24 @@ function Composer({
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="grid content-start gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              {fixedProjectId === null ? (
+              {fixedWorkspaceId === null ? (
                 <div className="grid gap-1.5">
-                  <Label htmlFor={`${id}-project`}>Project</Label>
+                  <Label htmlFor={`${id}-workspace`}>Workspace</Label>
                   <Select
-                    value={projectId ?? undefined}
+                    value={workspaceId ?? undefined}
                     onValueChange={(value) => {
-                      setChosenProjectId(value);
+                      setChosenWorkspaceId(value);
                       setSeriesId(null);
                     }}
-                    disabled={activeProjects.length === 0 || locked}
+                    disabled={activeWorkspaces.length === 0 || locked}
                   >
-                    <SelectTrigger id={`${id}-project`} className="w-full">
-                      <SelectValue placeholder="Loading projects…" />
+                    <SelectTrigger id={`${id}-workspace`} className="w-full">
+                      <SelectValue placeholder="Loading workspaces…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {activeProjects.map((project) => (
-                        <SelectItem key={project.id} value={project.id}>
-                          {project.name}
+                      {activeWorkspaces.map((workspace) => (
+                        <SelectItem key={workspace.id} value={workspace.id}>
+                          {workspace.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -700,7 +713,7 @@ function Composer({
             Cancel
           </Button>
         </DialogClose>
-        <Button type="submit" disabled={save.isPending || !projectId || !format}>
+        <Button type="submit" disabled={save.isPending || !workspaceId || !format}>
           {save.isPending
             ? kept.length > 0 && savedSoFar.item
               ? "Uploading…"
@@ -763,7 +776,7 @@ function FormatPicker({
         description="A post's format depends on where it goes. Connect an Instagram or Facebook channel first."
         action={
           <Button asChild variant="outline" size="sm">
-            <Link to="/settings/channels">Open channels</Link>
+            <ChannelSettingsLink>Open channels</ChannelSettingsLink>
           </Button>
         }
       />

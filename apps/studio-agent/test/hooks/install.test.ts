@@ -113,6 +113,6 @@ describe("hook installer", () => {
     expect(lines).toContain("export LOOMCAST_SESSION_HOOK=1");
     expect(lines).toContain("export LOOMCAST_URL=http://localhost:5173");
     expect(lines).toContain("export LOOMCAST_MCP_TOKEN=");
-    expect(envLines({ project: "p-1" })).toContain("export LOOMCAST_PROJECT_ID=p-1");
+    expect(envLines({ workspace: "p-1" })).toContain("export LOOMCAST_WORKSPACE_ID=p-1");
   });
 });

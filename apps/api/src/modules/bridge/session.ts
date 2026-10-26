@@ -220,7 +220,7 @@ export class BridgeSession implements DispatchSession {
           type: job.type,
           attempt: job.attempt,
           payload: job.payload,
-          projectId: job.projectId,
+          workspaceId: job.workspaceId,
           ...(job.conversationId === null ? {} : { conversationId: job.conversationId }),
         },
         leaseMs: this.#host.timings.leaseMs,

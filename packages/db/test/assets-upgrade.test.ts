@@ -6,8 +6,9 @@ import { assets } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   assetValues,
+  insertLegacyAsset,
   insertLegacyContentItem,
-  insertProject,
+  insertLegacyWorkspace,
   insertUser,
   PG,
   pgError,
@@ -15,7 +16,7 @@ import {
 } from "./fixtures";
 import { journal, migrateFolder, migrationsUpTo } from "./upgrade";
 
-/** The last migration of the release that deduplicated every asset per project. */
+/** The last migration of the release that deduplicated every asset per workspace. */
 const PREVIOUS_RELEASE = "0012_add_post_metrics";
 
 async function dedupeIndexes(testDb: TestDb): Promise<Record<string, string>> {
@@ -43,32 +44,32 @@ describe("asset dedupe migration on a database of the previous release", () => {
 
   it("keeps existing assets and lets two items hold the same bytes", async () => {
     const db = testDb.db;
-    // Assets as the previous release stores them; the table's columns are unchanged since.
+    // Assets as the previous release stores them, under the old names (`projects`, `project_id`).
     const user = await insertUser(db);
-    const project = await insertProject(db, user.id);
+    const project = await insertLegacyWorkspace(db, user.id);
     const { item: first } = await insertLegacyContentItem(db, { projectId: project.id });
     const { item: second } = await insertLegacyContentItem(db, { projectId: project.id });
     const sha256 = randomHash();
-    const voice = { projectId: project.id, kind: "voice", sha256, status: "ready" } as const;
+    const voice = { kind: "voice", sha256, status: "ready" } as const;
     const reference = {
-      projectId: project.id,
       kind: "reference_media",
       mime: "video/mp4",
       sha256,
       status: "ready",
     } as const;
-    const kept = await db
-      .insert(assets)
-      .values([
-        assetValues({ ...voice, itemId: first.id }),
-        assetValues(reference),
-        assetValues({ ...voice, itemId: second.id, status: "failed" }),
-      ])
-      .returning({ id: assets.id });
+    const kept: { id: string }[] = [];
+    for (const values of [
+      { ...voice, itemId: first.id },
+      reference,
+      { ...voice, itemId: second.id, status: "failed" as const },
+    ]) {
+      const result = await insertLegacyAsset(db, project.id, values);
+      kept.push(...result.rows);
+    }
 
     // The previous release refuses the second item's own copy.
     const before = await pgError(
-      db.insert(assets).values(assetValues({ ...voice, itemId: second.id })),
+      insertLegacyAsset(db, project.id, { ...voice, itemId: second.id }),
     );
     expect(before).toEqual({
       code: PG.uniqueViolation,
@@ -84,35 +85,50 @@ describe("asset dedupe migration on a database of the previous release", () => {
     expect(applied.rows[0]?.count).toBe(journal.entries.length);
     const indexes = await dedupeIndexes(testDb);
     expect(Object.keys(indexes)).toEqual([
-      "assets_project_id_item_id_kind_sha256_uq",
-      "assets_project_id_kind_sha256_uq",
+      "assets_workspace_id_item_id_kind_sha256_uq",
+      "assets_workspace_id_kind_sha256_uq",
     ]);
-    expect(indexes.assets_project_id_item_id_kind_sha256_uq).toContain(
+    expect(indexes.assets_workspace_id_item_id_kind_sha256_uq).toContain(
       "WHERE ((item_id IS NOT NULL) AND (status <> 'failed'::asset_status))",
     );
-    expect(indexes.assets_project_id_kind_sha256_uq).toContain(
+    expect(indexes.assets_workspace_id_kind_sha256_uq).toContain(
       "WHERE ((item_id IS NULL) AND (status <> 'failed'::asset_status))",
     );
 
+    // The assets are kept and belong to the workspace the project became.
     for (const { id } of kept) {
-      expect(await db.select({ id: assets.id }).from(assets).where(eq(assets.id, id))).toEqual([
-        { id },
-      ]);
+      expect(
+        await db
+          .select({ id: assets.id, workspaceId: assets.workspaceId })
+          .from(assets)
+          .where(eq(assets.id, id)),
+      ).toEqual([{ id, workspaceId: project.id }]);
     }
 
-    // The second item now holds its own copy, the first item still deduplicates, and project-level
-    // media still deduplicates per project.
+    // The second item now holds its own copy, the first item still deduplicates, and workspace-level
+    // media still deduplicates per workspace.
     const [copy] = await db
       .insert(assets)
-      .values(assetValues({ ...voice, itemId: second.id }))
+      .values(assetValues({ ...voice, workspaceId: project.id, itemId: second.id }))
       .returning();
     expect(copy?.itemId).toBe(second.id);
     expect(
-      await pgError(db.insert(assets).values(assetValues({ ...voice, itemId: first.id }))),
-    ).toEqual({ code: PG.uniqueViolation, constraint: "assets_project_id_item_id_kind_sha256_uq" });
-    expect(await pgError(db.insert(assets).values(assetValues(reference)))).toEqual({
+      await pgError(
+        db
+          .insert(assets)
+          .values(assetValues({ ...voice, workspaceId: project.id, itemId: first.id })),
+      ),
+    ).toEqual({
       code: PG.uniqueViolation,
-      constraint: "assets_project_id_kind_sha256_uq",
+      constraint: "assets_workspace_id_item_id_kind_sha256_uq",
+    });
+    expect(
+      await pgError(
+        db.insert(assets).values(assetValues({ ...reference, workspaceId: project.id })),
+      ),
+    ).toEqual({
+      code: PG.uniqueViolation,
+      constraint: "assets_workspace_id_kind_sha256_uq",
     });
   });
 });

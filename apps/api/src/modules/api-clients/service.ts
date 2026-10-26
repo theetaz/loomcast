@@ -12,17 +12,17 @@ import {
   apiTokens,
   channels,
   type Database,
-  projects,
   users,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Clock } from "../../lib/clock";
 import { generatePrefixedToken } from "../../lib/crypto";
 import { type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, forbidden, validationFailed } from "../../lib/errors";
-import { requireActiveProject } from "../kb/service";
+import { requireActiveWorkspace } from "../kb/service";
 
-// API clients: `api` tokens of the owner, each bound to one project and granted channels with an
+// API clients: `api` tokens of the owner, each bound to one workspace and granted channels with an
 // access level. The machine API (`modules/api-v1`) reads the grants on every request, so a change
 // here applies to the client's next call; revoking the token stops it at once.
 
@@ -49,7 +49,7 @@ export interface ApiClientsService {
   get(id: string): Promise<ApiClient | null>;
   /**
    * Creates a client for `ownerId`, who must be the owner: the token and its grants in one
-   * transaction. 404 for an unknown project and 409 for an archived one; 400 for a channel that
+   * transaction. 404 for an unknown workspace and 409 for an archived one; 400 for a channel that
    * does not exist or an expiry in the past.
    */
   create(input: CreateApiClientRequest, ownerId: string): Promise<CreatedApiClient>;
@@ -94,9 +94,9 @@ async function loadGrants(executor: Executor, tokenIds: readonly string[]) {
 
 async function loadClients(executor: Executor, ids?: readonly string[]): Promise<ApiClient[]> {
   const rows = await executor
-    .select({ token: apiTokens, projectName: projects.name })
+    .select({ token: apiTokens, workspaceName: workspaces.name })
     .from(apiTokens)
-    .innerJoin(projects, eq(projects.id, apiTokens.projectId))
+    .innerJoin(workspaces, eq(workspaces.id, apiTokens.workspaceId))
     .where(
       and(
         eq(apiTokens.kind, "api"),
@@ -108,13 +108,13 @@ async function loadClients(executor: Executor, ids?: readonly string[]): Promise
     executor,
     rows.map((row) => row.token.id),
   );
-  return rows.map(({ token, projectName }) => ({
+  return rows.map(({ token, workspaceName }) => ({
     id: token.id,
     name: token.name,
     prefix: token.prefix,
-    // Every API token has a project (`api_tokens_project_id_ck`).
-    projectId: token.projectId ?? "",
-    projectName,
+    // Every API token has a workspace (`api_tokens_workspace_id_ck`).
+    workspaceId: token.workspaceId ?? "",
+    workspaceName,
     grants: grants.get(token.id) ?? [],
     createdAt: token.createdAt.toISOString(),
     lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
@@ -123,19 +123,26 @@ async function loadClients(executor: Executor, ids?: readonly string[]): Promise
   }));
 }
 
-/** 400 unless every granted channel exists. */
-async function requireChannels(tx: Transaction, grants: readonly ApiChannelGrant[]): Promise<void> {
+/** 400 unless every granted channel is a channel of the client's workspace. */
+async function requireChannels(
+  tx: Transaction,
+  workspaceId: string,
+  grants: readonly ApiChannelGrant[],
+): Promise<void> {
   const ids = grants.map((grant) => grant.channelId);
   const found = await tx
     .select({ id: channels.id })
     .from(channels)
-    .where(inArray(channels.id, ids))
+    .where(and(inArray(channels.id, ids), eq(channels.workspaceId, workspaceId)))
     .for("share");
   const known = new Set(found.map((row) => row.id));
   const missing = grants
     .map((grant, index) => ({ grant, index }))
     .filter(({ grant }) => !known.has(grant.channelId))
-    .map(({ index }) => ({ path: `grants.${index}.channelId`, message: "No channel has that id" }));
+    .map(({ index }) => ({
+      path: `grants.${index}.channelId`,
+      message: "No channel of this workspace has that id",
+    }));
   if (missing.length > 0) {
     throw validationFailed(missing);
   }
@@ -143,6 +150,7 @@ async function requireChannels(tx: Transaction, grants: readonly ApiChannelGrant
 
 async function writeGrants(
   tx: Transaction,
+  workspaceId: string,
   tokenId: string,
   grants: readonly ApiChannelGrant[],
   now: Date,
@@ -150,6 +158,7 @@ async function writeGrants(
   await tx.delete(apiTokenChannels).where(eq(apiTokenChannels.tokenId, tokenId));
   await tx.insert(apiTokenChannels).values(
     grants.map((grant) => ({
+      workspaceId,
       tokenId,
       channelId: grant.channelId,
       access: grant.access,
@@ -193,8 +202,8 @@ export function createApiClientsService(deps: ApiClientsServiceDeps): ApiClients
         if (owner === undefined || owner.role !== "owner" || owner.disabledAt !== null) {
           throw forbidden("Only the owner can create API clients.");
         }
-        await requireActiveProject(tx, input.projectId);
-        await requireChannels(tx, input.grants);
+        await requireActiveWorkspace(tx, input.workspaceId);
+        await requireChannels(tx, input.workspaceId, input.grants);
         const [row] = await tx
           .insert(apiTokens)
           .values({
@@ -204,7 +213,7 @@ export function createApiClientsService(deps: ApiClientsServiceDeps): ApiClients
             tokenHash: generated.hash,
             prefix: generated.prefix,
             scopes: [],
-            projectId: input.projectId,
+            workspaceId: input.workspaceId,
             expiresAt: input.expiresAt === undefined ? null : new Date(input.expiresAt),
             createdAt: now,
           })
@@ -212,7 +221,7 @@ export function createApiClientsService(deps: ApiClientsServiceDeps): ApiClients
         if (row === undefined) {
           throw new Error("API client was not inserted");
         }
-        await writeGrants(tx, row.id, input.grants, now);
+        await writeGrants(tx, input.workspaceId, row.id, input.grants, now);
         const client = await one(tx, row.id);
         if (client === null) {
           throw new Error("API client vanished after insert");
@@ -245,8 +254,10 @@ export function createApiClientsService(deps: ApiClientsServiceDeps): ApiClients
           changes.name = { from: row.name, to: input.name };
         }
         if (input.grants !== undefined) {
-          await requireChannels(tx, input.grants);
-          await writeGrants(tx, id, input.grants, clock.now());
+          // Every API token has a workspace (`api_tokens_workspace_id_ck`).
+          const workspaceId = row.workspaceId ?? "";
+          await requireChannels(tx, workspaceId, input.grants);
+          await writeGrants(tx, workspaceId, id, input.grants, clock.now());
           changes.grants = { from: plainGrants(before.grants), to: [...input.grants] };
         }
         const client = await one(tx, id);

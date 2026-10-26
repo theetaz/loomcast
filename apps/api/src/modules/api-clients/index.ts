@@ -60,7 +60,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
       targetId: created.client.id,
       data: {
         name: created.client.name,
-        projectId: created.client.projectId,
+        workspaceId: created.client.workspaceId,
         grants: input.grants,
         expiresAt: created.client.expiresAt,
       },

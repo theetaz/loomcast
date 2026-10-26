@@ -78,7 +78,7 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
           publishedAt: scheduledPosts.publishedAt,
           format: contentVersions.format,
           itemId: scheduledPosts.itemId,
-          projectId: contentItems.projectId,
+          workspaceId: contentItems.workspaceId,
           channelId: channels.id,
           platform: channels.platform,
           channelStatus: channels.status,
@@ -231,7 +231,7 @@ export function registerInsightsTasks(deps: InsightsDeps): void {
             payload: {
               postId: row.postId,
               itemId: row.itemId,
-              projectId: row.projectId,
+              workspaceId: row.workspaceId,
               channelId,
               platform,
               metrics,

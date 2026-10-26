@@ -1,4 +1,4 @@
-import type { Channel } from "@loomcast/contracts";
+import type { Channel, Workspace } from "@loomcast/contracts";
 import { StatusDot } from "@loomcast/ui/components/StatusPill";
 import {
   SidebarGroup,
@@ -23,14 +23,15 @@ const STATUS_NOTES: Partial<Record<Channel["status"], string>> = {
 };
 
 /**
- * The channels series publish to. Each opens the calendar filtered to it; a channel that needs
+ * The workspace's channels. Each opens the workspace calendar filtered to it; a channel that needs
  * reconnecting carries an amber dot and X channels a lock while they can only dry-run. The group
- * action opens Settings → Channels. Kept light: it is part of the entry chunk.
+ * action opens the workspace's channel settings. Kept light: it is part of the entry chunk.
  */
-export function ChannelsSection() {
+export function ChannelsSection({ workspace }: { workspace: Pick<Workspace, "id" | "slug"> }) {
   useChannelsLive();
   const { isMobile, setOpenMobile } = useSidebar();
-  const query = useQuery(channelsQueryOptions());
+  const query = useQuery(channelsQueryOptions(workspace.id));
+  const params = { workspace: workspace.slug };
   const close = () => isMobile && setOpenMobile(false);
   const channels = sortChannels(query.data?.items ?? []);
 
@@ -38,7 +39,12 @@ export function ChannelsSection() {
     <SidebarGroup className="pt-3">
       <SidebarGroupLabel className="text-muted-foreground">Channels</SidebarGroupLabel>
       <SidebarGroupAction asChild title="Manage channels">
-        <Link to="/settings/channels" onClick={close} aria-label="Manage channels">
+        <Link
+          to="/w/$workspace/settings/channels"
+          params={params}
+          onClick={close}
+          aria-label="Manage channels"
+        >
           <Settings2Icon aria-hidden="true" />
         </Link>
       </SidebarGroupAction>
@@ -55,7 +61,7 @@ export function ChannelsSection() {
         ) : channels.length === 0 ? (
           <SidebarMenuItem>
             <SidebarMenuButton asChild className="text-muted-foreground">
-              <Link to="/settings/channels" onClick={close}>
+              <Link to="/w/$workspace/settings/channels" params={params} onClick={close}>
                 <PlusIcon aria-hidden="true" />
                 <span>{query.isError ? "Manage channels" : "Add a channel"}</span>
               </Link>
@@ -72,7 +78,8 @@ export function ChannelsSection() {
                   className={channel.status === "disabled" ? "opacity-60" : undefined}
                 >
                   <Link
-                    to="/calendar"
+                    to="/w/$workspace/calendar"
+                    params={params}
                     search={{ channels: channel.id }}
                     onClick={close}
                     aria-label={`${channelLabel(channel)}${note ? `, ${note}` : ""}${locked ? ", dry-run only" : ""}`}

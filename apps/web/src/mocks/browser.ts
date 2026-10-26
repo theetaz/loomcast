@@ -30,13 +30,13 @@ declare global {
 export async function startMockApi() {
   const now = Date.now();
   const seed = demoSeed(now);
-  const firstProject = seed.projects?.[0];
+  const firstWorkspace = seed.workspaces?.[0];
   const db = createMockDb({
     ...seed,
-    ...(firstProject ? demoConversations(firstProject.id, MOCK_USER.id, now) : {}),
-    kbEntries: firstProject ? demoKb(firstProject.id, MOCK_USER.id, now) : [],
+    ...(firstWorkspace ? demoConversations(firstWorkspace.id, MOCK_USER.id, now) : {}),
+    kbEntries: firstWorkspace ? demoKb(firstWorkspace.id, MOCK_USER.id, now) : [],
     members: demoMembers(now),
-    ...demoContent(seed.projects ?? [], MOCK_USER.id, now),
+    ...demoContent(seed.workspaces ?? [], MOCK_USER.id, now),
     simulateProducer: true,
     signedIn: sessionStorage.getItem(SESSION_KEY) === "1",
     onSessionChange: (signedIn) => {

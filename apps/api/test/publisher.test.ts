@@ -43,7 +43,7 @@ import {
   createPipelineHarness,
   eventsOf,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import {
@@ -56,14 +56,14 @@ import {
 } from "./publisher-support";
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 const keyring = testKeyring();
 /** The test database's port: the only TCP connections a dry run may open. */
 let databasePort: number;
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
   databasePort = Number(new URL(h.testDb.url).port || 5432);
 });
 
@@ -124,7 +124,7 @@ async function queuedPost(
   options: { dryRun?: boolean; state?: "scheduled" | "approved" | "review" } = {},
 ) {
   const item = await insertItem(h, {
-    projectId,
+    workspaceId,
     state: options.state ?? "scheduled",
     level: "render",
   });
@@ -289,7 +289,7 @@ describe("dry-run publishing", () => {
 describe("statuses", () => {
   it("marks a planned post missed with an event and an audit row", async () => {
     const channel = await insertChannel(h.db, keyring);
-    const item = await insertItem(h, { projectId, state: "script", level: "script" });
+    const item = await insertItem(h, { workspaceId, state: "script", level: "script" });
     const postId = await insertPost(h.db, {
       itemId: item.itemId,
       versionId: null,
@@ -310,7 +310,7 @@ describe("statuses", () => {
     const channel = await insertChannel(h.db, keyring);
     const ids: string[] = [];
     for (const status of ["cancelled", "failed", "missed"] as const) {
-      const item = await insertItem(h, { projectId, state: "scheduled", level: "render" });
+      const item = await insertItem(h, { workspaceId, state: "scheduled", level: "render" });
       ids.push(
         await insertPost(h.db, {
           itemId: item.itemId,
@@ -401,7 +401,7 @@ describe("gates", () => {
 
   it("fails a render-less version as invalid media", async () => {
     const channel = await insertChannel(h.db, keyring);
-    const item = await insertItem(h, { projectId, state: "scheduled", level: "voice" });
+    const item = await insertItem(h, { workspaceId, state: "scheduled", level: "voice" });
     const postId = await insertPost(h.db, {
       itemId: item.itemId,
       versionId: item.versionId,

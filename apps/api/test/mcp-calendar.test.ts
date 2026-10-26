@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CalendarGetSlotsOutputSchema } from "@loomcast/contracts";
-import { auditLog, channels, projects, scheduledPosts, seriesChannels } from "@loomcast/db";
+import { auditLog, channels, scheduledPosts, seriesChannels, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { and, eq } from "drizzle-orm";
@@ -32,8 +32,8 @@ let moduleDeps: ModuleDeps;
 let url: URL;
 let userId: string;
 let reader: Client;
-let projectA: string;
-let projectB: string;
+let workspaceA: string;
+let workspaceB: string;
 let seriesA: string;
 let seriesB: string;
 let channelA: string;
@@ -64,10 +64,10 @@ beforeAll(async () => {
   const user = await insertUser(testDb.db);
   userId = user.id;
   reader = await connectClient(url, (await issueToken(deps, userId, ["mcp:read"])).secret);
-  projectA = await newProject("Alpha");
-  projectB = await newProject("Beta");
-  ({ seriesId: seriesA, channelId: channelA } = await plannedSeries(projectA, ["mon", "wed"]));
-  ({ seriesId: seriesB } = await plannedSeries(projectB, ["tue"]));
+  workspaceA = await newWorkspace("Alpha");
+  workspaceB = await newWorkspace("Beta");
+  ({ seriesId: seriesA, channelId: channelA } = await plannedSeries(workspaceA, ["mon", "wed"]));
+  ({ seriesId: seriesB } = await plannedSeries(workspaceB, ["tue"]));
 });
 
 afterAll(async () => {
@@ -78,34 +78,40 @@ afterAll(async () => {
   await testDb?.drop();
 });
 
-async function newProject(name: string): Promise<string> {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(name: string): Promise<string> {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `mcp-calendar-${randomUUID().slice(0, 8)}`, name, createdBy: userId })
     .returning();
-  if (project === undefined) throw new Error("project was not inserted");
-  return project.id;
+  if (workspace === undefined) throw new Error("workspace was not inserted");
+  return workspace.id;
 }
 
 /** A series publishing at 09:00 UTC on `days`, on one channel, planned for the next two weeks. */
-async function plannedSeries(projectId: string, days: ("mon" | "tue" | "wed")[]) {
+async function plannedSeries(workspaceId: string, days: ("mon" | "tue" | "wed")[]) {
   const actor = { kind: "user" as const, id: userId, userId };
   const format = await formatsServiceFor(moduleDeps).create(
-    projectId,
+    workspaceId,
     { name: "Daily", rules: rulesWith({ days, slots: ["09:00"], tz: "UTC", leadTimeHours: 1 }) },
     actor,
   );
   const series = await seriesServiceFor(moduleDeps).create(
-    projectId,
+    workspaceId,
     { name: "Daily", formatId: format.id },
     actor,
   );
   const [channel] = await testDb.db
     .insert(channels)
-    .values({ platform: "threads", displayName: `Channel ${randomUUID().slice(0, 6)}` })
+    .values({
+      workspaceId,
+      platform: "threads",
+      displayName: `Channel ${randomUUID().slice(0, 6)}`,
+    })
     .returning();
   if (channel === undefined) throw new Error("channel was not inserted");
-  await testDb.db.insert(seriesChannels).values({ seriesId: series.id, channelId: channel.id });
+  await testDb.db
+    .insert(seriesChannels)
+    .values({ workspaceId, seriesId: series.id, channelId: channel.id });
   await cadenceServiceFor(moduleDeps).plan(series.id);
   return { seriesId: series.id, channelId: channel.id };
 }
@@ -121,8 +127,8 @@ function errorText(result: CallResult): string {
   return first?.text ?? "";
 }
 
-async function jobClient(projectId: string): Promise<Client> {
-  const issued = await issueJobToken(testDb.db, { userId, projectId, scopes: ["mcp:read"] });
+async function jobClient(workspaceId: string): Promise<Client> {
+  const issued = await issueJobToken(testDb.db, { userId, workspaceId, scopes: ["mcp:read"] });
   const client = await connectClient(url, issued.secret);
   clients.push(client);
   return client;
@@ -146,14 +152,14 @@ describe("calendar.get_slots", () => {
     expect(result.content).toEqual([{ type: "text", text: "3 slots, 0 open." }]);
   });
 
-  it("narrows by project, series and channel, and shows a cancelled post's slot as open", async () => {
-    const byProject = slotsOf(
+  it("narrows by workspace, series and channel, and shows a cancelled post's slot as open", async () => {
+    const byWorkspace = slotsOf(
       await reader.callTool({
         name: "calendar.get_slots",
-        arguments: { ...RANGE, projectId: projectB },
+        arguments: { ...RANGE, workspaceId: workspaceB },
       }),
     );
-    expect(byProject.map((slot) => slot.seriesId)).toEqual([seriesB]);
+    expect(byWorkspace.map((slot) => slot.seriesId)).toEqual([seriesB]);
     const byChannel = slotsOf(
       await reader.callTool({
         name: "calendar.get_slots",
@@ -185,8 +191,8 @@ describe("calendar.get_slots", () => {
       .where(eq(scheduledPosts.id, wednesday?.id ?? ""));
   });
 
-  it("holds a job token to its own project", async () => {
-    const client = await jobClient(projectA);
+  it("holds a job token to its own workspace", async () => {
+    const client = await jobClient(workspaceA);
     const own = slotsOf(await client.callTool({ name: "calendar.get_slots", arguments: RANGE }));
     expect(new Set(own.map((slot) => slot.seriesId))).toEqual(new Set([seriesA]));
     const foreign = await client.callTool({
@@ -194,11 +200,11 @@ describe("calendar.get_slots", () => {
       arguments: { ...RANGE, seriesId: seriesB },
     });
     expect(errorText(foreign)).toMatch(/^forbidden:/);
-    const otherProject = await client.callTool({
+    const otherWorkspace = await client.callTool({
       name: "calendar.get_slots",
-      arguments: { ...RANGE, projectId: projectB },
+      arguments: { ...RANGE, workspaceId: workspaceB },
     });
-    expect(errorText(otherProject)).toMatch(/^forbidden:/);
+    expect(errorText(otherWorkspace)).toMatch(/^forbidden:/);
     const [row] = await testDb.db
       .select()
       .from(auditLog)

@@ -86,13 +86,13 @@ const deps: ProducerStepDeps = {
 function context<T extends JobType>(
   type: T,
   payload: JobPayload<T>,
-  projectId: string,
+  workspaceId: string,
 ): JobContext<T> {
   return {
     job: {
       id: crypto.randomUUID(),
       type,
-      projectId,
+      workspaceId,
       attempt: 1,
       payload,
     } as JobContext<T>["job"],
@@ -124,17 +124,17 @@ let exitCode = 0;
 const client = await mcp();
 try {
   const current = (await call(client, "content.get", { itemId })) as {
-    item: { projectId: string; currentVersionId: string };
+    item: { workspaceId: string; currentVersionId: string };
     format: FormatSnapshot | null;
   };
-  const projectId = current.item.projectId;
+  const workspaceId = current.item.workspaceId;
   const format: FormatSnapshot = current.format ?? {
     formatVersionId: null,
     rules: structuredClone(DEFAULT_FORMAT_RULES),
   };
   const voiceId = format.rules.voiceId ?? process.env.LOOMCAST_SMOKE_VOICE_ID;
   let versionId = current.item.currentVersionId;
-  const base = () => ({ projectId, itemId, versionId, format });
+  const base = () => ({ workspaceId, itemId, versionId, format });
   const submit = async (artifacts: Record<string, unknown>): Promise<void> => {
     const output = ContentSubmitForReviewOutputSchema.parse(
       await call(client, "content.submit_for_review", {
@@ -148,14 +148,16 @@ try {
   };
 
   console.log(`workspace ${workspaceRoot}\nitem ${itemId} from version ${versionId}`);
-  const script = await writeScriptHandler(deps)(context("content.write_script", base(), projectId));
+  const script = await writeScriptHandler(deps)(
+    context("content.write_script", base(), workspaceId),
+  );
   console.log(
     `script: ${script.script.segments.length} segments, ${script.script.estimatedDurationMs} ms`,
   );
   await submit({ script: script.script });
 
   if (STEPS.indexOf(through) >= 1) {
-    const board = await storyboardHandler(deps)(context("content.storyboard", base(), projectId));
+    const board = await storyboardHandler(deps)(context("content.storyboard", base(), workspaceId));
     console.log(`storyboard: ${board.storyboard.frames.length} frames`);
     await submit({ storyboard: board.storyboard });
   }
@@ -165,14 +167,14 @@ try {
       throw new Error("The item's format has no voice; set LOOMCAST_SMOKE_VOICE_ID");
     }
     const voice = await voiceHandler(deps)(
-      context("content.voice", { ...base(), voice: { voiceId } }, projectId),
+      context("content.voice", { ...base(), voice: { voiceId } }, workspaceId),
     );
     voiceAssetId = voice.voiceAssetId;
     console.log(`voice: asset ${voice.voiceAssetId}, ${voice.durationMs} ms`);
   }
   if (STEPS.indexOf(through) >= 3 && voiceAssetId !== undefined) {
     const render = await renderHandler(deps)(
-      context("content.render", { ...base(), voiceAssetId }, projectId),
+      context("content.render", { ...base(), voiceAssetId }, workspaceId),
     );
     console.log(
       `render: asset ${render.renderAssetId}, poster ${render.posterAssetId}, ${render.width}x${render.height}, ${render.durationMs} ms`,

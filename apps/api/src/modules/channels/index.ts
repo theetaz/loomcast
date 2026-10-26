@@ -7,7 +7,7 @@ import {
   UpdateChannelRequestSchema,
   UpdateSeriesChannelsRequestSchema,
 } from "@loomcast/contracts";
-import { channels, series, seriesChannels } from "@loomcast/db";
+import { channels, series, seriesChannels, workspaces } from "@loomcast/db";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { ModuleDeps } from "../../deps";
@@ -18,6 +18,7 @@ import { clientIp, idParam, readJson } from "../../lib/http";
 import { fetchPicture, pictureResponse } from "../../lib/pictures";
 import type { AppEnv } from "../../types";
 import { currentUser } from "../auth/guards";
+import { requireActiveWorkspace } from "../kb/service";
 import { isLivePlatformAvailable } from "../publisher/adapters";
 import { channelColumns, listChannels, toChannel } from "./mappers";
 import { ensureChannelSweeps, registerRefreshTask } from "./tasks";
@@ -75,22 +76,34 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["channels.list"].path, async (c) => {
     currentUser(c);
-    const items = await listChannels(db, deps.config);
+    const workspaceId = idParam(c, "workspaceId");
+    const [workspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .limit(1);
+    if (workspace === undefined) {
+      throw notFound("No workspace has that id.");
+    }
+    const items = await listChannels(db, deps.config, workspace.id);
     c.header("Cache-Control", "no-store");
     return c.json({ items }, 200);
   });
 
   router.post(routes["channels.create"].path, async (c) => {
     const user = currentUser(c);
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateChannelRequestSchema);
     // X channels exist only while X publishing is usable (`FEATURE_X_PUBLISHING` on, client set).
     if (!isLivePlatformAvailable(input.platform, deps.config.platforms)) {
       throw forbidden("X publishing is turned off on this server.");
     }
     const channel = await transaction(db, async (tx) => {
+      await requireActiveWorkspace(tx, workspaceId);
       const [row] = await tx
         .insert(channels)
         .values({
+          workspaceId,
           platform: input.platform,
           displayName: input.displayName,
           requiresApproval: input.requiresApproval ?? false,
@@ -111,6 +124,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
         targetType: "channel",
         targetId: created.id,
         data: {
+          workspaceId,
           platform: created.platform,
           displayName: created.displayName,
           requiresApproval: created.requiresApproval,
@@ -267,7 +281,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     const input = await readJson(c, UpdateSeriesChannelsRequestSchema);
     const result = await transaction(db, async (tx) => {
       const [row] = await tx
-        .select({ id: series.id, status: series.status, projectId: series.projectId })
+        .select({ id: series.id, status: series.status, workspaceId: series.workspaceId })
         .from(series)
         .where(eq(series.id, id))
         .for("update");
@@ -284,13 +298,19 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
           : await tx
               .select({ id: channels.id, status: channels.status })
               .from(channels)
-              .where(inArray(channels.id, ids))
+              .where(and(inArray(channels.id, ids), eq(channels.workspaceId, row.workspaceId)))
               .for("share");
       const statusById = new Map(known.map((channel) => [channel.id, channel.status]));
+      // A series publishes only to channels of its own workspace.
       const unknown = input.channels.flatMap((link, index) =>
         statusById.has(link.channelId)
           ? []
-          : [{ path: `channels.${index}.channelId`, message: "No channel has that id" }],
+          : [
+              {
+                path: `channels.${index}.channelId`,
+                message: "No channel of this workspace has that id",
+              },
+            ],
       );
       if (unknown.length > 0) {
         throw validationFailed(unknown);
@@ -318,6 +338,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
           .insert(seriesChannels)
           .values(
             input.channels.map((link) => ({
+              workspaceId: row.workspaceId,
               seriesId: id,
               channelId: link.channelId,
               enabled: link.enabled,
@@ -335,7 +356,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
         action: "series.channels.updated",
         targetType: "series",
         targetId: id,
-        data: { projectId: row.projectId, before: before.channels, after: after.channels },
+        data: { workspaceId: row.workspaceId, before: before.channels, after: after.channels },
         ip: clientIp(c, trustProxy),
       });
       // Replan the series' slots on its new channels, once the calendar plans them.

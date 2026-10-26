@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AdminCreateUserOutputSchema, type TokenScope } from "@loomcast/contracts";
-import { apiTokens, auditLog, projects, users } from "@loomcast/db";
+import { apiTokens, auditLog, users, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { and, eq } from "drizzle-orm";
@@ -207,7 +207,7 @@ describe("admin.create_user", () => {
         scopes: ["mcp:admin"],
         user: { id: admin.id, email: admin.email, name: admin.name, role: "admin" },
       },
-      boundProjectId: null,
+      boundWorkspaceId: null,
       jobId: null,
       ip: testIp(4),
     };
@@ -220,16 +220,16 @@ describe("admin.create_user", () => {
   });
 
   it("refuses job tokens, even the owner's", async () => {
-    const [project] = await testDb.db
-      .insert(projects)
+    const [workspace] = await testDb.db
+      .insert(workspaces)
       .values({ slug: `admin-${randomUUID().slice(0, 8)}`, name: "Admin", createdBy: ownerId })
       .returning();
-    if (project === undefined) {
-      throw new Error("project was not inserted");
+    if (workspace === undefined) {
+      throw new Error("workspace was not inserted");
     }
     const { secret } = await issueJobToken(testDb.db, {
       userId: ownerId,
-      projectId: project.id,
+      workspaceId: workspace.id,
       scopes: ["mcp:read", "mcp:write", "mcp:admin"],
     });
     const client = await connectClient(server.url, secret);
@@ -237,7 +237,7 @@ describe("admin.create_user", () => {
     const email = newEmail();
     for (const call of [
       { name: "admin.create_user", arguments: { email, name: "Nope", role: "admin" } },
-      { name: "project.create", arguments: { name: "From a job" } },
+      { name: "workspace.create", arguments: { name: "From a job" } },
     ]) {
       const result = await client.callTool(call);
       expect(result.isError, call.name).toBe(true);

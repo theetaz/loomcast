@@ -72,6 +72,8 @@ exactly 32 bytes is refused at startup.
 | `src/modules/ops/` | Readiness checks, the backup monitor and `GET /api/ops/status` |
 | `src/modules/<name>/index.ts` | One module each: `register(app, deps)` |
 | `src/modules/scheduler/` | Scheduled task loop, task handlers registry and the admin endpoints |
+| `src/modules/workspaces/` | Workspaces: list, create, update (name, description, colour, time zone), archive, and the icon (`icon.ts`) |
+| `src/modules/channels/`, `src/modules/oauth/` | A workspace's channels (`/api/workspaces/:workspaceId/channels`), and the platform sign-ins whose `oauth.accept` connects accounts into one workspace (`409 channel_in_other_workspace` for an account another workspace has) |
 | `src/cli/admin.ts` | The admin CLI |
 | `src/cli/vault.ts` | The vault CLI (`vault:rotate`) |
 
@@ -100,17 +102,18 @@ router is mounted. `createApp` already registers every module, so a module never
 
 ### Object storage and assets
 
-Bytes never pass through the API. `POST /api/assets/uploads` (or `deps.assets.createUpload`)
-inserts a `pending` asset and returns a 15-minute presigned PUT whose content type, length and
+Bytes never pass through the API. `POST /api/assets/uploads` (or `deps.assets.createUpload`) inserts
+a `pending` asset and returns a 15-minute presigned PUT whose content type, length and
 `x-amz-checksum-sha256` are signed; the client sends exactly the returned headers. Uploads are
 deduplicated per owner: the same file uploaded again as the same kind for the same item (or, without
-`itemId`, as the project's project-level media, such as reference media) returns the existing asset
+`itemId`, as media of the workspace itself, such as reference media) returns the existing asset
 (`upload: null` once it is ready). Another item never gets that asset back; it uploads its own copy,
 so a version can always use it. The private key follows the owner:
-`projects/<projectId>/items/<itemId>/<kind>/<sha256>.<ext>` or
-`projects/<projectId>/media/<kind>/<sha256>.<ext>`, so every object belongs to one asset and
+`projects/<workspaceId>/items/<itemId>/<kind>/<sha256>.<ext>` or
+`projects/<workspaceId>/media/<kind>/<sha256>.<ext>`, so every object belongs to one asset and
 deleting it never affects another. Assets stored earlier keep their
-`projects/<projectId>/<kind>/<sha256>.<ext>` keys. `POST /api/assets/:id/finalize`
+`projects/<workspaceId>/<kind>/<sha256>.<ext>` keys. The `projects/` prefix stayed when projects
+were renamed workspaces, so every stored object keeps its key. `POST /api/assets/:id/finalize`
 checks the stored size and the checksum the store verified (or hashes the object, up to
 `ASSET_VERIFY_MAX_BYTES`, when the store kept none), then marks the asset `ready`, or `failed` and
 deletes the object. `GET /api/assets/:id/url` presigns a one-hour GET. The recurring
@@ -212,7 +215,7 @@ not configured. Remove the previous key once it reports success.
   per address. Setting a password ends every session of the account; the user then signs in.
   Disabling a user ends their sessions, MCP and job tokens and unused links.
 - **Job tokens.** When the dispatcher claims a job whose type has `mcpAccess` other than `none`,
-  it mints a job token in the same transaction (bound to the job and its project, with the
+  it mints a job token in the same transaction (bound to the job and its workspace, with the
   access level's scopes, expiring after the type's timeout plus one lease) and sends it once in
   `job.assign.credentials`. Every terminal transition and every re-queue revokes it.
 - **Rate limits.** `createRateLimiter({capacity, intervalMs}, deps.clock)` with `consume(limiter,

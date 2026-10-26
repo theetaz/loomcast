@@ -36,11 +36,11 @@ const PAGES: readonly PageMeta[] = [
     keywords: ["intro", "overview", "login", "sign in", "navigation"],
   },
   {
-    slug: "projects",
-    title: "Projects and the producer chat",
-    summary: "Create a project, describe it, and brief the producer in its chat.",
+    slug: "workspaces",
+    title: "Workspaces and the producer chat",
+    summary: "Create a workspace, describe it, and brief the producer in its chat.",
     group: "Using Loomcast",
-    keywords: ["project", "chat", "producer", "conversation"],
+    keywords: ["workspace", "chat", "producer", "conversation"],
   },
   {
     slug: "series-and-formats",

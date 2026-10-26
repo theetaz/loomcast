@@ -7,10 +7,10 @@ export const SERIES_NAME_MAX_LENGTH = 120;
 
 export const SeriesNameSchema = z.string().trim().min(1).max(SERIES_NAME_MAX_LENGTH);
 
-/** A series of a project. Its items follow the rules of its format. */
+/** A series of a workspace. Its items follow the rules of its format. */
 export const SeriesSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   name: z.string(),
   slug: SlugSchema,
   formatId: IdSchema,
@@ -21,7 +21,7 @@ export const SeriesSchema = z.object({
 });
 export type Series = z.infer<typeof SeriesSchema>;
 
-/** The format must belong to the same project. Without `slug` the API derives one. */
+/** The format must belong to the same workspace. Without `slug` the API derives one. */
 export const CreateSeriesRequestSchema = z.object({
   name: SeriesNameSchema,
   slug: SlugSchema.optional(),
@@ -40,7 +40,7 @@ export const UpdateSeriesRequestSchema = z
   });
 export type UpdateSeriesRequest = z.infer<typeof UpdateSeriesRequestSchema>;
 
-/** `GET /api/projects/:projectId/series`: every series unless `status` narrows it. */
+/** `GET /api/workspaces/:workspaceId/series`: every series unless `status` narrows it. */
 export const ListSeriesQuerySchema = z.object({
   status: SeriesStatusSchema.optional(),
 });

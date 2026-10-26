@@ -36,7 +36,7 @@ export function seriesServiceFor(deps: SeriesServiceDeps): SeriesService {
 const seriesNotFound = () => notFound("No series has that id.");
 
 /**
- * Series endpoints: the series of a project, each following one format of the project, with
+ * Series endpoints: the series of a workspace, each following one format of the workspace, with
  * pause, resume and archive. Status changes publish the internal `series.updated` event, which
  * the calendar uses to replan.
  */
@@ -51,17 +51,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     if (!query.success) {
       throw validationFailed(issueDetails(query.error));
     }
-    const items = await service.list(idParam(c, "projectId"), query.data);
+    const items = await service.list(idParam(c, "workspaceId"), query.data);
     if (items === null) {
-      throw notFound("Project not found.");
+      throw notFound("Workspace not found.");
     }
     return c.json({ items }, 200);
   });
 
   router.post(routes["series.create"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateSeriesRequestSchema);
-    const created = await service.create(projectId, input, userActor(c, trustProxy));
+    const created = await service.create(workspaceId, input, userActor(c, trustProxy));
     return c.json(created, 201);
   });
 

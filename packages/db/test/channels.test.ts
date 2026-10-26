@@ -8,18 +8,22 @@ import {
   channelValues,
   insertActiveChannel,
   insertChannel,
-  insertProject,
   insertSeries,
   insertUser,
+  insertWorkspace,
   PG,
   pgError,
   sealedSecret,
 } from "./fixtures";
 
 let testDb: TestDb;
+/** The workspace of the channels whose workspace does not matter to the test. */
+let workspaceId: string;
 
 beforeAll(async () => {
   testDb = await createTestDb();
+  const user = await insertUser(testDb.db);
+  workspaceId = (await insertWorkspace(testDb.db, user.id)).id;
 });
 
 afterAll(async () => {
@@ -29,7 +33,7 @@ afterAll(async () => {
 describe("channels", () => {
   it("start as a disconnected planning channel in dry-run without credentials", async () => {
     const user = await insertUser(testDb.db);
-    const channel = await insertChannel(testDb.db, { createdBy: user.id });
+    const channel = await insertChannel(testDb.db, { workspaceId, createdBy: user.id });
 
     expect(channel).toMatchObject({
       status: "disconnected",
@@ -48,7 +52,11 @@ describe("channels", () => {
 
   it("store credentials only as ciphertext, nonce and key version, read back as bytes", async () => {
     const secret = sealedSecret(3);
-    const channel = await insertActiveChannel(testDb.db, { ...secret, scopes: ["publish"] });
+    const channel = await insertActiveChannel(testDb.db, {
+      workspaceId,
+      ...secret,
+      scopes: ["publish"],
+    });
 
     expect(Buffer.isBuffer(channel.secretCiphertext)).toBe(true);
     expect(channel.secretCiphertext?.equals(secret.secretCiphertext)).toBe(true);
@@ -66,7 +74,7 @@ describe("channels", () => {
   });
 
   it("parse into the contracts shape without the credential columns", async () => {
-    const channel = await insertActiveChannel(testDb.db);
+    const channel = await insertActiveChannel(testDb.db, { workspaceId });
     const dto = ChannelSchema.parse({
       ...channel,
       connected: channel.secretCiphertext !== null,
@@ -93,7 +101,9 @@ describe("channels", () => {
     for (const partial of cases) {
       expect(
         await pgError(
-          testDb.db.insert(channels).values(channelValues({ status: "needs_reauth", ...partial })),
+          testDb.db
+            .insert(channels)
+            .values(channelValues({ workspaceId, status: "needs_reauth", ...partial })),
         ),
       ).toEqual({ code: PG.checkViolation, constraint: "channels_secret_ck" });
     }
@@ -101,7 +111,7 @@ describe("channels", () => {
 
   it("reject a nonce that is not 12 bytes, a ciphertext without a tag and key version 0", async () => {
     const values = (overrides: Partial<ReturnType<typeof sealedSecret>>) =>
-      channelValues({ status: "active", ...sealedSecret(), ...overrides });
+      channelValues({ workspaceId, status: "active", ...sealedSecret(), ...overrides });
 
     expect(
       await pgError(testDb.db.insert(channels).values(values({ secretNonce: randomBytes(16) }))),
@@ -119,18 +129,20 @@ describe("channels", () => {
 
   it("require credentials when active and forbid them when disconnected", async () => {
     expect(
-      await pgError(testDb.db.insert(channels).values(channelValues({ status: "active" }))),
+      await pgError(
+        testDb.db.insert(channels).values(channelValues({ workspaceId, status: "active" })),
+      ),
     ).toEqual({ code: PG.checkViolation, constraint: "channels_status_secret_ck" });
     expect(
       await pgError(
         testDb.db
           .insert(channels)
-          .values(channelValues({ status: "disconnected", ...sealedSecret() })),
+          .values(channelValues({ workspaceId, status: "disconnected", ...sealedSecret() })),
       ),
     ).toEqual({ code: PG.checkViolation, constraint: "channels_status_secret_ck" });
 
     // Disconnecting wipes the credentials and the status in one update.
-    const channel = await insertActiveChannel(testDb.db);
+    const channel = await insertActiveChannel(testDb.db, { workspaceId });
     const [disconnected] = await testDb.db
       .update(channels)
       .set({ status: "disconnected", secretCiphertext: null, secretNonce: null, keyVersion: null })
@@ -138,19 +150,24 @@ describe("channels", () => {
       .returning();
     expect(disconnected?.status).toBe("disconnected");
     // Needing a new login or being disabled allows either.
-    await insertChannel(testDb.db, { status: "needs_reauth" });
-    await insertActiveChannel(testDb.db, { status: "disabled", disabledAt: new Date() });
+    await insertChannel(testDb.db, { workspaceId, status: "needs_reauth" });
+    await insertActiveChannel(testDb.db, {
+      workspaceId,
+      status: "disabled",
+      disabledAt: new Date(),
+    });
   });
 
   it("connect a platform account once, while planning channels share a null external id", async () => {
-    const channel = await insertActiveChannel(testDb.db, { platform: "threads" });
-    await insertChannel(testDb.db, { platform: "threads" });
-    await insertChannel(testDb.db, { platform: "threads" });
+    const channel = await insertActiveChannel(testDb.db, { workspaceId, platform: "threads" });
+    await insertChannel(testDb.db, { workspaceId, platform: "threads" });
+    await insertChannel(testDb.db, { workspaceId, platform: "threads" });
 
     expect(
       await pgError(
         testDb.db.insert(channels).values(
           channelValues({
+            workspaceId,
             platform: "threads",
             externalId: channel.externalId,
             status: "disabled",
@@ -160,6 +177,7 @@ describe("channels", () => {
     ).toEqual({ code: PG.uniqueViolation, constraint: "channels_platform_external_id_uq" });
     // The same id on another platform is another account.
     await insertChannel(testDb.db, {
+      workspaceId,
       platform: "facebook",
       externalId: channel.externalId,
       status: "needs_reauth",
@@ -167,8 +185,9 @@ describe("channels", () => {
   });
 
   it("link an instagram account to its facebook page, never to itself", async () => {
-    const page = await insertActiveChannel(testDb.db, { platform: "facebook" });
+    const page = await insertActiveChannel(testDb.db, { workspaceId, platform: "facebook" });
     const account = await insertActiveChannel(testDb.db, {
+      workspaceId,
       platform: "instagram",
       parentChannelId: page.id,
     });
@@ -189,7 +208,7 @@ describe("channels", () => {
   });
 
   it("bump updated_at on update", async () => {
-    const channel = await insertChannel(testDb.db);
+    const channel = await insertChannel(testDb.db, { workspaceId });
     const [updated] = await testDb.db
       .update(channels)
       .set({ requiresApproval: true })
@@ -201,7 +220,9 @@ describe("channels", () => {
 
   it("reject an empty display name", async () => {
     expect(
-      await pgError(testDb.db.insert(channels).values(channelValues({ displayName: "" }))),
+      await pgError(
+        testDb.db.insert(channels).values(channelValues({ workspaceId, displayName: "" })),
+      ),
     ).toEqual({ code: PG.checkViolation, constraint: "channels_display_name_ck" });
   });
 });
@@ -209,36 +230,54 @@ describe("channels", () => {
 describe("series_channels", () => {
   it("link a channel to a series once, enabled by default", async () => {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const created = await insertSeries(testDb.db, project.id, user.id);
-    const channel = await insertChannel(testDb.db);
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const created = await insertSeries(testDb.db, workspace.id, user.id);
+    const channel = await insertChannel(testDb.db, { workspaceId: workspace.id });
+    const link = { workspaceId: workspace.id, seriesId: created.id, channelId: channel.id };
 
-    const [link] = await testDb.db
-      .insert(seriesChannels)
-      .values({ seriesId: created.id, channelId: channel.id })
-      .returning();
-    expect(link?.enabled).toBe(true);
+    const [inserted] = await testDb.db.insert(seriesChannels).values(link).returning();
+    expect(inserted?.enabled).toBe(true);
 
+    expect(
+      await pgError(testDb.db.insert(seriesChannels).values({ ...link, enabled: false })),
+    ).toEqual({ code: PG.uniqueViolation, constraint: "series_channels_pk" });
+  });
+
+  it("link only a series and a channel of the same workspace", async () => {
+    const user = await insertUser(testDb.db);
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const other = await insertWorkspace(testDb.db, user.id);
+    const created = await insertSeries(testDb.db, workspace.id, user.id);
+    const channel = await insertChannel(testDb.db, { workspaceId: other.id });
+
+    // Either workspace on the link leaves one of the two keys pointing nowhere.
     expect(
       await pgError(
         testDb.db
           .insert(seriesChannels)
-          .values({ seriesId: created.id, channelId: channel.id, enabled: false }),
+          .values({ workspaceId: workspace.id, seriesId: created.id, channelId: channel.id }),
       ),
-    ).toEqual({ code: PG.uniqueViolation, constraint: "series_channels_pk" });
+    ).toEqual({ code: PG.foreignKeyViolation, constraint: "series_channels_channel_fk" });
+    expect(
+      await pgError(
+        testDb.db
+          .insert(seriesChannels)
+          .values({ workspaceId: other.id, seriesId: created.id, channelId: channel.id }),
+      ),
+    ).toEqual({ code: PG.foreignKeyViolation, constraint: "series_channels_series_fk" });
   });
 
   it("go away with the series or the channel", async () => {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const first = await insertSeries(testDb.db, project.id, user.id);
-    const second = await insertSeries(testDb.db, project.id, user.id);
-    const channel = await insertChannel(testDb.db);
-    const other = await insertChannel(testDb.db);
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const first = await insertSeries(testDb.db, workspace.id, user.id);
+    const second = await insertSeries(testDb.db, workspace.id, user.id);
+    const channel = await insertChannel(testDb.db, { workspaceId: workspace.id });
+    const other = await insertChannel(testDb.db, { workspaceId: workspace.id });
     await testDb.db.insert(seriesChannels).values([
-      { seriesId: first.id, channelId: channel.id },
-      { seriesId: second.id, channelId: channel.id },
-      { seriesId: second.id, channelId: other.id },
+      { workspaceId: workspace.id, seriesId: first.id, channelId: channel.id },
+      { workspaceId: workspace.id, seriesId: second.id, channelId: channel.id },
+      { workspaceId: workspace.id, seriesId: second.id, channelId: other.id },
     ]);
 
     await testDb.db.delete(series).where(eq(series.id, first.id));
@@ -254,7 +293,7 @@ describe("series_channels", () => {
 
 describe("channel health", () => {
   it("starts empty, then records the last check, refusal and usage report", async () => {
-    const channel = await insertActiveChannel(testDb.db, { platform: "facebook" });
+    const channel = await insertActiveChannel(testDb.db, { workspaceId, platform: "facebook" });
     expect(channel).toMatchObject({ lastVerifiedAt: null, lastError: null, rateLimit: null });
 
     const verifiedAt = new Date(Date.UTC(2026, 9, 13, 3));
@@ -285,7 +324,7 @@ describe("channel health", () => {
   });
 
   it("keeps the refusal and the usage report as JSON objects", async () => {
-    const channel = await insertActiveChannel(testDb.db);
+    const channel = await insertActiveChannel(testDb.db, { workspaceId });
     for (const [column, constraint] of [
       ["last_error", "channels_last_error_ck"],
       ["rate_limit", "channels_rate_limit_ck"],

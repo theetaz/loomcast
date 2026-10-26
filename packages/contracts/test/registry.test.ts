@@ -16,10 +16,10 @@ import {
   MCP_ACCESS_SCOPES,
   parseJobPayload,
   parseJobResult,
-  projectTools,
   TOKEN_SCOPES,
+  workspaceTools,
 } from "../src";
-import { alignment, analysis, ids, project, script, storyboard } from "./fixtures";
+import { alignment, analysis, ids, script, storyboard, workspace } from "./fixtures";
 
 const PRODUCTION_JOB_TYPES = [
   "content.write_script",
@@ -32,7 +32,7 @@ const PRODUCTION_JOB_TYPES = [
 
 const chatPayload = {
   conversationId: ids.conversation,
-  projectId: ids.project,
+  workspaceId: ids.workspace,
   messageId: ids.message,
   text: "Draft three hooks about ownership.",
 };
@@ -128,7 +128,7 @@ describe("job registry", () => {
 
   describe("kb.analyze_reference", () => {
     const payload = {
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       entryId: ids.entry,
       url: "https://instagram.com/reel/abc/",
       platform: "instagram",
@@ -221,7 +221,7 @@ describe("job registry", () => {
 
   describe("production jobs", () => {
     const base = {
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       itemId: ids.item,
       versionId: ids.version,
       format: { formatVersionId: ids.formatVersion, rules: DEFAULT_FORMAT_RULES },
@@ -369,45 +369,45 @@ describe("job registry", () => {
   });
 });
 
-describe("mcp project tools", () => {
+describe("mcp workspace tools", () => {
   it("names each tool after its key and requires a known scope", () => {
-    for (const [key, tool] of Object.entries(projectTools)) {
+    for (const [key, tool] of Object.entries(workspaceTools)) {
       expect(tool.name).toBe(key);
       expect(TOKEN_SCOPES).toContain(tool.scope);
     }
-    expect(projectTools["project.create"].scope).toBe("mcp:write");
-    expect(projectTools["project.list"].scope).toBe("mcp:read");
+    expect(workspaceTools["workspace.create"].scope).toBe("mcp:write");
+    expect(workspaceTools["workspace.list"].scope).toBe("mcp:read");
   });
 
   it("validates create input and output", () => {
-    const { input, output } = projectTools["project.create"];
+    const { input, output } = workspaceTools["workspace.create"];
 
     expect(input.parse({ name: "  Rust in 60 seconds " })).toEqual({ name: "Rust in 60 seconds" });
     expect(input.safeParse({ name: "Rust", slug: "Not A Slug" }).success).toBe(false);
     const created = {
-      project: {
-        id: project.id,
-        slug: project.slug,
-        name: project.name,
+      workspace: {
+        id: workspace.id,
+        slug: workspace.slug,
+        name: workspace.name,
         description: null,
-        url: `https://loomcast.example.test/projects/${project.id}`,
+        url: `https://loomcast.example.test/workspaces/${workspace.id}`,
       },
     };
     expect(output.parse(created)).toEqual(created);
-    expect(output.safeParse({ project: { ...created.project, url: "not a url" } }).success).toBe(
-      false,
-    );
+    expect(
+      output.safeParse({ workspace: { ...created.workspace, url: "not a url" } }).success,
+    ).toBe(false);
   });
 
   it("validates get and list input and output", () => {
-    const get = projectTools["project.get"];
-    const list = projectTools["project.list"];
+    const get = workspaceTools["workspace.get"];
+    const list = workspaceTools["workspace.list"];
     const stats = { conversations: 2, kbEntries: 0, items: 0 };
 
     expect(get.input.safeParse({ idOrSlug: "" }).success).toBe(false);
-    expect(get.output.parse({ project, stats })).toEqual({ project, stats });
+    expect(get.output.parse({ workspace, stats })).toEqual({ workspace, stats });
     expect(list.input.parse({})).toEqual({});
     expect(list.input.safeParse({ status: "deleted" }).success).toBe(false);
-    expect(list.output.parse({ projects: [project] })).toEqual({ projects: [project] });
+    expect(list.output.parse({ workspaces: [workspace] })).toEqual({ workspaces: [workspace] });
   });
 });

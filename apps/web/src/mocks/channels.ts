@@ -15,7 +15,7 @@ import { type MockDb, publish } from "./db";
 // Channel settings and the publisher's switches, following the channels and publisher modules of
 // the API: planning channels, the dry-run and approval switches (`409 dry_run_locked` with the
 // blocker in `details.reason`), the channels of a series and `GET /api/publisher/status`.
-// `channels.list` is served with the calendar mocks.
+// Channels belong to a workspace; `channels.list` is served with the calendar mocks.
 
 const path = (name: keyof typeof routes) => `*${routes[name].path}`;
 
@@ -53,11 +53,14 @@ function emitChannel(db: MockDb, channel: Channel): Channel {
 
 export function createChannelHandlers(db: MockDb) {
   return [
-    http.post(path("channels.create"), async ({ request }) => {
+    http.post(path("channels.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
+      const workspace = db.workspaces.find((entry) => entry.id === params.workspaceId);
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
       const parsed = CreateChannelRequestSchema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return invalid(parsed.error);
       const channel = mockChannel({
+        workspaceId: workspace.id,
         platform: parsed.data.platform,
         displayName: parsed.data.displayName,
         requiresApproval: parsed.data.requiresApproval ?? false,

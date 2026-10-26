@@ -38,10 +38,10 @@ afterEach(() => {
  */
 function approvalsSetup() {
   const setup = calendarSetup();
-  const { db, project, series, channels } = setup;
+  const { db, workspace, series, channels } = setup;
   const add = (title: string, updatedAt: string): ContentItem => {
     const { item, versions } = mockContentItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       seriesId: series.ownership.id,
       title,
       state: "review",
@@ -290,20 +290,20 @@ describe("approvals inbox", () => {
     expect(await screen.findByText("No missed posts")).toBeInTheDocument();
   });
 
-  it("narrows the inbox to one project from the address", async () => {
+  it("narrows the inbox to one workspace from the address", async () => {
     const { db } = approvalsSetup();
     const requests = recordRequests();
-    renderApp(`/approvals?project=${db.projects[0]?.id}`, db);
+    renderApp(`/approvals?workspace=${db.workspaces[0]?.id}`, db);
     await screen.findByRole("list", { name: "Videos waiting for approval" }, { timeout: 5000 });
     expect(
-      requests.find((request) => request.path === "/api/approvals")?.query.get("projectId"),
-    ).toBe(db.projects[0]?.id);
+      requests.find((request) => request.path === "/api/approvals")?.query.get("workspaceId"),
+    ).toBe(db.workspaces[0]?.id);
   });
 });
 
 describe("approval order and countdowns", () => {
   const entry = (id: string, deadlineAt: string | null, updatedAt: string): ApprovalItem => ({
-    item: mockContentItem({ id, projectId: "p", title: id, state: "review", updatedAt }).item,
+    item: mockContentItem({ id, workspaceId: "p", title: id, state: "review", updatedAt }).item,
     deadlineAt,
     posts: [],
   });

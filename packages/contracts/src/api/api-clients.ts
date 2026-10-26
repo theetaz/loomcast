@@ -4,7 +4,7 @@ import { ApiChannelAccessSchema, PlatformSchema } from "../enums";
 import { ApiKeySecretSchema, TOKEN_NAME_MAX_LENGTH } from "./tokens";
 
 // API clients: the owner's other backends, which call the machine API (`/api/v1`) with an API key
-// (`lc_api_…`). The owner creates a client for one project and grants it channels, each with an
+// (`lc_api_…`). The owner creates a client for one workspace and grants it channels, each with an
 // access level; the client reaches nothing else. Only the owner manages clients.
 
 /** Most channels one client may be granted. */
@@ -39,8 +39,8 @@ export const ApiClientSchema = z.object({
   name: z.string(),
   /** First characters of the key, shown so the owner can tell clients apart. */
   prefix: z.string().min(1).max(32),
-  projectId: IdSchema,
-  projectName: z.string(),
+  workspaceId: IdSchema,
+  workspaceName: z.string(),
   grants: z.array(ApiClientGrantSchema),
   createdAt: TimestampSchema,
   lastUsedAt: TimestampSchema.nullable(),
@@ -51,11 +51,11 @@ export type ApiClient = z.infer<typeof ApiClientSchema>;
 
 const ApiClientNameSchema = z.string().trim().min(1).max(TOKEN_NAME_MAX_LENGTH);
 
-/** Creates a client in a project with its channel grants. Owner only. */
+/** Creates a client in a workspace with its channel grants. Owner only. */
 export const CreateApiClientRequestSchema = z
   .object({
     name: ApiClientNameSchema,
-    projectId: IdSchema,
+    workspaceId: IdSchema,
     grants: ApiChannelGrantsSchema,
     expiresAt: TimestampSchema.optional(),
   })

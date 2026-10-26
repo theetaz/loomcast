@@ -83,7 +83,7 @@ export function channelView(db: MockDb, channel: Channel): Channel {
 }
 
 export function mockChannel(
-  overrides: Partial<Channel> & Pick<Channel, "platform" | "displayName">,
+  overrides: Partial<Channel> & Pick<Channel, "platform" | "displayName" | "workspaceId">,
 ): Channel {
   const at = overrides.createdAt ?? new Date().toISOString();
   const channel: Channel = {
@@ -124,7 +124,7 @@ export function mockPost(
   const id = post.id ?? mockId();
   return {
     id,
-    projectId: item.projectId,
+    workspaceId: item.workspaceId,
     itemId: item.id,
     versionId: status === "planned" ? null : item.currentVersionId,
     channelId: channel.id,
@@ -165,7 +165,7 @@ function cadenceOf(db: MockDb, series: Series): Format | undefined {
 export function mockSlots(
   db: MockDb,
   range: { from: string; to: string },
-  filter: { projectId?: string; channelIds?: string[]; seriesIds?: string[] } = {},
+  filter: { workspaceId?: string; channelIds?: string[]; seriesIds?: string[] } = {},
   now = Date.now(),
 ): CalendarSlot[] {
   const from = Math.max(Date.parse(range.from), now);
@@ -174,7 +174,7 @@ export function mockSlots(
   const slots: CalendarSlot[] = [];
   for (const series of db.series) {
     if (series.status !== "active") continue;
-    if (filter.projectId && series.projectId !== filter.projectId) continue;
+    if (filter.workspaceId && series.workspaceId !== filter.workspaceId) continue;
     if (filter.seriesIds && !filter.seriesIds.includes(series.id)) continue;
     const format = cadenceOf(db, series);
     const links = db.seriesChannels.find((entry) => entry.seriesId === series.id)?.channels ?? [];
@@ -224,32 +224,38 @@ export function updatePost(
 /** Channels, the calendar and scheduled posts. Formats are served with the content item mocks. */
 export function createCalendarHandlers(db: MockDb) {
   return [
-    http.get(path("channels.list"), () =>
-      db.signedIn
-        ? HttpResponse.json({ items: db.channels.map((channel) => channelView(db, channel)) })
-        : unauthorized(),
-    ),
+    http.get(path("channels.list"), ({ params }) => {
+      if (!db.signedIn) return unauthorized();
+      if (!db.workspaces.some((workspace) => workspace.id === params.workspaceId)) {
+        return apiError(404, "not_found", "No workspace has that id.");
+      }
+      return HttpResponse.json({
+        items: db.channels
+          .filter((channel) => channel.workspaceId === params.workspaceId)
+          .map((channel) => channelView(db, channel)),
+      });
+    }),
 
     http.get(path("calendar.get"), ({ request }) => {
       if (!db.signedIn) return unauthorized();
       const url = new URL(request.url);
       const parsed = CalendarQuerySchema.safeParse(Object.fromEntries(url.searchParams));
       if (!parsed.success) return invalid(parsed.error);
-      const { from, to, projectId, channelIds, seriesIds } = parsed.data;
+      const { from, to, workspaceId, channelIds, seriesIds } = parsed.data;
       const posts = db.posts
         .filter((post) => {
           const at = Date.parse(post.scheduledAt);
           return (
             at >= Date.parse(from) &&
             at < Date.parse(to) &&
-            (!projectId || post.projectId === projectId) &&
+            (!workspaceId || post.workspaceId === workspaceId) &&
             (!channelIds || channelIds.includes(post.channelId)) &&
             (!seriesIds || (post.seriesId !== null && seriesIds.includes(post.seriesId)))
           );
         })
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt))
         .map((post) => ({ ...post }));
-      const slots = mockSlots(db, { from, to }, { projectId, channelIds, seriesIds });
+      const slots = mockSlots(db, { from, to }, { workspaceId, channelIds, seriesIds });
       return HttpResponse.json({ posts, slots });
     }),
 
@@ -379,12 +385,20 @@ const DAY_MS = 24 * 60 * 60_000;
  */
 export function seedCalendarDemo(db: MockDb, now: number) {
   const created = new Date(now - 30 * DAY_MS).toISOString();
-  const channel = (platform: Platform, displayName: string, username: string) =>
-    mockChannel({ platform, displayName, username, createdAt: created });
+  const workspaceOf = (seriesName: string) =>
+    db.series.find((entry) => entry.name === seriesName)?.workspaceId ?? db.workspaces[0]?.id ?? "";
+  const rust = workspaceOf("Ownership basics");
+  const channel = (platform: Platform, displayName: string, username: string, workspaceId = rust) =>
+    mockChannel({ workspaceId, platform, displayName, username, createdAt: created });
   const facebook = channel("facebook", "Rust in 60 seconds", "rustin60");
   const instagram = channel("instagram", "@rustin60", "rustin60");
   const threads = channel("threads", "@rustin60", "rustin60");
-  const agentsInstagram = channel("instagram", "@agents.smallteams", "agents.smallteams");
+  const agentsInstagram = channel(
+    "instagram",
+    "@agents.smallteams",
+    "agents.smallteams",
+    workspaceOf("Agent patterns"),
+  );
   // A connected Page (live once the server publishes live), a Threads profile whose access was
   // refused and is about to expire, and an X planning channel locked to dry-run.
   Object.assign(facebook, {

@@ -76,7 +76,7 @@ export interface PostMediaProgress {
  */
 export async function uploadPostMedia(
   file: File,
-  owner: { projectId: string; itemId: string },
+  owner: { workspaceId: string; itemId: string },
   options: {
     onProgress?: (progress: PostMediaProgress) => void;
     signal?: AbortSignal;
@@ -98,7 +98,7 @@ export async function uploadPostMedia(
   const asset = await uploadAsset(
     file,
     {
-      projectId: owner.projectId,
+      workspaceId: owner.workspaceId,
       itemId: owner.itemId,
       kind: "media",
       filename: uploadFilename(file.name),

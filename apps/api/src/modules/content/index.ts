@@ -88,15 +88,15 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     }
     const page = await content.list(query.data);
     if (page === null) {
-      throw notFound("Project not found.");
+      throw notFound("Workspace not found.");
     }
     return c.json(page, 200);
   });
 
   router.post(routes["content.create"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateContentItemRequestSchema);
-    const created = await content.create(projectId, input, userActor(c, trustProxy));
+    const created = await content.create(workspaceId, input, userActor(c, trustProxy));
     return c.json(created, 201);
   });
 

@@ -12,7 +12,7 @@ import {
   RescheduleApiPostRequestSchema,
   routes,
 } from "@loomcast/contracts";
-import { apiTokens, channels, type Database, projects } from "@loomcast/db";
+import { apiTokens, channels, type Database, workspaces } from "@loomcast/db";
 import { asc, eq, inArray } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import type { z } from "zod";
@@ -96,17 +96,17 @@ async function loadCaller(db: Database, c: Context<AppEnv>, trustProxy: boolean)
   const [row] = await db
     .select({
       prefix: apiTokens.prefix,
-      projectId: apiTokens.projectId,
+      workspaceId: apiTokens.workspaceId,
       createdAt: apiTokens.createdAt,
       expiresAt: apiTokens.expiresAt,
     })
     .from(apiTokens)
     .where(eq(apiTokens.id, token.id))
     .limit(1);
-  if (row === undefined || row.projectId === null) {
-    throw forbidden("This API client has no project.");
+  if (row === undefined || row.workspaceId === null) {
+    throw forbidden("This API client has no workspace.");
   }
-  return { token, row, projectId: row.projectId, ip: clientIp(c, trustProxy) };
+  return { token, row, workspaceId: row.workspaceId, ip: clientIp(c, trustProxy) };
 }
 
 /**
@@ -117,7 +117,7 @@ async function loadCaller(db: Database, c: Context<AppEnv>, trustProxy: boolean)
  * - 120 requests a minute per client (`API_V1_RATE_LIMIT`), 429 with `Retry-After` beyond.
  * - JSON only, `Cache-Control: no-store` on every answer (they carry upload URLs).
  * - One `api.request` audit row per write, with the client's token as the actor.
- * - A client reaches only its project and the channels it was granted; see `posts.ts`.
+ * - A client reaches only its workspace and the channels it was granted; see `posts.ts`.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
   const { db, config, auth } = deps;
@@ -155,7 +155,7 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
     return {
       tokenId: loaded.token.id,
       name: loaded.token.name,
-      projectId: loaded.projectId,
+      workspaceId: loaded.workspaceId,
       ownerId: loaded.token.user.id,
       grants: await clients.grants(loaded.token.id),
       ip: loaded.ip,
@@ -182,13 +182,13 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["v1.me"].path, async (c) => {
     const loaded = await loadCaller(db, c, config.trustProxy);
-    const [project] = await db
-      .select({ id: projects.id, slug: projects.slug, name: projects.name })
-      .from(projects)
-      .where(eq(projects.id, loaded.projectId))
+    const [workspace] = await db
+      .select({ id: workspaces.id, slug: workspaces.slug, name: workspaces.name })
+      .from(workspaces)
+      .where(eq(workspaces.id, loaded.workspaceId))
       .limit(1);
-    if (project === undefined) {
-      throw forbidden("This API client has no project.");
+    if (workspace === undefined) {
+      throw forbidden("This API client has no workspace.");
     }
     const grants = await clients.grants(loaded.token.id);
     const body: ApiV1Me = {
@@ -199,7 +199,8 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
         createdAt: loaded.row.createdAt.toISOString(),
         expiresAt: loaded.row.expiresAt?.toISOString() ?? null,
       },
-      project,
+      workspace,
+      project: workspace,
       grants: [...grants].map(([channelId, access]) => ({ channelId, access })),
       rateLimit: {
         requests: API_V1_RATE_LIMIT.capacity,

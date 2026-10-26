@@ -33,7 +33,7 @@ import { series } from "./formats";
  *   and a `queued`, `publishing` or `published` post must have one (`scheduled_posts_version_ck`).
  * - **Dry run.** `dryRun` is fixed when the post is created, from the channel's switch and the
  *   server's publishing mode.
- * - **Project, platform and publish mode** come from joins: the item's `project_id`, the channel's
+ * - **Workspace, platform and publish mode** come from joins: the item's `workspace_id`, the channel's
  *   `platform`, and `effectivePublishMode` of the series format's `rules.publishMode` and the
  *   channel's `requires_approval`.
  *

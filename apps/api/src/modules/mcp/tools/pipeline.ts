@@ -3,7 +3,7 @@ import type { Database } from "@loomcast/db";
 import { transaction } from "../../../lib/db";
 import type { ContentService, PipelineActor } from "../../content";
 import type { FormatsService } from "../../formats";
-import { requireActiveProject } from "../../kb/service";
+import { requireActiveWorkspace } from "../../kb/service";
 import type { SeriesService } from "../../series/service";
 import type { McpCaller } from "../caller";
 import { defineTool, McpToolError, type ToolContext, type ToolDefinition } from "./registry";
@@ -25,40 +25,40 @@ function createdVia(caller: McpCaller): ContentCreatedVia {
   return caller.token.kind === "job" ? "producer" : "mcp";
 }
 
-/** The project of an `input` tool's call; null means the record it names does not exist. */
-function projectOf(ctx: ToolContext, what: string): string {
-  if (ctx.projectId === null) {
+/** The workspace of an `input` tool's call; null means the record it names does not exist. */
+function workspaceOf(ctx: ToolContext, what: string): string {
+  if (ctx.workspaceId === null) {
     throw new McpToolError("not_found", `No ${what} has that id.`);
   }
-  return ctx.projectId;
+  return ctx.workspaceId;
 }
 
 /** `format.get_rules` and the `content.*` tools that read and write items and their versions. */
 export function createPipelineTools(deps: PipelineToolsDeps): ToolDefinition[] {
   const { db, content, formats, series } = deps;
 
-  /** The project of an item, or null when there is no such item. */
-  async function itemProject(itemId: string): Promise<string | null> {
-    return (await content.getItem(itemId))?.projectId ?? null;
+  /** The workspace of an item, or null when there is no such item. */
+  async function itemWorkspace(itemId: string): Promise<string | null> {
+    return (await content.getItem(itemId))?.workspaceId ?? null;
   }
 
-  /** The item, checked against the project the call was bound to. */
+  /** The item, checked against the workspace the call was bound to. */
   async function boundItem(itemId: string, ctx: ToolContext) {
-    const projectId = projectOf(ctx, "content item");
+    const workspaceId = workspaceOf(ctx, "content item");
     const item = await content.getItem(itemId);
     // Checked again: the item may have gone since the binding was resolved.
-    if (item === null || item.projectId !== projectId) {
+    if (item === null || item.workspaceId !== workspaceId) {
       throw new McpToolError("not_found", "No content item has that id.");
     }
     return item;
   }
 
   const getRules = defineTool(pipelineTools["format.get_rules"], {
-    async resolveProject(input) {
-      return (await series.get(input.seriesId))?.projectId ?? null;
+    async resolveWorkspace(input) {
+      return (await series.get(input.seriesId))?.workspaceId ?? null;
     },
     async handler(input, ctx) {
-      projectOf(ctx, "series");
+      workspaceOf(ctx, "series");
       const rules = await formats.rulesForSeries(input.seriesId);
       if (rules === null) {
         throw new McpToolError("not_found", "No series has that id.");
@@ -71,11 +71,11 @@ export function createPipelineTools(deps: PipelineToolsDeps): ToolDefinition[] {
   });
 
   const createIdea = defineTool(pipelineTools["content.create_idea"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, ctx) {
-      const projectId = projectOf(ctx, "project");
+      const workspaceId = workspaceOf(ctx, "workspace");
       const created = await content.create(
-        projectId,
+        workspaceId,
         {
           title: input.title,
           pitch: input.pitch,
@@ -91,7 +91,7 @@ export function createPipelineTools(deps: PipelineToolsDeps): ToolDefinition[] {
   });
 
   const get = defineTool(pipelineTools["content.get"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, ctx) {
       const item = await boundItem(input.itemId, ctx);
       const version = await content.getVersion(item.id, input.versionId ?? item.currentVersionId);
@@ -107,11 +107,11 @@ export function createPipelineTools(deps: PipelineToolsDeps): ToolDefinition[] {
   });
 
   const submitForReview = defineTool(pipelineTools["content.submit_for_review"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, ctx) {
       const item = await boundItem(input.itemId, ctx);
       const result = await transaction(db, async (tx) => {
-        await requireActiveProject(tx, item.projectId);
+        await requireActiveWorkspace(tx, item.workspaceId);
         const actor = tokenActor(ctx.caller);
         // The state is the stage the new artifacts reach; tokens are never allowed to approve.
         const written = await content.createVersion(

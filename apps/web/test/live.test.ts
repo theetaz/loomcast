@@ -1,9 +1,9 @@
-import type { Device, List, LiveEvent, Project } from "@loomcast/contracts";
+import type { Device, List, LiveEvent, Workspace } from "@loomcast/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLiveClient, type EventSourceLike } from "@/lib/live";
 import { queryKeys } from "@/lib/query-keys";
-import { mockId, mockProject } from "@/mocks/db";
+import { mockId, mockWorkspace } from "@/mocks/db";
 
 class FakeEventSource implements EventSourceLike {
   readyState = 0;
@@ -85,29 +85,33 @@ describe("live client", () => {
     expect(live.getStatus()).toBe("idle");
   });
 
-  it("patches the project and device caches and notifies subscribers after", () => {
+  it("patches the workspace and device caches and notifies subscribers after", () => {
     const { live, latest, queryClient } = setup();
-    const older = mockProject({ name: "Old", slug: "old", updatedAt: "2026-10-01T00:00:00.000Z" });
-    queryClient.setQueryData<List<Project>>(queryKeys.projects.list, { items: [older] });
+    const older = mockWorkspace({
+      name: "Old",
+      slug: "old",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    queryClient.setQueryData<List<Workspace>>(queryKeys.workspaces.list, { items: [older] });
     queryClient.setQueryData<List<Device>>(queryKeys.devices, { items: [device] });
 
     const seen: string[] = [];
-    live.subscribe("project.created", (event) => {
-      seen.push(event.payload.project.name);
+    live.subscribe("workspace.created", (event) => {
+      seen.push(event.payload.workspace.name);
       // The cache is already patched when features hear about the event.
-      expect(queryClient.getQueryData<List<Project>>(queryKeys.projects.list)?.items).toHaveLength(
-        2,
-      );
+      expect(
+        queryClient.getQueryData<List<Workspace>>(queryKeys.workspaces.list)?.items,
+      ).toHaveLength(2);
     });
 
     live.start();
     latest().open();
-    const created = mockProject({
+    const created = mockWorkspace({
       name: "New",
       slug: "new",
       updatedAt: "2026-10-12T00:00:00.000Z",
     });
-    latest().emit({ type: "project.created", payload: { project: created } });
+    latest().emit({ type: "workspace.created", payload: { workspace: created } });
     latest().emit({
       type: "device.status",
       payload: { deviceId: device.id, online: true, lastSeenAt: "2026-10-12T00:00:00.000Z" },
@@ -117,9 +121,11 @@ describe("live client", () => {
 
     expect(seen).toEqual(["New"]);
     expect(
-      queryClient.getQueryData<List<Project>>(queryKeys.projects.list)?.items.map((p) => p.slug),
+      queryClient
+        .getQueryData<List<Workspace>>(queryKeys.workspaces.list)
+        ?.items.map((p) => p.slug),
     ).toEqual(["new", "old"]);
-    expect(queryClient.getQueryData(queryKeys.projects.detail("new"))).toEqual(created);
+    expect(queryClient.getQueryData(queryKeys.workspaces.detail("new"))).toEqual(created);
     expect(queryClient.getQueryData<List<Device>>(queryKeys.devices)?.items[0]?.online).toBe(true);
   });
 
