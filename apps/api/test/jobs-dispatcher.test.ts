@@ -11,7 +11,7 @@ import {
   type DispatchSession,
 } from "../src/modules/jobs/dispatcher";
 import { createJobLifecycle } from "../src/modules/jobs/lifecycle";
-import { enqueue, type Fixtures, pairDevice, seedProject } from "./bridge-support";
+import { enqueue, type Fixtures, pairDevice, seedWorkspace } from "./bridge-support";
 
 let testDb: TestDb;
 let fixtures: Fixtures;
@@ -19,7 +19,7 @@ const handles: DbHandle[] = [];
 
 beforeAll(async () => {
   testDb = await createTestDb();
-  fixtures = await seedProject(testDb.db);
+  fixtures = await seedWorkspace(testDb.db);
 });
 
 afterAll(async () => {
@@ -49,7 +49,10 @@ describe("dispatcher", () => {
     for (let iteration = 0; iteration < 100; iteration += 1) {
       const queued = await Promise.all(
         Array.from({ length: 10 }, () =>
-          enqueue(testDb.db, bus, { projectId: fixtures.projectId, createdBy: fixtures.userId }),
+          enqueue(testDb.db, bus, {
+            workspaceId: fixtures.workspaceId,
+            createdBy: fixtures.userId,
+          }),
         ),
       );
       const claims = await Promise.all(
@@ -94,15 +97,15 @@ describe("dispatcher", () => {
     const dispatcher = dispatcherOnOwnPool();
     const bus = createEventBus();
     const a = await enqueue(testDb.db, bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const b = await enqueue(testDb.db, bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const c = await enqueue(testDb.db, bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     await testDb.db.update(jobs).set({ cancelRequestedAt: new Date() }).where(eq(jobs.id, b.id));
@@ -128,7 +131,7 @@ describe("dispatcher", () => {
     const device = await pairDevice(testDb.db, fixtures.userId);
     const dispatcher = dispatcherOnOwnPool();
     const job = await enqueue(testDb.db, createEventBus(), {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const claimed = await dispatcher.claim({
@@ -154,7 +157,7 @@ describe("dispatcher", () => {
     };
     const dispatcher = dispatcherOnOwnPool(() => [session]);
     const job = await enqueue(testDb.db, createEventBus(), {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     await dispatcher.run();

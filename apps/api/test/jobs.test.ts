@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { jobs, projects } from "@loomcast/db";
+import { jobs, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,17 +10,17 @@ import { insertUser } from "./support";
 
 let testDb: TestDb;
 let userId: string;
-let projectId: string;
+let workspaceId: string;
 
 beforeAll(async () => {
   testDb = await createTestDb();
   const user = await insertUser(testDb.db);
   userId = user.id;
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `jobs-${randomUUID()}`, name: "Jobs", createdBy: userId })
     .returning();
-  projectId = project?.id ?? "";
+  workspaceId = workspace?.id ?? "";
 });
 
 afterAll(async () => {
@@ -42,7 +42,7 @@ describe("jobs.enqueue", () => {
     const { job, created } = await service.enqueue(testDb.db, {
       type: "system.ping",
       payload: {},
-      projectId,
+      workspaceId,
       createdBy: userId,
     });
     expect(created).toBe(true);
@@ -58,7 +58,7 @@ describe("jobs.enqueue", () => {
     expect(events).toEqual([
       {
         type: "job.enqueued",
-        payload: { jobId: job.id, type: "system.ping", projectId, deviceAffinity: null },
+        payload: { jobId: job.id, type: "system.ping", workspaceId, deviceAffinity: null },
       },
     ]);
     expect(toJobSummary(job)).toMatchObject({ id: job.id, status: "queued", finishedAt: null });
@@ -68,7 +68,7 @@ describe("jobs.enqueue", () => {
   it("returns the existing job for a repeated idempotency key", async () => {
     const { service, events } = setup();
     const key = `key-${randomUUID()}`;
-    const input = { type: "system.ping" as const, payload: {}, projectId, createdBy: userId };
+    const input = { type: "system.ping" as const, payload: {}, workspaceId, createdBy: userId };
 
     const first = await service.enqueue(testDb.db, { ...input, idempotencyKey: key });
     const second = await service.enqueue(testDb.db, { ...input, idempotencyKey: key });
@@ -101,7 +101,7 @@ describe("jobs.enqueue", () => {
         service.enqueue(testDb.db, {
           type: "system.ping",
           payload: {},
-          projectId,
+          workspaceId,
           createdBy: userId,
           idempotencyKey: key,
         }),
@@ -117,7 +117,7 @@ describe("jobs.enqueue", () => {
       service.enqueue(testDb.db, {
         type: "shell.exec" as "system.ping",
         payload: {},
-        projectId,
+        workspaceId,
         createdBy: userId,
       }),
     ).rejects.toMatchObject({ status: 400, code: "validation_failed" });
@@ -126,7 +126,7 @@ describe("jobs.enqueue", () => {
       service.enqueue(testDb.db, {
         type: "producer.chat",
         payload: { text: "hello" },
-        projectId,
+        workspaceId,
         createdBy: userId,
       }),
     ).rejects.toMatchObject({
@@ -140,7 +140,7 @@ describe("jobs.enqueue", () => {
       service.enqueue(testDb.db, {
         type: "system.ping",
         payload: {},
-        projectId,
+        workspaceId,
         createdBy: userId,
         idempotencyKey: "x".repeat(256),
       }),
@@ -154,7 +154,7 @@ describe("jobs.enqueue", () => {
       const result = await service.enqueue(tx, {
         type: "system.ping",
         payload: {},
-        projectId,
+        workspaceId,
         createdBy: userId,
       });
       expect(events).toHaveLength(0);
@@ -168,7 +168,7 @@ describe("jobs.enqueue", () => {
         const result = await service.enqueue(tx, {
           type: "system.ping",
           payload: {},
-          projectId,
+          workspaceId,
           createdBy: userId,
         });
         rolledBackId = result.job.id;

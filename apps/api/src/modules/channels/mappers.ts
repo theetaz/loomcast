@@ -1,6 +1,6 @@
 import { type Channel, channelPicturePath } from "@loomcast/contracts";
 import { type ChannelRow, channels } from "@loomcast/db";
-import { asc, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { Executor } from "../../lib/db";
 import { pictureVersion } from "../../lib/pictures";
 import { type LiveGateSettings, livePublishingBlocker } from "../publisher/gates";
@@ -12,6 +12,7 @@ import { type LiveGateSettings, livePublishingBlocker } from "../publisher/gates
  */
 export const channelColumns = {
   id: channels.id,
+  workspaceId: channels.workspaceId,
   platform: channels.platform,
   displayName: channels.displayName,
   externalId: channels.externalId,
@@ -37,14 +38,19 @@ export type ChannelView = Omit<
   "secretCiphertext" | "secretNonce" | "keyVersion" | "meta" | "createdBy"
 > & { connected: boolean; picture: string | null };
 
-/** Every channel as the API shows it, by platform, name and age. */
+/**
+ * The channels as the API shows them, by platform, name and age: the workspace's, or every
+ * workspace's when `workspaceId` is null.
+ */
 export async function listChannels(
   executor: Executor,
   settings: LiveGateSettings,
+  workspaceId: string | null,
 ): Promise<Channel[]> {
   const rows = await executor
     .select(channelColumns)
     .from(channels)
+    .where(workspaceId === null ? undefined : eq(channels.workspaceId, workspaceId))
     .orderBy(asc(channels.platform), asc(channels.displayName), asc(channels.createdAt));
   return rows.map((row) => toChannel(row, settings));
 }
@@ -56,6 +62,7 @@ export async function listChannels(
 export function toChannel(row: ChannelView, settings: LiveGateSettings): Channel {
   return {
     id: row.id,
+    workspaceId: row.workspaceId,
     platform: row.platform,
     displayName: row.displayName,
     externalId: row.externalId,

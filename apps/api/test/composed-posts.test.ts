@@ -10,7 +10,7 @@ import {
   type PostFormat,
   ScheduledPostSchema,
 } from "@loomcast/contracts";
-import { assets, projects, publishAttempts, scheduledPosts } from "@loomcast/db";
+import { assets, publishAttempts, scheduledPosts, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -39,7 +39,7 @@ let testDb: TestDb;
 let t: TestApp;
 let deps: ModuleDeps;
 let cookie: string;
-let projectId: string;
+let workspaceId: string;
 let facebookId: string;
 let instagramId: string;
 const storedKeys: string[] = [];
@@ -57,16 +57,17 @@ beforeAll(async () => {
   });
   const user = await insertUser(testDb.db, { role: "owner" });
   ({ cookie } = await login(t.app, user.email));
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `composed-${randomUUID().slice(0, 8)}`, name: "Composed", createdBy: user.id })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  projectId = project.id;
-  facebookId = (await insertChannel(testDb.db, keyring, { platform: "facebook" })).id;
-  instagramId = (await insertChannel(testDb.db, keyring, { platform: "instagram" })).id;
+  workspaceId = workspace.id;
+  facebookId = (await insertChannel(testDb.db, keyring, { workspaceId, platform: "facebook" })).id;
+  instagramId = (await insertChannel(testDb.db, keyring, { workspaceId, platform: "instagram" }))
+    .id;
 });
 
 afterAll(async () => {
@@ -85,7 +86,7 @@ function ahead(hours: number): string {
 }
 
 async function createPost(format: PostFormat, title = `A ${format} post`) {
-  const response = await api("POST", `/api/projects/${projectId}/content`, { title, format });
+  const response = await api("POST", `/api/workspaces/${workspaceId}/content`, { title, format });
   expect(response.status).toBe(201);
   return ContentItemDetailSchema.parse(await response.json());
 }
@@ -94,7 +95,7 @@ async function createPost(format: PostFormat, title = `A ${format} post`) {
 async function uploadMedia(itemId: string, mime: string, filename: string): Promise<string> {
   const file = randomFile(4 * 1024);
   const started = await api("POST", "/api/assets/uploads", {
-    projectId,
+    workspaceId,
     itemId,
     kind: "media",
     filename,
@@ -196,7 +197,7 @@ describe("composed posts over REST", () => {
     });
     const calendar = await api(
       "GET",
-      `/api/calendar?from=${encodeURIComponent(ahead(0))}&to=${encodeURIComponent(ahead(24))}&projectId=${projectId}`,
+      `/api/calendar?from=${encodeURIComponent(ahead(0))}&to=${encodeURIComponent(ahead(24))}&workspaceId=${workspaceId}`,
     );
     expect(calendar.status).toBe(200);
     const { posts } = (await calendar.json()) as { posts: { itemId: string; options: unknown }[] };
@@ -247,7 +248,7 @@ describe("composed posts over REST", () => {
     const other = await createPost("image", "Another post");
     const foreign = await uploadMedia(other.item.id, "image/jpeg", "foreign.jpg");
     const pending = await insertAsset(testDb.db, {
-      projectId,
+      workspaceId,
       itemId,
       kind: "media",
       status: "pending",

@@ -15,7 +15,7 @@ import { useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { useSeriesOptions } from "@/features/library/queries";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { ChartFrame, type ChartNotice, Legend } from "./ChartFrame";
 import { formatCount, formatFullCount, formatRate, plural } from "./format";
 import { type Kpi, KpiTiles, KpiTilesSkeleton } from "./KpiTiles";
@@ -26,8 +26,6 @@ import { type ViewsTrend, viewsTrend } from "./scales";
 import { TopPostsTable } from "./TopPosts";
 import { ViewsTrendChart, ViewsTrendTable } from "./ViewsTrendChart";
 import "./viz.css";
-
-const ALL_PROJECTS = "all";
 
 /** The overview's four headline figures. */
 export function overviewKpis(overview: Overview): Kpi[] {
@@ -85,25 +83,19 @@ export function trendNotice(overview: Overview, trend: ViewsTrend): ChartNotice 
 
 export interface AnalyticsOverviewProps {
   range: OverviewRange;
-  projectId: string | null;
+  workspaceId: string;
   onRangeChange: (range: OverviewRange) => void;
-  onProjectChange: (projectId: string | null) => void;
 }
 
 /**
- * Posts that went live in a range: headline figures, views over time per platform, the top
- * posts and the series to drill into. Filters sit in one row above everything they scope.
+ * The workspace's posts that went live in a range: headline figures, views over time per
+ * platform, the top posts and the series to drill into. The range sits above everything it scopes.
  */
-export function AnalyticsOverview({
-  range,
-  projectId,
-  onRangeChange,
-  onProjectChange,
-}: AnalyticsOverviewProps) {
+export function AnalyticsOverview({ range, workspaceId, onRangeChange }: AnalyticsOverviewProps) {
   useAnalyticsLive();
+  const workspaceParam = useWorkspaceParam();
   const bounds = overviewRange(range);
-  const query = useQuery(overviewQueryOptions({ ...bounds, ...(projectId ? { projectId } : {}) }));
-  const projects = useQuery(projectsQueryOptions());
+  const query = useQuery(overviewQueryOptions({ ...bounds, workspaceId }));
   const overview = query.data;
   const trend = useMemo(() => (overview ? viewsTrend(overview) : null), [overview]);
   const busy = query.isPlaceholderData;
@@ -119,22 +111,6 @@ export function AnalyticsOverview({
             {(Object.keys(OVERVIEW_RANGES) as OverviewRange[]).map((key) => (
               <SelectItem key={key} value={key}>
                 {OVERVIEW_RANGES[key].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={projectId ?? ALL_PROJECTS}
-          onValueChange={(value) => onProjectChange(value === ALL_PROJECTS ? null : value)}
-        >
-          <SelectTrigger aria-label="Project" className="w-56 max-w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_PROJECTS}>All projects</SelectItem>
-            {(projects.data ?? []).map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -168,7 +144,9 @@ export function AnalyticsOverview({
                 </Button>
               ) : (
                 <Button asChild variant="outline">
-                  <Link to="/library">Open the library</Link>
+                  <Link to="/w/$workspace/library" params={{ workspace: workspaceParam }}>
+                    Open the library
+                  </Link>
                 </Button>
               )
             }
@@ -208,7 +186,7 @@ export function AnalyticsOverview({
             </div>
             <TopPostsTable posts={overview.topPosts} />
           </section>
-          <SeriesLinks projectId={projectId} />
+          <SeriesLinks workspaceId={workspaceId} />
         </>
       )}
     </div>
@@ -216,8 +194,9 @@ export function AnalyticsOverview({
 }
 
 /** Every active series, linking to its analytics. */
-function SeriesLinks({ projectId }: { projectId: string | null }) {
-  const { options } = useSeriesOptions(projectId);
+function SeriesLinks({ workspaceId }: { workspaceId: string }) {
+  const workspaceParam = useWorkspaceParam();
+  const { options } = useSeriesOptions(workspaceId);
   const shown = options.filter(({ series }) => series.status !== "archived");
   if (shown.length === 0) return null;
   return (
@@ -229,17 +208,14 @@ function SeriesLinks({ projectId }: { projectId: string | null }) {
         <p className="text-small text-muted-foreground">Views and watch time per post</p>
       </div>
       <ul>
-        {shown.map(({ series, project }) => (
+        {shown.map(({ series }) => (
           <li key={series.id} className="border-divider border-t">
             <Link
-              to="/analytics/series/$seriesId"
-              params={{ seriesId: series.id }}
+              to="/w/$workspace/analytics/series/$seriesId"
+              params={{ workspace: workspaceParam, seriesId: series.id }}
               className="flex h-10 items-center gap-2 px-4 text-control outline-none transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:shadow-[inset_2px_0_0_var(--ring)]"
             >
               <span className="min-w-0 truncate text-foreground">{series.name}</span>
-              {project && projectId === null ? (
-                <span className="min-w-0 truncate text-muted-foreground">{project.name}</span>
-              ) : null}
               <ChevronRightIcon
                 aria-hidden="true"
                 className="ml-auto size-3.5 shrink-0 text-muted-foreground"

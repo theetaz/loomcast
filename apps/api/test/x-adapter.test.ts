@@ -24,6 +24,7 @@ import { PublishFailure } from "../src/modules/publisher/errors";
 import type { PublishContext, PublishMedia } from "../src/modules/publisher/types";
 import { fakeCredential, fakeId } from "./oauth-support";
 import { testKeyring } from "./publisher-support";
+import { defaultWorkspace } from "./support";
 
 // The X adapter against a fake `fetch`: nothing here opens a connection. Tokens, client secrets
 // and ids are generated per run.
@@ -397,6 +398,7 @@ describe("x adapter", () => {
     const externalId = fakeId();
     await db.insert(channels).values({
       id,
+      workspaceId: await defaultWorkspace(db),
       platform: "x",
       displayName: "X channel",
       externalId,

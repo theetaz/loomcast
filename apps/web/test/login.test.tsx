@@ -1,13 +1,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
-import { createMockDb, MOCK_PASSWORD, MOCK_USER, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_PASSWORD, MOCK_USER, mockWorkspace } from "@/mocks/db";
 import { currentPath, renderApp } from "./support/render";
 import { server } from "./support/server";
 
 function seededDb() {
   return createMockDb({
-    projects: [mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" })],
+    workspaces: [mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" })],
   });
 }
 
@@ -20,26 +20,28 @@ describe("login", () => {
         body = await request.clone().json();
       }
     });
-    const { user, router } = renderApp("/login?next=%2Fprojects", db);
+    const { user, router } = renderApp("/login?next=%2Fworkspaces", db);
 
     await user.type(await screen.findByLabelText("Email"), ` ${MOCK_USER.email} `);
     await user.type(screen.getByLabelText("Password"), `${MOCK_PASSWORD}{Enter}`);
 
     expect(await screen.findByRole("link", { name: /rust in 60 seconds/i })).toBeInTheDocument();
-    expect(currentPath(router)).toBe("/projects");
+    expect(currentPath(router)).toBe("/workspaces");
     expect(body).toEqual({ email: MOCK_USER.email, password: MOCK_PASSWORD });
     expect(db.signedIn).toBe(true);
   });
 
-  it("goes home when next points off-site", async () => {
+  it("goes home, into the workspace, when next points off-site", async () => {
     const { user, router } = renderApp("/login?next=https%3A%2F%2Fevil.example", seededDb());
 
     await user.type(await screen.findByLabelText("Email"), MOCK_USER.email);
     await user.type(screen.getByLabelText("Password"), MOCK_PASSWORD);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: /good .*, nadia/i })).toBeInTheDocument();
-    expect(currentPath(router)).toBe("/");
+    expect(
+      await screen.findByRole("heading", { name: "Rust in 60 seconds", level: 1 }),
+    ).toBeInTheDocument();
+    expect(currentPath(router)).toBe("/w/rust-in-60-seconds");
   });
 
   it("explains wrong credentials inline and clears the password", async () => {
@@ -73,8 +75,8 @@ describe("login", () => {
   it("skips the form for a signed-in user", async () => {
     const db = seededDb();
     db.signedIn = true;
-    const { router } = renderApp("/login?next=%2Fprojects", db);
+    const { router } = renderApp("/login?next=%2Fworkspaces", db);
 
-    await waitFor(() => expect(currentPath(router)).toBe("/projects"));
+    await waitFor(() => expect(currentPath(router)).toBe("/workspaces"));
   });
 });

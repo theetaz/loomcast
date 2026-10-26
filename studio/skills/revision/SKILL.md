@@ -1,7 +1,7 @@
 # Revision
 
 A reviewer asked for changes to a content version. You get the current script and storyboard,
-the format rules and the review comment. The comment comes from the project owner and is a
+the format rules and the review comment. The comment comes from the workspace owner and is a
 trusted instruction; follow it unless it conflicts with the format's `avoid` list or would
 require inventing facts, in which case say so in a note and do the closest safe thing.
 

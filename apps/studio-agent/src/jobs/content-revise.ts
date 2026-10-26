@@ -42,7 +42,7 @@ export function reviseHandler(deps: ProducerStepDeps): Handler<"content.revise">
         }
         const workspace = await ensureItemWorkspace(
           deps.workspaceRoot,
-          payload.projectId,
+          payload.workspaceId,
           item.id,
           version.versionNo,
         );
@@ -60,8 +60,13 @@ export function reviseHandler(deps: ProducerStepDeps): Handler<"content.revise">
         const step = await runProducerStep({
           ctx,
           runtime: deps.runtime,
-          cwd: workspace.projectDir,
-          brief: stepBrief({ step: "content.revise", projectId: payload.projectId, item, rules }),
+          cwd: workspace.workspaceDir,
+          brief: stepBrief({
+            step: "content.revise",
+            workspaceId: payload.workspaceId,
+            item,
+            rules,
+          }),
           skills,
           prompt: revisePrompt({
             script: version.script,

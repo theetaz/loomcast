@@ -22,6 +22,7 @@ import { ArchiveIcon, EllipsisIcon, ExternalLinkIcon, WandSparklesIcon } from "l
 import { useState } from "react";
 import { toast } from "sonner";
 import { useMe } from "@/features/auth/queries";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { errorMessage } from "@/lib/api";
 import { useArchiveItem, useProduceThroughReview } from "./queries";
 
@@ -30,6 +31,7 @@ import { useArchiveItem, useProduceThroughReview } from "./queries";
  * confirmation. What is enabled follows the contracts' `allowedActions`.
  */
 export function QuickActions({ item }: { item: ContentItem }) {
+  const workspaceParam = useWorkspaceParam();
   const me = useMe();
   const navigate = useNavigate();
   const produce = useProduceThroughReview();
@@ -66,7 +68,12 @@ export function QuickActions({ item }: { item: ContentItem }) {
             Produce through review
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => void navigate({ to: "/content/$itemId", params: { itemId: item.id } })}
+            onSelect={() =>
+              void navigate({
+                to: "/w/$workspace/content/$itemId",
+                params: { workspace: workspaceParam, itemId: item.id },
+              })
+            }
           >
             <ExternalLinkIcon aria-hidden="true" />
             Open

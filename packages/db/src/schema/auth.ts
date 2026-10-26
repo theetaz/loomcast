@@ -12,8 +12,8 @@ import {
 import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { passwordTokenPurpose, tokenKind, tokenScope } from "./enums";
 import { jobs } from "./jobs";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /** Browser sessions. The primary key is the sha256 of the cookie token; the token is never stored. */
 export const sessions = pgTable(
@@ -36,10 +36,10 @@ export const sessions = pgTable(
  * Bearer tokens for MCP clients, paired devices, running jobs and API clients. Only the sha256 of
  * the secret is stored; `prefix` keeps its first characters so the UI can tell tokens apart.
  *
- * A `job` token is minted for one job and bound to its project; `jobId` is set exactly for job
+ * A `job` token is minted for one job and bound to its workspace; `jobId` is set exactly for job
  * tokens, and deleting the job deletes its token. An `api` token is an API client of the machine
- * API: it always has the project its posts are created in, and its channels are granted in
- * `api_token_channels`. Only job and API tokens have a project. The checks compare `kind` as text
+ * API: it always has the workspace its posts are created in, and its channels are granted in
+ * `api_token_channels`. Only job and API tokens have a workspace. The checks compare `kind` as text
  * so that they never parse an enum value a pending migration may add in the same transaction.
  */
 export const apiTokens = pgTable(
@@ -57,8 +57,8 @@ export const apiTokens = pgTable(
     lastUsedAt: timestamptz("last_used_at"),
     expiresAt: timestamptz("expires_at"),
     revokedAt: timestamptz("revoked_at"),
-    /** The project a job token is bound to, or the project an API client creates posts in. */
-    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** The workspace a job token is bound to, or the workspace an API client creates posts in. */
+    workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
     /**
      * The job a job token was minted for. Typed as `AnyPgColumn` because `jobs` reaches back to
      * this table through `devices`.
@@ -68,12 +68,13 @@ export const apiTokens = pgTable(
   },
   (t) => [
     uniqueIndex("api_tokens_token_hash_uq").on(t.tokenHash),
+    uniqueIndex("api_tokens_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("api_tokens_user_id_idx").on(t.userId),
     index("api_tokens_job_id_idx").on(t.jobId).where(sql`${t.jobId} is not null`),
     check("api_tokens_job_id_ck", sql`(${t.kind}::text = 'job') = (${t.jobId} is not null)`),
     check(
-      "api_tokens_project_id_ck",
-      sql`(${t.kind}::text <> 'api' or ${t.projectId} is not null) and (${t.kind}::text in ('job', 'api') or ${t.projectId} is null)`,
+      "api_tokens_workspace_id_ck",
+      sql`(${t.kind}::text <> 'api' or ${t.workspaceId} is not null) and (${t.kind}::text in ('job', 'api') or ${t.workspaceId} is null)`,
     ),
   ],
 );

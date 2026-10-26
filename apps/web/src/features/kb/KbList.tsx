@@ -4,7 +4,7 @@ import {
   KB_SEARCH_QUERY_MAX_LENGTH,
   type KbEntry,
   type KbSearchHit,
-  type Project,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
@@ -42,9 +42,9 @@ export interface KbListState {
 }
 
 export interface KbListProps {
-  project: Project;
-  /** The project as it appears in the address: its id or slug. */
-  projectParam: string;
+  workspace: Workspace;
+  /** The workspace as it appears in the address: its id or slug. */
+  workspaceParam: string;
   state: KbListState;
   onStateChange: (next: KbListState) => void;
   /** The next step in an empty list, such as a "New brainstorm" button. */
@@ -58,8 +58,8 @@ export interface KbListProps {
  * pages through `kb.list` ("Load more"); with one it shows `kb.search` hits and their snippets.
  */
 export function KbList({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
   state,
   onStateChange,
   emptyAction,
@@ -88,15 +88,15 @@ export function KbList({
 
   const filter = { kind: state.kind, tag: state.tag };
   const list = useInfiniteQuery({
-    ...kbListQueryOptions(project.id, filter),
+    ...kbListQueryOptions(workspace.id, filter),
     enabled: !searching,
   });
   const search = useQuery({
-    ...kbSearchQueryOptions(project.id, q, state.kind),
+    ...kbSearchQueryOptions(workspace.id, q, state.kind),
     enabled: searching,
     placeholderData: keepPreviousData,
   });
-  const tags = useQuery(kbTagsQueryOptions(project.id));
+  const tags = useQuery(kbTagsQueryOptions(workspace.id));
 
   const clearSearch = () => {
     setInput("");
@@ -180,14 +180,19 @@ export function KbList({
                 : ""}
           </p>
           {searching ? (
-            <SearchResults query={search} q={q} projectParam={projectParam} onClear={clearSearch} />
+            <SearchResults
+              query={search}
+              q={q}
+              workspaceParam={workspaceParam}
+              onClear={clearSearch}
+            />
           ) : custom ? (
             custom()
           ) : (
             <ListBody
               list={list}
               state={state}
-              projectParam={projectParam}
+              workspaceParam={workspaceParam}
               onClearTag={() => onStateChange({ ...state, tag: null })}
               emptyAction={emptyAction}
             />
@@ -262,13 +267,13 @@ function TagFilter({
 function ListBody({
   list,
   state,
-  projectParam,
+  workspaceParam,
   onClearTag,
   emptyAction,
 }: {
   list: UseInfiniteQueryResult<InfiniteData<CursorPage<KbEntry>, unknown>>;
   state: KbListState;
-  projectParam: string;
+  workspaceParam: string;
   onClearTag: () => void;
   emptyAction?: (kind: KbFilter) => ReactNode;
 }) {
@@ -323,7 +328,7 @@ function ListBody({
       <ul aria-label={`${filterLabel(state.kind)} entries`} className="divide-y divide-divider">
         {entries.map((entry) => (
           <li key={entry.id}>
-            <KbRow entry={entry} projectParam={projectParam} />
+            <KbRow entry={entry} workspaceParam={workspaceParam} />
           </li>
         ))}
       </ul>
@@ -345,12 +350,12 @@ function ListBody({
 function SearchResults({
   query,
   q,
-  projectParam,
+  workspaceParam,
   onClear,
 }: {
   query: UseQueryResult<KbSearchHit[]>;
   q: string;
-  projectParam: string;
+  workspaceParam: string;
   onClear: () => void;
 }) {
   if (query.isPending) return <KbRowsSkeleton rows={3} />;
@@ -385,7 +390,7 @@ function SearchResults({
       <ul aria-label="Search results" className="divide-y divide-divider">
         {query.data.map((hit) => (
           <li key={hit.entryId}>
-            <KbHitRow hit={hit} projectParam={projectParam} />
+            <KbHitRow hit={hit} workspaceParam={workspaceParam} />
           </li>
         ))}
       </ul>

@@ -21,7 +21,8 @@ export function DataDeletionPage() {
         <ol>
           <li>Sign in to Loomcast.</li>
           <li>
-            Open <strong>Settings → Channels</strong>.
+            Open the workspace the account belongs to, then{" "}
+            <strong>Workspace settings → Channels</strong>.
           </li>
           <li>
             Choose the Facebook Page, Instagram account, Threads profile or X account, then choose{" "}

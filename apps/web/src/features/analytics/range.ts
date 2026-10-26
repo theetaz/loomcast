@@ -1,4 +1,3 @@
-import { IdSchema } from "@loomcast/contracts";
 import { z } from "zod";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -25,10 +24,9 @@ export const DEFAULT_SERIES_RANGE: SeriesRange = "all";
 const overviewRanges = Object.keys(OVERVIEW_RANGES) as [OverviewRange, ...OverviewRange[]];
 const seriesRanges = Object.keys(SERIES_RANGES) as [SeriesRange, ...SeriesRange[]];
 
-/** `/analytics?range=&project=`. Unknown values fall back rather than fail. */
+/** `/w/<workspace>/analytics?range=`. Unknown values fall back rather than fail. */
 export const OverviewSearchSchema = z.object({
   range: z.enum(overviewRanges).optional().catch(undefined),
-  project: IdSchema.optional().catch(undefined),
 });
 export type OverviewSearch = z.infer<typeof OverviewSearchSchema>;
 

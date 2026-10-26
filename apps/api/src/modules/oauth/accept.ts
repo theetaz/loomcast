@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Channel, OAuthProvider, Platform } from "@loomcast/contracts";
-import { channels, consumeOAuthConnection, type OAuthCandidateRow } from "@loomcast/db";
+import { channels, consumeOAuthConnection, type OAuthCandidateRow, workspaces } from "@loomcast/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { ModuleDeps } from "../../deps";
 import { audit } from "../../lib/audit";
@@ -51,8 +51,22 @@ export function withParents(
     .sort((a, b) => depthOf(a) - depthOf(b));
 }
 
+/**
+ * 409 for an account that is already a channel of another workspace. An account belongs to one
+ * workspace, and channels do not move between workspaces.
+ */
+export const channelInOtherWorkspace = (workspace: { id: string; name: string }) =>
+  new HttpError(
+    409,
+    "channel_in_other_workspace",
+    `This account is already connected in the workspace "${workspace.name}".`,
+    { workspaceId: workspace.id, workspaceName: workspace.name },
+  );
+
 export interface AcceptInput {
   connectionId: string;
+  /** The workspace the accounts are connected to; the caller has checked it is active. */
+  workspaceId: string;
   userId: string;
   provider: OAuthProvider;
   /** The accounts to connect, parents included and first (`withParents`). */
@@ -62,11 +76,13 @@ export interface AcceptInput {
 }
 
 /**
- * Consumes the pending connection and creates or reconnects one channel per account, in `tx`. A
- * channel of the same platform and account id is reconnected: its credentials are replaced, it
- * turns `active` (unless disabled), its last error is cleared and its profile picture replaced,
- * while its name and dry-run switch stay as the user left them. New channels are `active` with
- * dry-run on. Throws `connection_expired` when the connection was used or expired meanwhile.
+ * Consumes the pending connection and creates or reconnects one channel per account of the
+ * workspace, in `tx`. A channel of the same platform and account id is reconnected: its
+ * credentials are replaced, it turns `active` (unless disabled), its last error is cleared and its
+ * profile picture replaced, while its name and dry-run switch stay as the user left them. New
+ * channels are `active` with dry-run on. Throws `connection_expired` when the connection was used
+ * or expired meanwhile, and `channel_in_other_workspace` when an account is a channel of another
+ * workspace.
  */
 export async function acceptConnection(
   tx: Transaction,
@@ -96,6 +112,7 @@ export async function acceptConnection(
     const parentChannelId =
       account.parentId === null ? null : (channelIds.get(account.parentId) ?? null);
     const id = await upsertChannel(tx, deps.vault, {
+      workspaceId: input.workspaceId,
       account,
       credentials,
       provider: input.provider,
@@ -122,6 +139,7 @@ async function upsertChannel(
   tx: Transaction,
   vault: TokenVault,
   input: {
+    workspaceId: string;
     account: OAuthCandidateRow;
     credentials: CandidateSecret;
     provider: OAuthProvider;
@@ -134,10 +152,18 @@ async function upsertChannel(
   const { account, credentials } = input;
   const platform: Platform = account.platform;
   const [existing] = await tx
-    .select({ id: channels.id, status: channels.status })
+    .select({ id: channels.id, status: channels.status, workspaceId: channels.workspaceId })
     .from(channels)
     .where(and(eq(channels.platform, platform), eq(channels.externalId, account.externalId)))
     .for("update");
+  if (existing !== undefined && existing.workspaceId !== input.workspaceId) {
+    const [other] = await tx
+      .select({ id: workspaces.id, name: workspaces.name })
+      .from(workspaces)
+      .where(eq(workspaces.id, existing.workspaceId))
+      .limit(1);
+    throw channelInOtherWorkspace(other ?? { id: existing.workspaceId, name: "another workspace" });
+  }
   const id = existing?.id ?? randomUUID();
   const stored: StoredChannelSecret = {
     ...credentials.extra,
@@ -166,6 +192,7 @@ async function upsertChannel(
   if (existing === undefined) {
     await tx.insert(channels).values({
       id,
+      workspaceId: input.workspaceId,
       platform,
       displayName: account.name,
       externalId: account.externalId,
@@ -192,6 +219,7 @@ async function upsertChannel(
     targetType: "channel",
     targetId: id,
     data: {
+      workspaceId: input.workspaceId,
       platform,
       externalId: account.externalId,
       provider: input.provider,

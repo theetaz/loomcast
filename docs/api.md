@@ -19,20 +19,22 @@ Contents: [concepts](#concepts), [authentication](#authentication), [rate limits
 
 ## Concepts
 
-**API client.** The owner creates a client for each backend in **Settings → API clients**. A
-client has a name, one project, the channels it may use (each with an access level) and an
-optional expiry. Its API key (`lc_api_` followed by 43 letters and digits) is shown once, when
-the client is created. Revoking the client stops the key at once. Only the owner manages
-clients; see the [owner's guide](guide/api-clients.md).
+**API client.** The owner creates a client for each backend in the workspace's
+**Workspace settings → API clients**. A client has a name, one workspace (the one it was created
+in), the channels it may use (each with an access level) and an optional expiry. Its API key
+(`lc_api_` followed by 43 letters and digits) is shown once, when the client is created. Revoking
+the client stops the key at once. Only the owner manages clients; see the [owner's
+guide](guide/api-clients.md).
 
-**Project.** Every post a client creates is a content item in the client's project, so the owner
-sees it in Loomcast next to the studio's own work, with "From an API client" on its versions.
+**Workspace.** Every post a client creates is a content item in the client's workspace, so the
+owner sees it in Loomcast next to the studio's own work, with "From an API client" on its
+versions.
 
 **Channel.** A connected account Loomcast publishes to: a Facebook Page or an Instagram
-professional account (Threads and X channels exist too, and publish Reels only). Channels belong
-to the workspace; a client reaches only the ones it was granted. A channel can be `active`,
-`disconnected`, `needs_reauth` (the owner has to reconnect it) or `disabled` (nothing is
-scheduled on it).
+professional account (Threads and X channels exist too, and publish Reels only). Each channel
+belongs to one workspace; a client can be granted only channels of its own workspace, and
+reaches only the ones it was granted. A channel can be `active`, `disconnected`, `needs_reauth`
+(the owner has to reconnect it) or `disabled` (nothing is scheduled on it).
 
 **Access levels.** Each granted channel has one level; each level includes the ones before it.
 
@@ -54,12 +56,12 @@ formats only (see [formats and platform limits](#formats-and-platform-limits)).
 **Composed post.** A post made from files the client uploads (as opposed to a video the studio
 produces). It skips production and goes straight to review, approval and the calendar.
 
-**Dry run and live.** Every channel starts in dry run: Loomcast builds the exact requests it
-would send to the platform and records them, but sends nothing. The post still moves to
-`published`, with a permalink that starts with `dryrun://` (for example
-`dryrun://facebook/<postId>`). The owner switches a channel to live in Settings; the server's
-publishing mode can also keep every channel in dry run. Each target says which applies
-(`dryRun`), fixed when the target is created.
+**Dry run and live.** Every channel starts in dry run: Loomcast builds the exact requests it would
+send to the platform and records them, but sends nothing. The post still moves to `published`, with
+a permalink that starts with `dryrun://` (for example `dryrun://facebook/<postId>`). The owner
+switches a channel to live in the workspace's channel settings; the server's publishing mode can
+also keep every channel in dry run. Each target says which applies (`dryRun`), fixed when the target
+is created.
 
 **Approval.** The owner reviews posts in **Approvals**. Approving queues the post's targets for
 their time; asking for changes or rejecting it keeps it off the calendar. A target still waiting
@@ -79,7 +81,7 @@ Authorization: Bearer lc_api_...
   works on the web app's routes or on `/mcp`.
 - Too many failed keys from one address (30 a minute) get `429` before the key is even looked up.
 - `403 forbidden` on every request means the account that owns the client is no longer the
-  workspace owner; the owner has to create a new client.
+  owner; the owner has to create a new client.
 - Keep the key in the backend's secret store. Never put it in a browser or a mobile app.
 
 Requests with a body must send `Content-Type: application/json` (`415` otherwise); bodies are
@@ -151,7 +153,7 @@ Send a key whenever a timeout or a crash could make the backend send the same po
 
 | Method and path | Needs | What it does |
 |---|---|---|
-| `GET /api/v1/me` | any key | The client, its project, its grants and the rate limit |
+| `GET /api/v1/me` | any key | The client, its workspace, its grants and the rate limit |
 | `GET /api/v1/channels` | any key | The granted channels, with access and formats |
 | `GET /api/v1/formats` | any key | What each format carries and which platforms publish it |
 | `POST /api/v1/posts` | `write` on every channel | Creates a post; returns upload URLs |
@@ -173,7 +175,7 @@ The examples use these shell variables:
 
 ```bash
 export LOOMCAST_API=https://loomcast.example.com/api/v1
-export LOOMCAST_API_KEY=lc_api_...   # from Settings → API clients
+export LOOMCAST_API_KEY=lc_api_...   # from Workspace settings → API clients
 ```
 
 ### `GET /api/v1/me`
@@ -191,6 +193,7 @@ curl -s "$LOOMCAST_API/me" -H "Authorization: Bearer $LOOMCAST_API_KEY"
     "createdAt": "2026-10-18T08:00:00.000Z",
     "expiresAt": null
   },
+  "workspace": { "id": "0b1c…", "slug": "release-notes", "name": "Release notes" },
   "project": { "id": "0b1c…", "slug": "release-notes", "name": "Release notes" },
   "grants": [
     { "channelId": "a3e1…", "access": "publish" },
@@ -199,6 +202,9 @@ curl -s "$LOOMCAST_API/me" -H "Authorization: Bearer $LOOMCAST_API_KEY"
   "rateLimit": { "requests": 120, "perSeconds": 60 }
 }
 ```
+
+`project` repeats `workspace` for clients written before projects were renamed workspaces. It is
+deprecated; read `workspace`.
 
 ### `GET /api/v1/channels`
 
@@ -659,17 +665,17 @@ Loomcast also serves its tools over the Model Context Protocol at `/mcp` (see [m
 MCP suits an assistant or a tool that works as a person would; the REST API suits a backend that
 schedules posts unattended. They use different credentials:
 
-- Create an MCP access token in **Settings → Access tokens** (`lc_mcp_…`). Composing and
+- Create an MCP access token in **Account settings → Access tokens** (`lc_mcp_…`). Composing and
   scheduling posts over MCP needs the owner's token with the `mcp:admin` scope; it acts as the
   owner, with every channel, and its posts are approved as the owner's own review.
 - An API key does not work on `/mcp`, and an MCP token does not work on `/api/v1`.
 
-The MCP flow for the same photo: `post.formats` (what each format takes), `channel.list`,
-`post.create` (`projectId`, `title`, `format: "image"`, `caption`), `content.upload_asset`
-(`kind: "media"`, the post's `itemId`), `PUT` the bytes, `content.finalize_asset`, `post.compose`
-(`media: [{assetId, altText}]`), then `post.schedule` (`itemId`, `channelIds`, `scheduledAt`,
-`options`). `calendar.list_posts`, `calendar.reschedule_post` and `calendar.cancel_post` follow
-the posts afterwards.
+The MCP flow for the same photo: `post.formats` (what each format takes), `channel.list`
+(`workspaceId`, for that workspace's channels), `post.create` (`workspaceId`, `title`,
+`format: "image"`, `caption`), `content.upload_asset` (`kind: "media"`, the post's `itemId`), `PUT`
+the bytes, `content.finalize_asset`, `post.compose` (`media: [{assetId, altText}]`), then
+`post.schedule` (`itemId`, `channelIds`, `scheduledAt`, `options`). `calendar.list_posts`,
+`calendar.reschedule_post` and `calendar.cancel_post` follow the posts afterwards.
 
 ## Auditing
 

@@ -135,7 +135,7 @@ function usable(db: MockDb, provider: OAuthProvider): boolean {
 export function mockOAuthStart(db: MockDb, url: string): string {
   const match = new URL(url, "http://mock.invalid").pathname.match(/\/api\/oauth\/([^/]+)\/start$/);
   const provider = OAuthProviderSchema.safeParse(match?.[1]);
-  if (!provider.success) return "/settings/channels";
+  if (!provider.success) return "/workspaces";
   if (!usable(db, provider.data)) return connectPage(provider.data, { error: "not_configured" });
   const connection = addMockConnection(db, provider.data);
   return connectPage(provider.data, { connection: connection.id });
@@ -227,6 +227,12 @@ export function createOAuthHandlers(db: MockDb) {
       }
       const { connection, error } = pending(db, String(params.id));
       if (error) return error;
+      const workspace = db.workspaces.find((entry) => entry.id === parsed.data.workspaceId);
+      if (!workspace) {
+        return apiError(400, "validation_failed", "The request is not valid.", [
+          { path: "workspaceId", message: "No workspace has that id" },
+        ]);
+      }
       const known = new Set(connection.accounts.map((account) => account.id));
       const unknown = parsed.data.accountIds.flatMap((id, index) =>
         known.has(id)
@@ -236,13 +242,37 @@ export function createOAuthHandlers(db: MockDb) {
       if (unknown.length > 0) {
         return apiError(400, "validation_failed", "The request is not valid.", unknown);
       }
+      const chosen = withParents(connection.accounts, parsed.data.accountIds);
+      // An account belongs to one workspace: connecting it elsewhere is refused, not moved.
+      for (const account of chosen) {
+        const elsewhere = db.channels.find(
+          (entry) =>
+            entry.platform === account.platform &&
+            entry.externalId === account.externalId &&
+            entry.workspaceId !== workspace.id,
+        );
+        const owner = elsewhere
+          ? db.workspaces.find((entry) => entry.id === elsewhere.workspaceId)
+          : undefined;
+        if (elsewhere) {
+          return apiError(
+            409,
+            "channel_in_other_workspace",
+            `${account.name} is already connected in another workspace.`,
+            {
+              workspaceId: elsewhere.workspaceId,
+              workspaceName: owner?.name ?? "another workspace",
+            },
+          );
+        }
+      }
       connection.consumedAt = new Date().toISOString();
 
       const channelIds = new Map<string, string>();
       const connected: Channel[] = [];
       const tokenExpiresAt =
         connection.provider === "meta" ? null : new Date(Date.now() + SIXTY_DAYS_MS).toISOString();
-      for (const account of withParents(connection.accounts, parsed.data.accountIds)) {
+      for (const account of chosen) {
         const parentChannelId =
           account.parentId === null ? null : (channelIds.get(account.parentId) ?? null);
         const values = {
@@ -265,6 +295,7 @@ export function createOAuthHandlers(db: MockDb) {
           touch(channel);
         } else {
           channel = mockChannel({
+            workspaceId: workspace.id,
             platform: account.platform,
             displayName: account.name,
             externalId: account.externalId,

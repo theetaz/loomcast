@@ -5,11 +5,14 @@ import { useMe } from "@/features/auth/queries";
 import { type SettingsPath, visibleSettingsItems } from "@/features/settings-nav/registry";
 
 export const Route = createFileRoute("/_app/settings")({
-  staticData: { breadcrumb: "Settings" },
+  staticData: { breadcrumb: "Account settings" },
   component: SettingsLayout,
 });
 
-/** The sections come from the settings-nav registry, filtered to what the user may open. */
+/**
+ * Settings that span every workspace. The sections come from the settings-nav registry, filtered to
+ * what the user may open.
+ */
 function SettingsLayout() {
   const me = useMe();
   const navigate = useNavigate();
@@ -24,11 +27,11 @@ function SettingsLayout() {
   return (
     <Page>
       <PageHeader
-        title="Settings"
+        title="Account settings"
         description={
           ownsMembers
-            ? "Studio agents that render for this workspace, tokens for connecting other tools, and the people who can sign in."
-            : "Studio agents that render for this workspace, and tokens for connecting other tools."
+            ? "Studio agents that render your videos, tokens for connecting other tools, and the people who can sign in. Channels and API clients are in each workspace's settings."
+            : "Studio agents that render your videos, and tokens for connecting other tools. Channels are in each workspace's settings."
         }
       />
       <Tabs

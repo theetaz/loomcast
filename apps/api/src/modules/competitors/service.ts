@@ -1,7 +1,7 @@
 import {
   ACTIVE_COMPETITOR_SCAN_STATUSES,
   COMPETITOR_SCAN_DEFAULT_VIDEOS,
-  COMPETITORS_PER_PROJECT_MAX,
+  COMPETITORS_PER_WORKSPACE_MAX,
   type Competitor,
   type CompetitorPlatform,
   type CompetitorScan,
@@ -23,7 +23,7 @@ import {
   competitors,
   kbEntries,
   kbReferences,
-  projects,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
@@ -31,7 +31,7 @@ import { type Executor, isUniqueViolation, type Transaction, transaction } from 
 import { conflict, HttpError, validationFailed } from "../../lib/errors";
 import type { JobLifecycle } from "../jobs/lifecycle";
 import type { JobsService } from "../jobs/service";
-import { auditActor, type KbActor, type KbService, requireActiveProject } from "../kb/service";
+import { auditActor, type KbActor, type KbService, requireActiveWorkspace } from "../kb/service";
 import {
   type Discovery,
   type DiscoveryDeps,
@@ -49,14 +49,14 @@ export const COMPETITOR_SCANS_LIST_LIMIT = 50;
 const TITLE_CAPTION_LENGTH = 60;
 
 export interface CompetitorsService {
-  /** Live competitors of a project, oldest first. Null when the project is unknown. */
-  list(projectId: string): Promise<Competitor[] | null>;
+  /** Live competitors of a workspace, oldest first. Null when the workspace is unknown. */
+  list(workspaceId: string): Promise<Competitor[] | null>;
   /**
    * Follows the profile `input.url` (`parseCompetitorUrl`). 400 for a link that is not a profile,
-   * 404 for an unknown project, 409 for an archived one, 409 `conflict` (`reason: "duplicate"`)
-   * when the project already follows it and (`reason: "limit"`) at `COMPETITORS_PER_PROJECT_MAX`.
+   * 404 for an unknown workspace, 409 for an archived one, 409 `conflict` (`reason: "duplicate"`)
+   * when the workspace already follows it and (`reason: "limit"`) at `COMPETITORS_PER_WORKSPACE_MAX`.
    */
-  create(projectId: string, input: CreateCompetitorRequest, actor: KbActor): Promise<Competitor>;
+  create(workspaceId: string, input: CreateCompetitorRequest, actor: KbActor): Promise<Competitor>;
   get(id: string): Promise<Competitor | null>;
   update(id: string, input: UpdateCompetitorRequest, actor: KbActor): Promise<Competitor | null>;
   /** Soft-deletes a competitor and cancels its active scan. False when there is no such competitor. */
@@ -134,7 +134,7 @@ export function toCompetitor(
 ): Competitor {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     platform: row.platform,
     handle: row.handle,
     profileUrl: row.profileUrl,
@@ -272,7 +272,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
       return {
         id: scan.id,
         competitorId: scan.competitorId,
-        projectId: scan.projectId,
+        workspaceId: scan.workspaceId,
         status: scan.status,
         source: scan.source,
         topN: scan.topN,
@@ -383,6 +383,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
       );
     }
     const discovery = await discoverInstagramVideos(deps, {
+      workspaceId: competitor.workspaceId,
       handle: competitor.handle,
       topN: input.topN ?? COMPETITOR_SCAN_DEFAULT_VIDEOS,
       channelId: input.channelId,
@@ -402,7 +403,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
     const platform: CompetitorPlatform = competitor.platform;
     const { entry, reference } = await kb.ensureReference(
       tx,
-      competitor.projectId,
+      competitor.workspaceId,
       {
         kind: "reference",
         url: video.url,
@@ -434,27 +435,27 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
   }
 
   return {
-    async list(projectId) {
-      if (!IdSchema.safeParse(projectId).success) {
+    async list(workspaceId) {
+      if (!IdSchema.safeParse(workspaceId).success) {
         return null;
       }
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId))
+      const [workspace] = await db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
         .limit(1);
-      if (project === undefined) {
+      if (workspace === undefined) {
         return null;
       }
       const rows = await db
         .select()
         .from(competitors)
-        .where(and(eq(competitors.projectId, projectId), isNull(competitors.deletedAt)))
+        .where(and(eq(competitors.workspaceId, workspaceId), isNull(competitors.deletedAt)))
         .orderBy(asc(competitors.createdAt), asc(competitors.id));
       return withScans(db, rows);
     },
 
-    async create(projectId, input, actor) {
+    async create(workspaceId, input, actor) {
       let profile: ReturnType<typeof parseCompetitorUrl>;
       try {
         profile = parseCompetitorUrl(input.url);
@@ -466,10 +467,10 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
       }
       try {
         return await transaction(db, async (tx) => {
-          await requireActiveProject(tx, projectId);
-          // Serialises follows within the project, so the limit and the duplicate check hold.
+          await requireActiveWorkspace(tx, workspaceId);
+          // Serialises follows within the workspace, so the limit and the duplicate check hold.
           await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtext(${`loomcast:competitors:${projectId}`}))`,
+            sql`select pg_advisory_xact_lock(hashtext(${`loomcast:competitors:${workspaceId}`}))`,
           );
           const live = await tx
             .select({
@@ -478,24 +479,24 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
               handle: competitors.handle,
             })
             .from(competitors)
-            .where(and(eq(competitors.projectId, projectId), isNull(competitors.deletedAt)));
+            .where(and(eq(competitors.workspaceId, workspaceId), isNull(competitors.deletedAt)));
           const duplicate = live.find(
             (row) =>
               row.platform === profile.platform &&
               row.handle.toLowerCase() === profile.handle.toLowerCase(),
           );
           if (duplicate !== undefined) {
-            throw conflict("The project already follows this profile.", {
+            throw conflict("The workspace already follows this profile.", {
               reason: "duplicate",
               competitorId: duplicate.id,
             });
           }
-          if (live.length >= COMPETITORS_PER_PROJECT_MAX) {
+          if (live.length >= COMPETITORS_PER_WORKSPACE_MAX) {
             throw conflict(
-              `A project follows at most ${COMPETITORS_PER_PROJECT_MAX} competitors.`,
+              `A workspace follows at most ${COMPETITORS_PER_WORKSPACE_MAX} competitors.`,
               {
                 reason: "limit",
-                max: COMPETITORS_PER_PROJECT_MAX,
+                max: COMPETITORS_PER_WORKSPACE_MAX,
               },
             );
           }
@@ -503,7 +504,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
           const [row] = await tx
             .insert(competitors)
             .values({
-              projectId,
+              workspaceId,
               platform: profile.platform,
               handle: profile.handle,
               profileUrl: profile.profileUrl,
@@ -519,13 +520,13 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
             action: "competitor.create",
             targetType: "competitor",
             targetId: row.id,
-            data: { projectId, platform: row.platform, handle: row.handle },
+            data: { workspaceId, platform: row.platform, handle: row.handle },
           });
           return toCompetitor(row, null, null);
         });
       } catch (error) {
-        if (isUniqueViolation(error, "competitors_project_id_platform_handle_uq")) {
-          throw conflict("The project already follows this profile.", { reason: "duplicate" });
+        if (isUniqueViolation(error, "competitors_workspace_id_platform_handle_uq")) {
+          throw conflict("The workspace already follows this profile.", { reason: "duplicate" });
         }
         throw error;
       }
@@ -556,7 +557,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
           action: "competitor.update",
           targetType: "competitor",
           targetId: row.id,
-          data: { projectId: row.projectId, fields: ["notes"] },
+          data: { workspaceId: row.workspaceId, fields: ["notes"] },
         });
         return oneWithScans(tx, row);
       });
@@ -588,7 +589,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
           targetType: "competitor",
           targetId: existing.id,
           data: {
-            projectId: existing.projectId,
+            workspaceId: existing.workspaceId,
             cancelledScans: cancelled.map((scan) => scan.id),
           },
         });
@@ -630,7 +631,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
       let scanId: string;
       try {
         scanId = await transaction(db, async (tx) => {
-          await requireActiveProject(tx, competitor.projectId);
+          await requireActiveWorkspace(tx, competitor.workspaceId);
           const locked = await lockCompetitor(tx, competitor.id);
           if (locked === null) {
             throw new HttpError(404, "not_found", "No competitor has that id.");
@@ -653,7 +654,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
             .insert(competitorScans)
             .values({
               competitorId: locked.id,
-              projectId: locked.projectId,
+              workspaceId: locked.workspaceId,
               status: "analyzing",
               source: discovery === null ? "links" : "official_api",
               // A scan of pasted links analyses exactly those links.
@@ -677,7 +678,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
             targetType: "competitor_scan",
             targetId: scan.id,
             data: {
-              projectId: locked.projectId,
+              workspaceId: locked.workspaceId,
               competitorId: locked.id,
               source: discovery === null ? "links" : "official_api",
               videoCount: videos.length,
@@ -730,7 +731,7 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
           action: "competitor.scan.cancel",
           targetType: "competitor_scan",
           targetId: scan.id,
-          data: { projectId: found.projectId, competitorId: found.competitorId },
+          data: { workspaceId: found.workspaceId, competitorId: found.competitorId },
         });
         return true;
       });

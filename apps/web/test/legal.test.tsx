@@ -49,7 +49,7 @@ describe("legal pages", () => {
   it("explains every way to request deletion and the deadline", async () => {
     renderApp("/data-deletion", createMockDb());
 
-    expect(await screen.findByText("Settings → Channels")).toBeInTheDocument();
+    expect(await screen.findByText("Workspace settings → Channels")).toBeInTheDocument();
     expect(screen.getByText(/Business integrations/)).toBeInTheDocument();
     expect(screen.getByText(/Website permissions/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "3. Ask us to delete your data" })).toBeVisible();

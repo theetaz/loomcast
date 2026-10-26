@@ -17,7 +17,7 @@ export type EntryRow = Omit<KbEntryRow, "search">;
 export function toKbEntry(row: EntryRow): KbEntry {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     kind: row.kind,
     title: row.title,
     bodyMd: row.bodyMd,

@@ -50,10 +50,10 @@ function useAnalysisJob(entry: KbEntryDetail, reference: KbReferenceDetail) {
  */
 export function ReferenceView({
   entry,
-  projectParam,
+  workspaceParam,
 }: {
   entry: KbEntryDetail;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   const queryClient = useQueryClient();
   const reference = entry.reference ?? {
@@ -94,13 +94,13 @@ export function ReferenceView({
 
   return (
     <article className="flex flex-col gap-4">
-      <EntryToolbar projectParam={projectParam}>
-        <DeleteEntryButton entry={entry} projectParam={projectParam} />
+      <EntryToolbar workspaceParam={workspaceParam}>
+        <DeleteEntryButton entry={entry} workspaceParam={workspaceParam} />
       </EntryToolbar>
 
       <header className="flex flex-col gap-2">
         <EntryMeta entry={entry} />
-        <h2 className="text-title break-words">{entry.title}</h2>
+        <h1 className="text-title break-words">{entry.title}</h1>
         <TagChips tags={entry.tags} />
       </header>
 

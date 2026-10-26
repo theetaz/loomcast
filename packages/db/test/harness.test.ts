@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { KB_FIXTURES } from "../src/fixtures/kb";
-import { kbEntries, projects } from "../src/schema";
+import { kbEntries, workspaces } from "../src/schema";
 import { seedDev } from "../src/seed-dev";
 import { createTestDb, templateDatabaseName } from "../src/testing";
 import { insertUser } from "./fixtures";
@@ -42,18 +42,18 @@ describe("createTestDb", () => {
 });
 
 describe("seedDev", () => {
-  it("waits for an owner, then creates the sample project and its entries once", async () => {
+  it("waits for an owner, then creates the sample workspace and its entries once", async () => {
     const testDb = await createTestDb({ max: 1 });
     try {
-      expect(await seedDev(testDb.db)).toEqual({ project: "no-owner", kbEntriesCreated: 0 });
+      expect(await seedDev(testDb.db)).toEqual({ workspace: "no-owner", kbEntriesCreated: 0 });
 
       await insertUser(testDb.db, { role: "owner" });
       expect(await seedDev(testDb.db)).toEqual({
-        project: "created",
+        workspace: "created",
         kbEntriesCreated: KB_FIXTURES.length,
       });
-      expect(await seedDev(testDb.db)).toEqual({ project: "exists", kbEntriesCreated: 0 });
-      expect(await testDb.db.select().from(projects)).toHaveLength(1);
+      expect(await seedDev(testDb.db)).toEqual({ workspace: "exists", kbEntriesCreated: 0 });
+      expect(await testDb.db.select().from(workspaces)).toHaveLength(1);
       expect(await testDb.db.select({ id: kbEntries.id }).from(kbEntries)).toHaveLength(
         KB_FIXTURES.length,
       );

@@ -332,7 +332,7 @@ export async function createVersion(
   afterCommit(tx, () =>
     deps.bus.publish({
       type: "content.version.created",
-      payload: { projectId: item.projectId, version: summary },
+      payload: { workspaceId: item.workspaceId, version: summary },
     }),
   );
   const updated = await applyTransition(tx, deps.bus, {

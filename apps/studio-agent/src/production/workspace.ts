@@ -2,13 +2,13 @@ import { randomBytes } from "node:crypto";
 import { mkdir, realpath, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { IdSchema } from "@loomcast/contracts";
-import { ensureProjectWorkspace } from "../producer/workspace";
+import { ensureWorkspaceWorkspace } from "../producer/workspace";
 
 /**
  * The files of one content version in the workspace, the same layout the studio runtime's
  * `itemLayout` uses:
  *
- * `<workspaceRoot>/projects/<projectId>/items/<itemId>/v<n>/` holds `script.json`,
+ * `<workspaceRoot>/projects/<workspaceId>/items/<itemId>/v<n>/` holds `script.json`,
  * `storyboard.json`, `voice.mp3`, `alignment.json`, `render/`, `out/final.mp4` and `poster.jpg`.
  *
  * A job works in the folder of the version it starts from: it writes that version's artifacts
@@ -39,9 +39,9 @@ export function versionLayout(dir: string): VersionLayout {
 }
 
 export interface ItemWorkspace {
-  /** `<workspaceRoot>/projects/<projectId>`, the producer session's working directory. */
-  readonly projectDir: string;
-  /** `<projectDir>/items/<itemId>`. */
+  /** `<workspaceRoot>/projects/<workspaceId>`, the producer session's working directory. */
+  readonly workspaceDir: string;
+  /** `<workspaceDir>/items/<itemId>`. */
   readonly itemDir: string;
   readonly version: VersionLayout;
 }
@@ -49,7 +49,7 @@ export interface ItemWorkspace {
 /** Creates the folders of one content version and returns their paths, with symlinks resolved. */
 export async function ensureItemWorkspace(
   workspaceRoot: string,
-  projectId: string,
+  workspaceId: string,
   itemId: string,
   versionNo: number,
 ): Promise<ItemWorkspace> {
@@ -58,12 +58,12 @@ export async function ensureItemWorkspace(
   if (!Number.isInteger(versionNo) || versionNo < 1) {
     throw new Error(`Invalid version number ${versionNo}`);
   }
-  const project = await ensureProjectWorkspace(workspaceRoot, projectId);
-  const itemDir = join(project.dir, "items", item);
+  const workspace = await ensureWorkspaceWorkspace(workspaceRoot, workspaceId);
+  const itemDir = join(workspace.dir, "items", item);
   const versionDir = join(itemDir, `v${versionNo}`);
   await mkdir(versionDir, { recursive: true, mode: 0o755 });
   return {
-    projectDir: project.dir,
+    workspaceDir: workspace.dir,
     itemDir: await realpath(itemDir),
     version: versionLayout(await realpath(versionDir)),
   };

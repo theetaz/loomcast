@@ -7,12 +7,12 @@ export const CONVERSATION_TITLE_MAX_LENGTH = 200;
 
 export const ConversationSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   title: z.string().nullable(),
   /** Studio agent that holds this conversation's producer session, once one has replied. */
   deviceId: IdSchema.nullable(),
   /**
-   * The content item this conversation is about (`content.conversation`); null for project
+   * The content item this conversation is about (`content.conversation`); null for workspace
    * conversations. Optional until every server sends it.
    */
   contentItemId: IdSchema.nullable().optional(),

@@ -160,9 +160,9 @@ export function createAnalyticsHandlers(db: MockDb) {
       if (!db.signedIn) return unauthorized();
       const query = AnalyticsOverviewQuerySchema.safeParse(searchParams(request));
       if (!query.success) return apiError(400, "validation_failed", "Check the range.");
-      const { from, to, projectId } = query.data;
+      const { from, to, workspaceId } = query.data;
       const posts = db.livePosts
-        .filter((live) => projectId === undefined || live.post.projectId === projectId)
+        .filter((live) => workspaceId === undefined || live.post.workspaceId === workspaceId)
         .filter((live) => inRange(live, from, to))
         .sort(byPublishedAt);
       return HttpResponse.json(overviewOf(posts, from, to));
@@ -247,7 +247,7 @@ const PERMALINKS: Record<Platform, (code: string) => string> = {
 };
 
 export interface MockLivePostOptions {
-  item: Pick<ContentItem, "id" | "projectId" | "seriesId" | "title">;
+  item: Pick<ContentItem, "id" | "workspaceId" | "seriesId" | "title">;
   platform: Platform;
   publishedAt: string;
   channelId?: string;
@@ -266,7 +266,7 @@ export function mockLivePost({
     post: {
       postId,
       itemId: item.id,
-      projectId: item.projectId,
+      workspaceId: item.workspaceId,
       seriesId: item.seriesId,
       channelId,
       platform,
@@ -303,10 +303,10 @@ export function addMetricsCapture(
     ...changes,
   };
   live.history.push(metrics);
-  const { itemId, projectId, channelId, platform } = live.post;
+  const { itemId, workspaceId, channelId, platform } = live.post;
   publish(db, {
     type: "post.metrics.updated",
-    payload: { postId, itemId, projectId, channelId, platform, metrics },
+    payload: { postId, itemId, workspaceId, channelId, platform, metrics },
   });
   return metrics;
 }
@@ -344,7 +344,7 @@ const BACK_CATALOGUE: Record<string, string[]> = {
   ],
 };
 
-/** The platforms a project's demo channels publish to. */
+/** The platforms a workspace's demo channels publish to. */
 const DEMO_PLATFORMS: Platform[][] = [
   ["instagram", "facebook", "threads"],
   ["instagram", "threads"],
@@ -376,8 +376,8 @@ interface DemoChannel {
 export function seedAnalyticsDemo(db: MockDb, now = Date.now()) {
   const next = random(20261013);
   const standIns = new Map<string, string>();
-  const standIn = (projectId: string, platform: Platform): DemoChannel => {
-    const key = `${projectId}|${platform}`;
+  const standIn = (workspaceId: string, platform: Platform): DemoChannel => {
+    const key = `${workspaceId}|${platform}`;
     const id = standIns.get(key) ?? mockId();
     standIns.set(key, id);
     return { id, platform, channel: null };
@@ -391,10 +391,10 @@ export function seedAnalyticsDemo(db: MockDb, now = Date.now()) {
     if (linked.length > 0) return linked;
     const index = Math.max(
       0,
-      db.projects.findIndex((project) => project.id === item.projectId),
+      db.workspaces.findIndex((workspace) => workspace.id === item.workspaceId),
     );
     const platforms = DEMO_PLATFORMS[index % DEMO_PLATFORMS.length] ?? [];
-    return platforms.map((platform) => standIn(item.projectId, platform));
+    return platforms.map((platform) => standIn(item.workspaceId, platform));
   };
 
   const addLivePost = (
@@ -451,7 +451,7 @@ export function seedAnalyticsDemo(db: MockDb, now = Date.now()) {
 
   const publishedItem = (series: Series, title: string, publishedAt: string) => {
     const { item, versions } = mockContentItem({
-      projectId: series.projectId,
+      workspaceId: series.workspaceId,
       seriesId: series.id,
       title,
       state: "published",

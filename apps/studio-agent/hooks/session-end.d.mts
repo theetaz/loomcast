@@ -34,9 +34,9 @@ export interface TranscriptDigest {
   durationMs: number | undefined;
 }
 
-export interface ResolvedProject {
-  projectId: string;
-  /** `env`, or the path of the `.loomcast/project.json` that named it. */
+export interface ResolvedWorkspace {
+  workspaceId: string;
+  /** `env`, or the path of the `.loomcast/workspace.json` that named it. */
   source: string;
 }
 
@@ -54,10 +54,10 @@ export declare function readStdin(
   options?: { limit?: number; timeoutMs?: number },
 ): Promise<string>;
 export declare function parsePayload(text: string): HookPayload;
-export declare function resolveProject(options: {
+export declare function resolveWorkspace(options: {
   cwd: string | undefined;
   env: HookEnv;
-}): Promise<ResolvedProject | null>;
+}): Promise<ResolvedWorkspace | null>;
 export declare function digestTranscript(path: string | undefined): Promise<TranscriptDigest>;
 export declare function formatDuration(ms: number): string;
 export declare function renderSummary(options: {

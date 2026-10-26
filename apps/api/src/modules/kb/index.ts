@@ -36,7 +36,7 @@ export {
 export { normalizeTag, normalizeTags } from "./tags";
 
 const entryNotFound = () => notFound("No knowledge base entry has that id.");
-const projectNotFound = () => notFound("Project not found.");
+const workspaceNotFound = () => notFound("Workspace not found.");
 
 const CreateBodySchema = withNormalizedTags(CreateKbEntrySchema);
 const CaptureBodySchema = withNormalizedTags(CaptureConversationSchema);
@@ -58,7 +58,7 @@ function queryObject(c: Context<AppEnv>, repeatable: readonly string[]): Record<
 }
 
 /**
- * Knowledge-base endpoints: entries of a project (list, create, capture from a conversation,
+ * Knowledge-base endpoints: entries of a workspace (list, create, capture from a conversation,
  * tags) and single entries (get, update, delete). Every write runs in a transaction with its
  * audit row and publishes a `kb.entry.*` event once committed. The MCP tools use the same service
  * through `deps.kb`.
@@ -80,37 +80,37 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["kb.list"].path, async (c) => {
     currentUser(c);
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const query = ListKbQuerySchema.safeParse(queryObject(c, ["kinds"]));
     if (!query.success) {
       throw validationFailed(issueDetails(query.error));
     }
-    const page = await kb.list(projectId, query.data);
+    const page = await kb.list(workspaceId, query.data);
     if (page === null) {
-      throw projectNotFound();
+      throw workspaceNotFound();
     }
     return c.json(page, 200);
   });
 
   router.post(routes["kb.create"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateBodySchema);
-    const entry = await kb.create(projectId, input, actor(c));
+    const entry = await kb.create(workspaceId, input, actor(c));
     return c.json(entry, 201);
   });
 
   router.post(routes["kb.capture"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CaptureBodySchema);
-    const entry = await kb.capture(projectId, input, actor(c));
+    const entry = await kb.capture(workspaceId, input, actor(c));
     return c.json(entry, 201);
   });
 
   router.get(routes["kb.tags"].path, async (c) => {
     currentUser(c);
-    const items = await kb.tags(idParam(c, "projectId"));
+    const items = await kb.tags(idParam(c, "workspaceId"));
     if (items === null) {
-      throw projectNotFound();
+      throw workspaceNotFound();
     }
     return c.json({ items }, 200);
   });

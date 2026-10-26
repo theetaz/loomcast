@@ -1,12 +1,10 @@
 # Channels, calendar and publishing
 
-A channel is an account a series publishes to: a Facebook Page, an Instagram professional account or a Threads profile. This page explains how to connect channels, how dry run keeps posts from going out until you are ready, how the calendar and scheduling work, what "published" means, and where to see how your videos perform.
+A channel is an account a workspace publishes to: a Facebook Page, an Instagram professional account or a Threads profile. Each channel belongs to exactly one workspace, and the workspace's series publish to it. This page explains how to connect channels into a workspace, how dry run keeps posts from going out until you are ready, how the calendar and scheduling work, what "published" means, and where to see how your videos perform.
 
 ## Channels
 
-Channels are managed in **Settings → Channels**. The sidebar also lists them under **Channels**: click one to open the calendar filtered to it. A dot next to a channel means it needs reconnecting, and a lock means it can only dry-run on this server.
-
-![Settings → Channels: five channels with their status, Dry run and Approval switches, and a Threads channel that needs reconnecting](images/settings-channels.png)
+Each workspace manages its own channels in **Workspace settings → Channels**; the workspace's overview links there with **Manage channels**. The sidebar lists the open workspace's channels under **Channels**: click one to open the calendar filtered to it. A dot next to a channel means it needs reconnecting, and a lock means it can only dry-run on this server.
 
 Each row shows the channel's name, its platform and handle, its status and when its access was last checked:
 
@@ -21,24 +19,32 @@ The **⋯** menu on a row offers **Rename…**, **Reconnect** and **Disconnect**
 
 ### Connecting an account
 
-Facebook Pages and Instagram accounts connect through one Meta sign-in. Threads has its own.
+Facebook Pages and Instagram accounts connect through one Meta sign-in. Threads has its own. Connect each brand's accounts from that brand's workspace.
 
-1. Go to **Settings → Channels** and press **Connect**.
+1. Open the workspace, then **Workspace settings → Channels**, and press **Connect**.
 2. Choose **Facebook Page and Instagram** (Pages and their linked Instagram accounts) or **Threads**.
 3. Sign in with the platform and allow every permission it asks for. For Facebook, choose the Page (and its business) in the dialog.
-4. Back in Loomcast, **Choose accounts** lists what the sign-in can publish as. Tick the accounts you want and press **Connect account** (or **Connect 2 accounts**).
+4. Back in Loomcast, the **Connect channels** page lists what the sign-in can publish as under **Choose accounts**. Tick the accounts you want.
+5. Below the list, **Connect to workspace** says where the accounts go. It starts with the workspace you pressed **Connect** in; pick another one if the accounts belong to another brand. The channels appear in that workspace only.
+6. Press **Connect account** (or **Connect 2 accounts**). Loomcast returns to that workspace's channel settings.
 
-An Instagram account is always connected together with its Facebook Page, because the Page holds the access. New channels start in dry run.
+An Instagram account is always connected together with its Facebook Page, because the Page holds the access, and it joins the same workspace as its Page. New channels start in dry run. A sign-in stays open for 30 minutes and connects once; if the page says "This sign-in has expired", press **Sign in again**.
 
-If the connect page says the platform "isn't set up on this server", the server has no app settings for it yet. The workspace owner adds them by following the [Meta app runbook](../runbooks/meta-app-setup.md).
+#### An account already in another workspace
+
+An account belongs to one workspace. If an account you ticked is already a channel of another workspace, nothing is connected and the page names that workspace, for example "An account you chose is already connected in Unfolded." Pick that workspace in **Connect to workspace** and press **Connect account** again: the sign-in is still open, and the channel is reconnected where it is, keeping its name, switches and posts.
+
+The web app cannot move a channel from one workspace to another. **Disconnect** only removes the stored access: the channel, with its account, stays in its workspace, so connecting the account elsewhere is still refused.
+
+If the connect page says the platform "isn't set up on this server", the server has no app settings for it yet. The owner adds them by following the [Meta app runbook](../runbooks/meta-app-setup.md).
 
 ### Planning channels
 
-You can plan before you connect anything. **Add planning channel** creates a channel with a **Platform**, a **Name** (such as the account's handle) and an optional **Requires approval** switch. Series can publish to it and the calendar fills up, but its posts only dry-run. Connect the real account later and the channel keeps its name, switches and posts.
+You can plan before you connect anything. **Add planning channel** in **Workspace settings → Channels** creates a channel in that workspace with a **Platform**, a **Name** (such as the account's handle) and an optional **Requires approval** switch. Series can publish to it and the calendar fills up, but its posts only dry-run. Connect the real account later and the channel keeps its name, switches and posts.
 
 ### Linking a series to channels
 
-A series publishes to the channels switched **On** in the **Channels** card on its series page. Switching a channel on plans posts for the series' upcoming slots on it; switching it off removes the planned posts that have not been attempted. See [Series and formats](series-and-formats.md) for the publishing cadence.
+A series publishes to the channels switched **On** in the **Channels** card on its series page. The card lists only the channels of the series' own workspace. Switching a channel on plans posts for the series' upcoming slots on it; switching it off removes the planned posts that have not been attempted. See [Series and formats](series-and-formats.md) for the publishing cadence.
 
 ### Reconnecting
 
@@ -48,7 +54,7 @@ When a channel shows **Needs reconnect** (or a warning such as "Access expires i
 
 Nothing reaches a platform unless every switch allows it.
 
-- **The server's publishing mode.** The server either only dry-runs or publishes live. While it dry-runs, **Settings → Channels** and **Settings → Scheduler** show a "Dry-run mode" banner, and no channel can go live. This is set by whoever runs the server ([Operations](operations.md)).
+- **The server's publishing mode.** The server either only dry-runs or publishes live. While it dry-runs, **Workspace settings → Channels** and **Account settings → Scheduler** show a "Dry-run mode" banner, and no channel can go live. This is set by whoever runs the server ([Operations](operations.md)).
 - **The channel's Dry run switch.** On for every new channel. A channel in dry run only simulates posting.
 - **The post itself.** A post planned while its channel (or the server) was in dry run stays a dry run, even after the channel goes live.
 
@@ -84,13 +90,13 @@ A video waiting for a person appears in **Review** and in **Approvals** ([Videos
 
 ## The calendar
 
-**Calendar** in the sidebar shows every post on every channel. Drag a post to move it, or fill an open slot.
+**Calendar** in the sidebar shows every post on the open workspace's channels. Drag a post to move it, or fill an open slot.
 
 ![The calendar's week view, with published, planned and missed posts](images/calendar.png)
 
 - **Week** and **Month** switch the view. **Today**, the arrows, and the ← → and t keys move between periods.
 - **All channels** and **All series** filter the posts.
-- **Your time** shows times in your browser's time zone. When the shown series share one time zone, you can switch to **Series time**.
+- The time zone menu chooses the clock the calendar follows. **Workspace time zone**, the default, is the one set in the workspace's settings. **Your time zone** uses your browser's. **Series time zone** is available once you filter to one series.
 - Each post shows its video's title, its time, a dot in the channel's colour and its state.
 
 Post states:
@@ -129,9 +135,9 @@ If a post fails, the calendar shows it as **Failed** and the reason is kept on t
 
 ## The scheduler
 
-The server runs the cadence, starts production ahead of each slot and publishes posts as scheduled tasks. **Settings → Scheduler** (owner and admins) shows when the scheduler last ran and whether publishing is live, dry-run or paused.
+The server runs the cadence, starts production ahead of each slot and publishes posts as scheduled tasks. **Account settings → Scheduler** (owner and admins) shows, for every workspace at once, when the scheduler last ran and whether publishing is live, dry-run or paused.
 
-![Settings → Scheduler: two tasks needing attention, each with its last error and a Retry button](images/settings-scheduler.png)
+![Account settings → Scheduler: two tasks needing attention, each with its last error and a Retry button](images/settings-scheduler.png)
 
 **Tasks needing attention** lists tasks that gave up. **Dead** tasks used up every attempt; **Failed** tasks hit an error that retrying cannot fix. Each row shows the task (for example "Publish a post" or "Verify channel access"), what it was for, the attempts, the last error and when it happened.
 
@@ -142,15 +148,15 @@ If the banner says "Publishing is paused.", posts that come due wait until publi
 
 ## Analytics
 
-**Analytics** in the sidebar shows how published videos perform, from the platforms' own insights. Only live posts are measured; dry runs are not.
+**Analytics** in the sidebar shows how the open workspace's published videos perform, from the platforms' own insights. Only live posts are measured; dry runs are not.
 
 ![Analytics: totals, views over time per platform and the top posts](images/analytics.png)
 
-- Choose a range (**Last 7 days**, **Last 30 days**, **Last 90 days**, **Last 12 months**) and a project.
+- Choose a range: **Last 7 days**, **Last 30 days**, **Last 90 days** or **Last 12 months**.
 - The tiles show **Posts published** (and how many still wait for insights), **Total views**, **Median views per post** and **Engagement rate**.
 - **Views over time** shows a running total per platform. **Chart** and **Table** switch the view.
 - **Top posts** lists posts by views, with a link to each post on its platform.
-- **Series** lists your series; open one for views and watch time per post.
+- **Series** lists the workspace's series; open one for views and watch time per post.
 
 Insights arrive about an hour after a post goes live, and are updated again over its first month. A video's own page shows the same figures for its posts in the **Performance** card.
 
@@ -163,7 +169,7 @@ If the Facebook sign-in works but no Instagram account is offered, or the sign-i
 3. **You sign in with the Facebook account that manages the Page.** Signing in with another Facebook account shows no Page, or "No accounts to connect".
 4. **Allow every permission** in the Facebook dialog and select the Page. Declining a permission or skipping the Page leaves nothing to connect.
 5. **If Instagram's web login is blocked in the browser**, log in once on the Instagram phone app, or approve the login request it shows there, then retry in the browser.
-6. Reconnect from **Settings → Channels**: press **Connect**, choose **Facebook Page and Instagram**, and sign in again.
+6. Reconnect from the workspace's **Workspace settings → Channels**: press **Connect**, choose **Facebook Page and Instagram**, and sign in again.
 
 If the connect page says "Facebook isn't set up on this server", or the sign-in reports that the link is blocked or the redirect does not match, the problem is in the server's Meta app settings rather than your account. The owner checks the [Meta app runbook](../runbooks/meta-app-setup.md#troubleshooting).
 

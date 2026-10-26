@@ -59,6 +59,6 @@ export type CreateReviewResponse = z.infer<typeof CreateReviewResponseSchema>;
 
 /** `GET /api/reviews/queue`: items in `review`, by `targetAt` (nulls last), then `updatedAt`. */
 export const ReviewQueueQuerySchema = CursorPageQuerySchema.extend({
-  projectId: IdSchema.optional(),
+  workspaceId: IdSchema.optional(),
 });
 export type ReviewQueueQuery = z.infer<typeof ReviewQueueQuerySchema>;

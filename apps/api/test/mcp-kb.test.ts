@@ -11,12 +11,12 @@ import {
   kbTools,
   type LiveEvent,
 } from "@loomcast/contracts";
-import { auditLog, conversations, jobs, kbEntries, kbReferences, projects } from "@loomcast/db";
+import { auditLog, conversations, jobs, kbEntries, kbReferences, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { kbEntryUrl, projectIdFromCwd, TOOL_CALL_AUDIT_ACTION } from "../src/modules/mcp";
+import { kbEntryUrl, TOOL_CALL_AUDIT_ACTION, workspaceIdFromCwd } from "../src/modules/mcp";
 import { createTokensService } from "../src/modules/tokens/service";
 import { sampleAnalysis } from "./kb-support";
 import {
@@ -68,21 +68,21 @@ afterAll(async () => {
   await testDb?.drop();
 });
 
-async function newProject(label = "Knowledge") {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(label = "Knowledge") {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `mcp-kb-${randomUUID().slice(0, 8)}`, name: label, createdBy: userId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project;
+  return workspace;
 }
 
-async function newConversation(projectId: string): Promise<string> {
+async function newConversation(workspaceId: string): Promise<string> {
   const [conversation] = await testDb.db
     .insert(conversations)
-    .values({ projectId, title: "Planning", createdBy: userId })
+    .values({ workspaceId, title: "Planning", createdBy: userId })
     .returning({ id: conversations.id });
   if (conversation === undefined) {
     throw new Error("conversation was not inserted");
@@ -90,11 +90,11 @@ async function newConversation(projectId: string): Promise<string> {
   return conversation.id;
 }
 
-/** A client with a job token of a running job in `projectId`, as a producer session gets one. */
-async function jobClient(projectId: string, options: { conversationId?: string } = {}) {
+/** A client with a job token of a running job in `workspaceId`, as a producer session gets one. */
+async function jobClient(workspaceId: string, options: { conversationId?: string } = {}) {
   const issued = await issueJobToken(testDb.db, {
     userId,
-    projectId,
+    workspaceId,
     scopes: ["mcp:read", "mcp:write"],
   });
   if (options.conversationId !== undefined) {
@@ -122,11 +122,15 @@ async function entryRow(id: string) {
   return row;
 }
 
-async function brainstorm(client: Client, projectId: string, extra: Record<string, unknown> = {}) {
+async function brainstorm(
+  client: Client,
+  workspaceId: string,
+  extra: Record<string, unknown> = {},
+) {
   const result = await client.callTool({
     name: "kb.save_brainstorm",
     arguments: {
-      projectId,
+      workspaceId,
       title: "Hooks that work",
       bodyMd: "Open on the finished diagram, then rewind.",
       ...extra,
@@ -150,7 +154,7 @@ describe("kb tools", () => {
   });
 
   it("saves a brainstorm that is stored, audited and published to the event stream", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const { cookie } = await login(server.running.app, userEmail);
     const stream = await server.running.app.request("/api/stream", { headers: { Cookie: cookie } });
     expect(stream.status).toBe(200);
@@ -176,19 +180,19 @@ describe("kb tools", () => {
     // The first frame is sent once the stream is attached to the live hub.
     await readUntil("retry:");
 
-    const output = await brainstorm(writer, project.id, {
+    const output = await brainstorm(writer, workspace.id, {
       tags: ["Hooks", "diagrams"],
       sessionRef: "chat-42",
     });
-    expect(output.url).toBe(kbEntryUrl(APP_ORIGIN, project.id, output.entryId));
-    expect(output.url).toBe(`${APP_ORIGIN}/projects/${project.id}/kb/${output.entryId}`);
+    expect(output.url).toBe(kbEntryUrl(APP_ORIGIN, workspace.id, output.entryId));
+    expect(output.url).toBe(`${APP_ORIGIN}/w/${workspace.id}/kb/${output.entryId}`);
 
     await readUntil(output.entryId);
     await body.cancel();
     expect(received).toContain('"type":"kb.entry.created"');
 
     expect(await entryRow(output.entryId)).toMatchObject({
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "brainstorm",
       title: "Hooks that work",
       tags: ["hooks", "diagrams"],
@@ -216,27 +220,27 @@ describe("kb tools", () => {
       expect.objectContaining({
         action: TOOL_CALL_AUDIT_ACTION,
         targetId: "kb.save_brainstorm",
-        data: { outcome: "ok", projectId: project.id },
+        data: { outcome: "ok", workspaceId: workspace.id },
       }),
     );
   });
 
   it("marks a producer session's brainstorm and links its conversation", async () => {
-    const project = await newProject();
-    const conversationId = await newConversation(project.id);
-    const { client, row, job } = await jobClient(project.id, { conversationId });
-    const output = await brainstorm(client, project.id);
+    const workspace = await newWorkspace();
+    const conversationId = await newConversation(workspace.id);
+    const { client, row, job } = await jobClient(workspace.id, { conversationId });
+    const output = await brainstorm(client, workspace.id);
     expect(await entryRow(output.entryId)).toMatchObject({
       createdVia: "producer",
       createdByTokenId: row.id,
       conversationId,
     });
 
-    // A job without a conversation writes an unlinked entry, into its project by default.
-    const plain = await jobClient(project.id);
+    // A job without a conversation writes an unlinked entry, into its workspace by default.
+    const plain = await jobClient(workspace.id);
     const result = await plain.client.callTool({
       name: "kb.add_decision",
-      arguments: { projectId: project.id, title: "Voice", decision: "Use one narrator." },
+      arguments: { workspaceId: workspace.id, title: "Voice", decision: "Use one narrator." },
     });
     expectOk(result);
     const { entryId } = KbAddDecisionOutputSchema.parse(result.structuredContent);
@@ -246,16 +250,16 @@ describe("kb tools", () => {
       .select()
       .from(auditLog)
       .where(and(eq(auditLog.action, TOOL_CALL_AUDIT_ACTION), eq(auditLog.actorId, row.id)));
-    expect(audit?.data).toEqual({ outcome: "ok", projectId: project.id, jobId: job.id });
+    expect(audit?.data).toEqual({ outcome: "ok", workspaceId: workspace.id, jobId: job.id });
   });
 
   it("adds a reference without analysing it or fetching it", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const url = `https://www.youtube.com/shorts/${randomUUID().slice(0, 11)}`;
     const result = await writer.callTool({
       name: "kb.add_reference",
       arguments: {
-        projectId: project.id,
+        workspaceId: workspace.id,
         url,
         author: "@builder",
         likedReason: "The diagram builds with the voice.",
@@ -279,14 +283,14 @@ describe("kb tools", () => {
     const analyses = await testDb.db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.projectId, project.id), eq(jobs.type, "kb.analyze_reference")));
+      .where(and(eq(jobs.workspaceId, workspace.id), eq(jobs.type, "kb.analyze_reference")));
     expect(analyses).toEqual([]);
 
     // An analysis made by the caller is stored as done.
     const analysed = await writer.callTool({
       name: "kb.add_reference",
       arguments: {
-        projectId: project.id,
+        workspaceId: workspace.id,
         url: `https://www.instagram.com/reel/${randomUUID().slice(0, 10)}/`,
         analysis: sampleAnalysis(),
       },
@@ -301,28 +305,32 @@ describe("kb tools", () => {
 
     const duplicate = await writer.callTool({
       name: "kb.add_reference",
-      arguments: { projectId: project.id, url },
+      arguments: { workspaceId: workspace.id, url },
     });
     expect(duplicate.isError).toBe(true);
     expect(textOf(duplicate)).toBe(
-      `conflict: This reference is already saved in the project as entry ${entryId}.`,
+      `conflict: This reference is already saved in the workspace as entry ${entryId}.`,
     );
   });
 
   it("records decisions and supersedes earlier ones", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const first = KbAddDecisionOutputSchema.parse(
       (
         await writer.callTool({
           name: "kb.add_decision",
-          arguments: { projectId: project.id, title: "Length", decision: "Keep shorts at 45 s." },
+          arguments: {
+            workspaceId: workspace.id,
+            title: "Length",
+            decision: "Keep shorts at 45 s.",
+          },
         })
       ).structuredContent,
     );
     const result = await writer.callTool({
       name: "kb.add_decision",
       arguments: {
-        projectId: project.id,
+        workspaceId: workspace.id,
         title: "Length",
         decision: "Keep shorts at 30 s.",
         rationale: "Retention drops after 30 s.",
@@ -346,7 +354,7 @@ describe("kb tools", () => {
     const unknown = await writer.callTool({
       name: "kb.add_decision",
       arguments: {
-        projectId: project.id,
+        workspaceId: workspace.id,
         title: "Nope",
         decision: "Nothing to replace.",
         supersedes: randomUUID(),
@@ -354,14 +362,14 @@ describe("kb tools", () => {
     });
     expect(unknown.isError).toBe(true);
     expect(textOf(unknown)).toBe(
-      "validation_failed: The request is not valid. (supersedes: No decision with that id in this project)",
+      "validation_failed: The request is not valid. (supersedes: No decision with that id in this workspace)",
     );
   });
 
-  it("searches one project or all of them", async () => {
+  it("searches one workspace or all of them", async () => {
     const word = `zebrafish${randomUUID().slice(0, 6)}`;
-    const one = await newProject("One");
-    const two = await newProject("Two");
+    const one = await newWorkspace("One");
+    const two = await newWorkspace("Two");
     const a = await brainstorm(writer, one.id, { title: `About ${word}`, bodyMd: `${word} facts` });
     const b = await brainstorm(writer, two.id, { title: `More ${word}`, bodyMd: `${word} again` });
 
@@ -375,10 +383,10 @@ describe("kb tools", () => {
 
     const scoped = await reader.callTool({
       name: "kb.search",
-      arguments: { query: word, projectId: one.id, kinds: ["brainstorm"], limit: 5 },
+      arguments: { query: word, workspaceId: one.id, kinds: ["brainstorm"], limit: 5 },
     });
     expect(KbSearchOutputSchema.parse(scoped.structuredContent).hits).toEqual([
-      expect.objectContaining({ entryId: a.entryId, projectId: one.id, kind: "brainstorm" }),
+      expect.objectContaining({ entryId: a.entryId, workspaceId: one.id, kind: "brainstorm" }),
     ]);
 
     const decisions = await reader.callTool({
@@ -388,7 +396,7 @@ describe("kb tools", () => {
     expect(KbSearchOutputSchema.parse(decisions.structuredContent).hits).toEqual([]);
     expect(textOf(decisions)).toBe("No knowledge-base entries match.");
 
-    // A job token without a project searches its own project only.
+    // A job token without a workspace searches its own workspace only.
     const { client } = await jobClient(two.id);
     const bound = await client.callTool({ name: "kb.search", arguments: { query: word } });
     expect(KbSearchOutputSchema.parse(bound.structuredContent).hits.map((h) => h.entryId)).toEqual([
@@ -397,14 +405,14 @@ describe("kb tools", () => {
   });
 
   it("gets an entry with its details", async () => {
-    const project = await newProject();
-    const { entryId } = await brainstorm(writer, project.id);
+    const workspace = await newWorkspace();
+    const { entryId } = await brainstorm(writer, workspace.id);
     const result = await reader.callTool({ name: "kb.get", arguments: { entryId } });
     expectOk(result);
     const { entry } = KbGetOutputSchema.parse(result.structuredContent);
     expect(entry).toMatchObject({
       id: entryId,
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "brainstorm",
       bodyMd: "Open on the finished diagram, then rewind.",
       reference: null,
@@ -417,44 +425,48 @@ describe("kb tools", () => {
   });
 
   it("refuses writes with a read-only token", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const result = await reader.callTool({
       name: "kb.save_brainstorm",
-      arguments: { projectId: project.id, title: "Nope", bodyMd: "Read only." },
+      arguments: { workspaceId: workspace.id, title: "Nope", bodyMd: "Read only." },
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(/^forbidden: .*mcp:write/);
   });
 
-  it("reports unknown and archived projects", async () => {
+  it("reports unknown and archived workspaces", async () => {
     const missing = await writer.callTool({
       name: "kb.save_brainstorm",
-      arguments: { projectId: randomUUID(), title: "Lost", bodyMd: "Nowhere." },
+      arguments: { workspaceId: randomUUID(), title: "Lost", bodyMd: "Nowhere." },
     });
-    expect(textOf(missing)).toBe("not_found: Project not found.");
+    expect(textOf(missing)).toBe("not_found: Workspace not found.");
 
-    const project = await newProject();
+    const workspace = await newWorkspace();
     await testDb.db
-      .update(projects)
+      .update(workspaces)
       .set({ status: "archived", archivedAt: new Date() })
-      .where(eq(projects.id, project.id));
+      .where(eq(workspaces.id, workspace.id));
     const archived = await writer.callTool({
       name: "kb.save_brainstorm",
-      arguments: { projectId: project.id, title: "Late", bodyMd: "Too late." },
+      arguments: { workspaceId: workspace.id, title: "Late", bodyMd: "Too late." },
     });
-    expect(textOf(archived)).toMatch(/^conflict: The project is archived/);
+    expect(textOf(archived)).toMatch(/^conflict: The workspace is archived/);
   });
 });
 
 describe("kb.save_session_summary", () => {
   const sessionId = () => `session-${randomUUID()}`;
 
-  it("saves a summary for a named project and replaces it on a second call", async () => {
-    const project = await newProject();
+  it("saves a summary for a named workspace and replaces it on a second call", async () => {
+    const workspace = await newWorkspace();
     const id = sessionId();
     const first = await writer.callTool({
       name: "kb.save_session_summary",
-      arguments: { projectId: project.id, sessionId: id, summaryMd: "# Picked a hook\nDetails." },
+      arguments: {
+        workspaceId: workspace.id,
+        sessionId: id,
+        summaryMd: "# Picked a hook\nDetails.",
+      },
     });
     expectOk(first);
     const { entryId } = KbSaveSessionSummaryOutputSchema.parse(first.structuredContent);
@@ -468,105 +480,105 @@ describe("kb.save_session_summary", () => {
 
     const again = await writer.callTool({
       name: "kb.save_session_summary",
-      arguments: { projectId: project.id, sessionId: id, summaryMd: "Changed the hook." },
+      arguments: { workspaceId: workspace.id, sessionId: id, summaryMd: "Changed the hook." },
     });
     expect(KbSaveSessionSummaryOutputSchema.parse(again.structuredContent).entryId).toBe(entryId);
     expect((await entryRow(entryId))?.bodyMd).toBe("Changed the hook.");
   });
 
-  it("finds the project from the working directory", async () => {
-    const project = await newProject();
-    const cwd = `/Users/someone/Loomcast/projects/${project.id}/scripts`;
+  it("finds the workspace from the working directory", async () => {
+    const workspace = await newWorkspace();
+    const cwd = `/Users/someone/Loomcast/projects/${workspace.id}/scripts`;
     const result = await writer.callTool({
       name: "kb.save_session_summary",
       arguments: { sessionId: sessionId(), summaryMd: "Wrote the script.", cwd },
     });
     expectOk(result);
     const { entryId } = KbSaveSessionSummaryOutputSchema.parse(result.structuredContent);
-    expect(await entryRow(entryId)).toMatchObject({ projectId: project.id, data: { cwd } });
+    expect(await entryRow(entryId)).toMatchObject({ workspaceId: workspace.id, data: { cwd } });
   });
 
-  it("fails with project_unresolved without a project or a project folder", async () => {
+  it("fails with workspace_unresolved without a workspace or a workspace folder", async () => {
     for (const extra of [{}, { cwd: "/Users/someone/code/elsewhere" }]) {
       const result = await writer.callTool({
         name: "kb.save_session_summary",
         arguments: { sessionId: sessionId(), summaryMd: "Somewhere.", ...extra },
       });
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toMatch(/^project_unresolved: /);
+      expect(textOf(result)).toMatch(/^workspace_unresolved: /);
     }
   });
 
   it("is not offered to job tokens", async () => {
-    const project = await newProject();
-    const { client } = await jobClient(project.id);
+    const workspace = await newWorkspace();
+    const { client } = await jobClient(workspace.id);
     const result = await client.callTool({
       name: "kb.save_session_summary",
-      arguments: { projectId: project.id, sessionId: sessionId(), summaryMd: "Nope." },
+      arguments: { workspaceId: workspace.id, sessionId: sessionId(), summaryMd: "Nope." },
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe("forbidden: Job tokens cannot call this tool.");
   });
 });
 
-describe("projectIdFromCwd", () => {
-  it("reads the project id from a Loomcast project folder", () => {
+describe("workspaceIdFromCwd", () => {
+  it("reads the workspace id from a Loomcast projects folder", () => {
     const id = randomUUID();
-    expect(projectIdFromCwd(`/Users/a/Loomcast/projects/${id}`)).toBe(id);
-    expect(projectIdFromCwd(`/Users/a/Loomcast/projects/${id}/renders/x`)).toBe(id);
-    expect(projectIdFromCwd(`/Users/a/loomcast/projects/${id.toUpperCase()}/`)).toBe(id);
-    expect(projectIdFromCwd(`C:\\Users\\a\\Loomcast\\projects\\${id}`)).toBe(id);
-    expect(projectIdFromCwd(`/Users/a/Loomcast/projects/${id}x`)).toBeNull();
-    expect(projectIdFromCwd(`/Users/a/projects/${id}`)).toBeNull();
-    expect(projectIdFromCwd("/Users/a/Loomcast/projects/not-a-uuid")).toBeNull();
+    expect(workspaceIdFromCwd(`/Users/a/Loomcast/projects/${id}`)).toBe(id);
+    expect(workspaceIdFromCwd(`/Users/a/Loomcast/projects/${id}/renders/x`)).toBe(id);
+    expect(workspaceIdFromCwd(`/Users/a/loomcast/projects/${id.toUpperCase()}/`)).toBe(id);
+    expect(workspaceIdFromCwd(`C:\\Users\\a\\Loomcast\\projects\\${id}`)).toBe(id);
+    expect(workspaceIdFromCwd(`/Users/a/Loomcast/projects/${id}x`)).toBeNull();
+    expect(workspaceIdFromCwd(`/Users/a/projects/${id}`)).toBeNull();
+    expect(workspaceIdFromCwd("/Users/a/Loomcast/projects/not-a-uuid")).toBeNull();
   });
 });
 
-describe("project binding of job tokens", () => {
-  it("refuses another project in every kb tool that names one", async () => {
-    const own = await newProject("Own");
-    const other = await newProject("Other");
+describe("workspace binding of job tokens", () => {
+  it("refuses another workspace in every kb tool that names one", async () => {
+    const own = await newWorkspace("Own");
+    const other = await newWorkspace("Other");
     const foreign = await brainstorm(writer, other.id);
     const { client, row } = await jobClient(own.id);
     const before = await testDb.db
       .select({ id: kbEntries.id })
       .from(kbEntries)
-      .where(eq(kbEntries.projectId, other.id));
+      .where(eq(kbEntries.workspaceId, other.id));
 
     const calls: { name: string; arguments: Record<string, unknown> }[] = [
       {
         name: "kb.save_brainstorm",
-        arguments: { projectId: other.id, title: "Elsewhere", bodyMd: "Wrong project." },
+        arguments: { workspaceId: other.id, title: "Elsewhere", bodyMd: "Wrong workspace." },
       },
       {
         name: "kb.add_reference",
-        arguments: { projectId: other.id, url: "https://www.youtube.com/shorts/abcdefghijk" },
+        arguments: { workspaceId: other.id, url: "https://www.youtube.com/shorts/abcdefghijk" },
       },
       {
         name: "kb.add_decision",
-        arguments: { projectId: other.id, title: "Elsewhere", decision: "Wrong project." },
+        arguments: { workspaceId: other.id, title: "Elsewhere", decision: "Wrong workspace." },
       },
-      { name: "kb.search", arguments: { query: "hooks", projectId: other.id } },
+      { name: "kb.search", arguments: { query: "hooks", workspaceId: other.id } },
       { name: "kb.get", arguments: { entryId: foreign.entryId } },
     ];
     for (const call of calls) {
       const result = await client.callTool(call);
       expect(result.isError, call.name).toBe(true);
       expect(textOf(result), call.name).toBe(
-        "forbidden: This token can only be used with its own project.",
+        "forbidden: This token can only be used with its own workspace.",
       );
       expect(result.structuredContent).toBeUndefined();
     }
     const summary = await client.callTool({
       name: "kb.save_session_summary",
-      arguments: { projectId: other.id, sessionId: "s", summaryMd: "Wrong project." },
+      arguments: { workspaceId: other.id, sessionId: "s", summaryMd: "Wrong workspace." },
     });
     expect(textOf(summary)).toBe("forbidden: Job tokens cannot call this tool.");
 
     const after = await testDb.db
       .select({ id: kbEntries.id })
       .from(kbEntries)
-      .where(eq(kbEntries.projectId, other.id));
+      .where(eq(kbEntries.workspaceId, other.id));
     expect(after).toHaveLength(before.length);
 
     const denied = await testDb.db
@@ -577,15 +589,15 @@ describe("project binding of job tokens", () => {
     expect(denied.every((audit) => audit.data?.outcome === "denied")).toBe(true);
   });
 
-  it("accepts the job's own project, named or left out", async () => {
-    const own = await newProject("Own again");
+  it("accepts the job's own workspace, named or left out", async () => {
+    const own = await newWorkspace("Own again");
     const { client } = await jobClient(own.id);
     const named = await brainstorm(client, own.id);
     const get = await client.callTool({ name: "kb.get", arguments: { entryId: named.entryId } });
     expectOk(get);
     const search = await client.callTool({
       name: "kb.search",
-      arguments: { query: "rewind", projectId: own.id },
+      arguments: { query: "rewind", workspaceId: own.id },
     });
     expect(KbSearchOutputSchema.parse(search.structuredContent).hits.map((h) => h.entryId)).toEqual(
       [named.entryId],
@@ -593,7 +605,7 @@ describe("project binding of job tokens", () => {
   });
 
   it("stops a job token once it is revoked", async () => {
-    const own = await newProject();
+    const own = await newWorkspace();
     const { secret, job } = await jobClient(own.id);
     const tools = { jsonrpc: "2.0", id: 1, method: "tools/list" };
     expect((await rpc(server.url, tools, bearer(secret))).status).toBe(200);

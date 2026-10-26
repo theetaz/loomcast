@@ -1,5 +1,5 @@
 import { IdSchema, type PipelineState } from "@loomcast/contracts";
-import { type Database, projects } from "@loomcast/db";
+import { type Database, workspaces } from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import { type Executor, type Transaction, transaction } from "../../lib/db";
 import { conflict, HttpError, validationFailed } from "../../lib/errors";
@@ -16,14 +16,14 @@ export function inTransaction<T>(
   return tx === undefined ? transaction(db, fn) : fn(tx);
 }
 
-export async function projectExists(executor: Executor, projectId: string): Promise<boolean> {
-  if (!IdSchema.safeParse(projectId).success) {
+export async function workspaceExists(executor: Executor, workspaceId: string): Promise<boolean> {
+  if (!IdSchema.safeParse(workspaceId).success) {
     return false;
   }
   const [row] = await executor
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.id, projectId))
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
     .limit(1);
   return row !== undefined;
 }

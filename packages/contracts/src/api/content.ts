@@ -39,7 +39,7 @@ export type ContentItemError = z.infer<typeof ContentItemErrorSchema>;
 /** A content item as listed and sent in live events. */
 export const ContentItemSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   seriesId: IdSchema.nullable(),
   title: z.string(),
   pitch: z.string().nullable(),
@@ -120,7 +120,7 @@ export type ContentItemDetail = z.infer<typeof ContentItemDetailSchema>;
  * titles and pitches.
  */
 export const ListContentQuerySchema = CursorPageQuerySchema.extend({
-  projectId: IdSchema.optional(),
+  workspaceId: IdSchema.optional(),
   states: csvEnumQuerySchema(PIPELINE_STATES).optional(),
   seriesId: IdSchema.optional(),
   q: z.string().trim().min(1).max(CONTENT_SEARCH_MAX_LENGTH).optional(),
@@ -136,7 +136,7 @@ export const ListContentQuerySchema = CursorPageQuerySchema.extend({
 export type ListContentQuery = z.infer<typeof ListContentQuerySchema>;
 
 /**
- * Creates an idea (state `idea`, version 1). The series must belong to the project. `format`
+ * Creates an idea (state `idea`, version 1). The series must belong to the workspace. `format`
  * defaults to `reel`, a studio video; any other format is composed from uploaded media
  * (`EditVersionRequest.media`) instead of produced.
  */

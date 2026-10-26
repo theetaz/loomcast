@@ -13,8 +13,8 @@ import { createdAt, timestamptz, tsvector, uuidPrimaryKey } from "./columns";
 import { conversations } from "./conversations";
 import { kbCreatedVia, kbEntryKind, referencePlatform } from "./enums";
 import { jobs } from "./jobs";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /** Longest title the database accepts. The API applies the tighter `KB_TITLE_MAX_LENGTH`. */
 export const KB_ENTRY_TITLE_DB_MAX_LENGTH = 300;
@@ -35,20 +35,20 @@ const KB_SEARCH_DOCUMENT = sql.raw(
 );
 
 /**
- * Knowledge-base entries of a project: brainstorms, references, decisions, notes and session
+ * Knowledge-base entries of a workspace: brainstorms, references, decisions, notes and session
  * summaries. `data` holds the kind-specific fields (`KB_ENTRY_DATA` in the contracts). Entries are
  * soft-deleted; every index the API reads through excludes deleted rows.
  *
- * `dedupeKey` lets a writer insert-or-skip, for example a reference URL per project. It is unique
- * among live entries of a project, so deleting an entry frees its key.
+ * `dedupeKey` lets a writer insert-or-skip, for example a reference URL per workspace. It is unique
+ * among live entries of a workspace, so deleting an entry frees its key.
  */
 export const kbEntries = pgTable(
   "kb_entries",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     kind: kbEntryKind("kind").notNull(),
     title: text("title").notNull(),
     bodyMd: text("body_md").notNull().default(""),
@@ -79,11 +79,11 @@ export const kbEntries = pgTable(
     index("kb_entries_search_idx").using("gin", t.search),
     index("kb_entries_title_trgm_idx").using("gin", t.title.op("gin_trgm_ops")),
     index("kb_entries_tags_idx").using("gin", t.tags),
-    index("kb_entries_project_id_kind_updated_at_idx")
-      .on(t.projectId, t.kind, t.updatedAt.desc())
+    index("kb_entries_workspace_id_kind_updated_at_idx")
+      .on(t.workspaceId, t.kind, t.updatedAt.desc())
       .where(sql`${t.deletedAt} is null`),
-    uniqueIndex("kb_entries_project_id_dedupe_key_uq")
-      .on(t.projectId, t.dedupeKey)
+    uniqueIndex("kb_entries_workspace_id_dedupe_key_uq")
+      .on(t.workspaceId, t.dedupeKey)
       .where(sql`${t.dedupeKey} is not null and ${t.deletedAt} is null`),
     check(
       "kb_entries_title_length_ck",

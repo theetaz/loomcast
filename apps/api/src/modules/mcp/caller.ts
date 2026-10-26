@@ -12,10 +12,10 @@ import { currentToken } from "../auth/guards";
 export interface McpCaller {
   token: VerifiedToken;
   /**
-   * The only project the token may touch, or null when it is not bound to one. User MCP tokens
-   * (`lc_mcp_…`) are never bound; job tokens (`lc_job_…`) are bound to their job's project.
+   * The only workspace the token may touch, or null when it is not bound to one. User MCP tokens
+   * (`lc_mcp_…`) are never bound; job tokens (`lc_job_…`) are bound to their job's workspace.
    */
-  boundProjectId: string | null;
+  boundWorkspaceId: string | null;
   /** The job a job token was minted for; null for user MCP tokens. */
   jobId: string | null;
   /** Client address, for audit rows. */
@@ -24,7 +24,7 @@ export interface McpCaller {
 
 /** What a token kind adds to the verified token. Null refuses the token (401). */
 export interface CallerBinding {
-  boundProjectId: string | null;
+  boundWorkspaceId: string | null;
   jobId: string | null;
 }
 
@@ -32,7 +32,7 @@ export interface CallerBinding {
  * How one token kind is accepted on `/mcp`. The endpoint picks the resolver whose prefix the bearer
  * secret carries, verifies the secret with `requireBearer(kind)` (format, hash, kind, not revoked
  * or expired, user enabled) and then asks `bind` what the token is tied to. The tool registry
- * enforces each contract's `jobTokens` and `projectBinding` rules from the binding.
+ * enforces each contract's `jobTokens` and `workspaceBinding` rules from the binding.
  */
 export interface CallerResolver {
   kind: TokenKind;
@@ -41,26 +41,26 @@ export interface CallerResolver {
 
 const userTokenResolver: CallerResolver = {
   kind: "mcp",
-  bind: async () => ({ boundProjectId: null, jobId: null }),
+  bind: async () => ({ boundWorkspaceId: null, jobId: null }),
 };
 
 /**
- * Job tokens (`lc_job_…`) are minted for one job and carry its project and job ids. They stop
+ * Job tokens (`lc_job_…`) are minted for one job and carry its workspace and job ids. They stop
  * working once the job has finished, even if revoking them at the end of the job was missed.
  */
 const jobTokenResolver: CallerResolver = {
   kind: "job",
   async bind(token, deps) {
     const [row] = await deps.db
-      .select({ projectId: apiTokens.projectId, jobId: apiTokens.jobId })
+      .select({ workspaceId: apiTokens.workspaceId, jobId: apiTokens.jobId })
       .from(apiTokens)
       .innerJoin(jobs, eq(jobs.id, apiTokens.jobId))
       .where(and(eq(apiTokens.id, token.id), notInArray(jobs.status, [...TERMINAL_JOB_STATUSES])))
       .limit(1);
-    if (row === undefined || row.projectId === null || row.jobId === null) {
+    if (row === undefined || row.workspaceId === null || row.jobId === null) {
       return null;
     }
-    return { boundProjectId: row.projectId, jobId: row.jobId };
+    return { boundWorkspaceId: row.workspaceId, jobId: row.jobId };
   },
 };
 

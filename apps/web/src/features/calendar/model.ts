@@ -10,6 +10,8 @@ import {
 
 /** What one calendar query asks for. Ids are sorted so equal filters share a cache entry. */
 export interface CalendarQueryKey {
+  /** The workspace the calendar shows; every workspace when left out. */
+  workspaceId?: string;
   from: string;
   to: string;
   channelIds: string[];
@@ -99,6 +101,7 @@ export function rollbackMove(data: CalendarResponse, move: PendingMove): Calenda
 export function postMatches(post: ScheduledPost, key: CalendarQueryKey): boolean {
   const at = Date.parse(post.scheduledAt);
   if (at < Date.parse(key.from) || at >= Date.parse(key.to)) return false;
+  if (key.workspaceId && post.workspaceId !== key.workspaceId) return false;
   if (key.channelIds.length > 0 && !key.channelIds.includes(post.channelId)) return false;
   if (key.seriesIds.length > 0 && (!post.seriesId || !key.seriesIds.includes(post.seriesId))) {
     return false;

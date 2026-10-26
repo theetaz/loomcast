@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Database } from "../src/client";
 import { jobs } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
-import { insertJob, insertProject, insertUser, jobValues, PG, pgError } from "./fixtures";
+import { insertJob, insertUser, insertWorkspace, jobValues, PG, pgError } from "./fixtures";
 
 let testDb: TestDb;
 
@@ -19,8 +19,8 @@ describe("jobs idempotency key", () => {
   it("is unique per creator, ignores rows without a key, and supports insert-or-skip", async () => {
     const alice = await insertUser(testDb.db);
     const bob = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, alice.id);
-    const base = { projectId: project.id, idempotencyKey: "retry-1" };
+    const workspace = await insertWorkspace(testDb.db, alice.id);
+    const base = { workspaceId: workspace.id, idempotencyKey: "retry-1" };
 
     await insertJob(testDb.db, { ...base, createdBy: alice.id });
     const error = await pgError(insertJob(testDb.db, { ...base, createdBy: alice.id }));
@@ -33,8 +33,8 @@ describe("jobs idempotency key", () => {
     await insertJob(testDb.db, { ...base, createdBy: bob.id });
 
     // Jobs without a key never conflict.
-    await insertJob(testDb.db, { projectId: project.id, createdBy: alice.id });
-    await insertJob(testDb.db, { projectId: project.id, createdBy: alice.id });
+    await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: alice.id });
+    await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: alice.id });
 
     // The pattern the API uses: insert, or find the job the first request created.
     const skipped = await testDb.db
@@ -50,14 +50,14 @@ describe("jobs idempotency key", () => {
 });
 
 /**
- * Claims the oldest queued job of a project without waiting on rows another transaction has
- * locked. Scoped to one project so jobs from other tests in this file are ignored.
+ * Claims the oldest queued job of a workspace without waiting on rows another transaction has
+ * locked. Scoped to one workspace so jobs from other tests in this file are ignored.
  */
-function claimNextQueued(tx: Pick<Database, "select">, projectId: string) {
+function claimNextQueued(tx: Pick<Database, "select">, workspaceId: string) {
   return tx
     .select({ id: jobs.id })
     .from(jobs)
-    .where(and(eq(jobs.status, "queued"), eq(jobs.projectId, projectId)))
+    .where(and(eq(jobs.status, "queued"), eq(jobs.workspaceId, workspaceId)))
     .orderBy(asc(jobs.createdAt))
     .limit(1)
     .for("update", { skipLocked: true });
@@ -66,10 +66,10 @@ function claimNextQueued(tx: Pick<Database, "select">, projectId: string) {
 describe("claiming queued jobs", () => {
   it("lets two concurrent transactions claim different jobs with SKIP LOCKED", async () => {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const first = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id });
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const first = await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: user.id });
     const second = await insertJob(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdBy: user.id,
       createdAt: new Date(first.createdAt.getTime() + 1_000),
     });
@@ -85,7 +85,7 @@ describe("claiming queued jobs", () => {
 
     // Transaction A claims a job and keeps its row lock until B has claimed too.
     const transactionA = testDb.db.transaction(async (tx) => {
-      const [claimed] = await claimNextQueued(tx, project.id);
+      const [claimed] = await claimNextQueued(tx, workspace.id);
       firstClaimed(claimed?.id);
       await firstMayCommit;
       if (claimed !== undefined) {
@@ -96,7 +96,7 @@ describe("claiming queued jobs", () => {
 
     const claimedByA = await firstClaim;
     const claimedByB = await testDb.db.transaction(async (tx) => {
-      const [claimed] = await claimNextQueued(tx, project.id);
+      const [claimed] = await claimNextQueued(tx, workspace.id);
       if (claimed !== undefined) {
         await tx.update(jobs).set({ status: "dispatched" }).where(eq(jobs.id, claimed.id));
       }

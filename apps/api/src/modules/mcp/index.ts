@@ -23,14 +23,14 @@ export {
   createMcpTools,
   createOwnerTools,
   createPostTools,
-  createProjectTools,
+  createWorkspaceTools,
   defineTool,
   kbEntryUrl,
   McpToolError,
-  projectIdFromCwd,
-  projectUrl,
   TOOL_CALL_AUDIT_ACTION,
   type ToolDefinition,
+  workspaceIdFromCwd,
+  workspaceUrl,
 } from "./tools";
 
 /** Tool calls and other MCP requests allowed per token: a burst of 120, refilling over a minute. */
@@ -59,7 +59,7 @@ export interface McpRouteOptions {
  * transport and the server never issues an `Mcp-Session-Id`. Responses are plain JSON.
  *
  * - Bearer tokens only: user MCP tokens (`lc_mcp_…`) and job tokens (`lc_job_…`) bound to one
- *   job's project. Cookies are never read.
+ *   job's workspace. Cookies are never read.
  * - 120 requests a minute per user token, 240 per job token.
  * - A browser request from another origin is refused, against DNS rebinding.
  * - GET (a server-to-client event stream) and DELETE (ending a session) are not offered: 405.

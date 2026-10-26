@@ -14,7 +14,7 @@ import { SCAN_POLL_MS } from "./polling";
 /** Competitor query keys. Mutations patch the same caches. */
 export const competitorKeys = {
   all: ["competitors"] as const,
-  list: (projectId: string) => ["competitors", "list", projectId] as const,
+  list: (workspaceId: string) => ["competitors", "list", workspaceId] as const,
   detail: (id: string) => ["competitors", "detail", id] as const,
   scans: (competitorId: string) => ["competitors", "scans", competitorId] as const,
   scan: (scanId: string) => ["competitors", "scan", scanId] as const,
@@ -30,10 +30,10 @@ export function pollWhile(active: boolean): number | false {
   return active ? SCAN_POLL_MS : false;
 }
 
-export function competitorsQueryOptions(projectId: string) {
+export function competitorsQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: competitorKeys.list(projectId),
-    queryFn: ({ signal }) => api.request("competitors.list", { params: { projectId }, signal }),
+    queryKey: competitorKeys.list(workspaceId),
+    queryFn: ({ signal }) => api.request("competitors.list", { params: { workspaceId }, signal }),
     refetchInterval: (query) =>
       pollWhile(
         (query.state.data?.items ?? []).some(
@@ -69,18 +69,21 @@ export function competitorScanQueryOptions(scanId: string) {
   });
 }
 
-/** Stores a competitor the API returned, in its detail and its project's list. */
+/** Stores a competitor the API returned, in its detail and its workspace's list. */
 export function cacheCompetitor(queryClient: QueryClient, competitor: Competitor) {
   queryClient.setQueryData(competitorKeys.detail(competitor.id), competitor);
-  queryClient.setQueryData<List<Competitor>>(competitorKeys.list(competitor.projectId), (list) => {
-    if (!list) return list;
-    const present = list.items.some((item) => item.id === competitor.id);
-    return {
-      items: present
-        ? list.items.map((item) => (item.id === competitor.id ? competitor : item))
-        : [competitor, ...list.items],
-    };
-  });
+  queryClient.setQueryData<List<Competitor>>(
+    competitorKeys.list(competitor.workspaceId),
+    (list) => {
+      if (!list) return list;
+      const present = list.items.some((item) => item.id === competitor.id);
+      return {
+        items: present
+          ? list.items.map((item) => (item.id === competitor.id ? competitor : item))
+          : [competitor, ...list.items],
+      };
+    },
+  );
 }
 
 /** Stores a scan the API returned, and refetches what shows its summary. */
@@ -99,14 +102,14 @@ export function cacheScan(queryClient: QueryClient, scan: CompetitorScan) {
     },
   );
   void queryClient.invalidateQueries({ queryKey: competitorKeys.detail(scan.competitorId) });
-  void queryClient.invalidateQueries({ queryKey: competitorKeys.list(scan.projectId) });
+  void queryClient.invalidateQueries({ queryKey: competitorKeys.list(scan.workspaceId) });
 }
 
-export function useCreateCompetitor(projectId: string) {
+export function useCreateCompetitor(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateCompetitorRequest) =>
-      api.request("competitors.create", { params: { projectId }, body }),
+      api.request("competitors.create", { params: { workspaceId }, body }),
     onSuccess: (competitor) => cacheCompetitor(queryClient, competitor),
   });
 }
@@ -127,7 +130,7 @@ export function useDeleteCompetitor() {
       api.request("competitors.delete", { params: { id: competitor.id } }),
     onSuccess: (_data, competitor) => {
       queryClient.setQueryData<List<Competitor>>(
-        competitorKeys.list(competitor.projectId),
+        competitorKeys.list(competitor.workspaceId),
         (list) => (list ? { items: list.items.filter((item) => item.id !== competitor.id) } : list),
       );
       queryClient.removeQueries({ queryKey: competitorKeys.detail(competitor.id) });

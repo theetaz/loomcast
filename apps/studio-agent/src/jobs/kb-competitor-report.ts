@@ -13,13 +13,13 @@ import {
 } from "../producer/prompts/competitor-report";
 import type { ProducerRunResult, ProducerRuntime } from "../producer/runtime";
 import { SdkProducerRuntime } from "../producer/sdk-runtime";
-import { ensureProjectWorkspace } from "../producer/workspace";
+import { ensureWorkspaceWorkspace } from "../producer/workspace";
 import type { HandlerDeps } from "./index";
 import { describeIssues, extractJsonBlock, SessionEvents, truncate } from "./kb-analyze-reference";
 
 export interface CompetitorReportOptions {
   readonly runtime: ProducerRuntime;
-  /** The session runs in `<workspaceRoot>/projects/<projectId>`. */
+  /** The session runs in `<workspaceRoot>/projects/<workspaceId>`. */
   readonly workspaceRoot: string;
 }
 
@@ -52,12 +52,12 @@ export function competitorReportHandler(
       throw new JobFailure("invalid_payload", "The kb.competitor_report payload is invalid");
     }
     const payload = parsed.data;
-    if (payload.projectId !== ctx.job.projectId) {
-      throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
+    if (payload.workspaceId !== ctx.job.workspaceId) {
+      throw new JobFailure("invalid_payload", "The payload's workspace does not match the job's");
     }
 
     ctx.emit("status", { state: "starting" });
-    const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
+    const workspace = await ensureWorkspaceWorkspace(options.workspaceRoot, payload.workspaceId);
     const events = new SessionEvents(ctx);
     const run = (prompt: string, resumeId?: string): Promise<ProducerRunResult> =>
       options.runtime.run({

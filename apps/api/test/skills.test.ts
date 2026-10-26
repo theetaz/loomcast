@@ -27,7 +27,7 @@ import {
   call,
   createPipelineHarness,
   eventsOf,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import { errorCode, insertUser } from "./support";
@@ -43,7 +43,7 @@ beforeAll(async () => {
   h = await createPipelineHarness();
   service = skillsServiceFor(h.deps);
   actor = { kind: "user", id: h.userId, userId: h.userId };
-  await insertProject(h);
+  await insertWorkspace(h);
   tmp = await mkdtemp(join(tmpdir(), "loomcast-skills-"));
 });
 

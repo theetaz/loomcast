@@ -6,7 +6,7 @@ import {
   MessageSchema,
   PostMessageResponseSchema,
 } from "@loomcast/contracts";
-import { conversations, devices, jobs, messages, projects } from "@loomcast/db";
+import { conversations, devices, jobs, messages, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -43,9 +43,9 @@ afterAll(async () => {
   await testDb.drop();
 });
 
-async function newProject(status: "active" | "archived" = "active") {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(status: "active" | "archived" = "active") {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({
       slug: `conv-${randomUUID().slice(0, 8)}`,
       name: "Conversations",
@@ -54,15 +54,15 @@ async function newProject(status: "active" | "archived" = "active") {
       createdBy: userId,
     })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project;
+  return workspace;
 }
 
-async function newConversation(projectId?: string, title?: string) {
-  const id = projectId ?? (await newProject()).id;
-  const response = await send(t.app, "POST", `/api/projects/${id}/conversations`, {
+async function newConversation(workspaceId?: string, title?: string) {
+  const id = workspaceId ?? (await newWorkspace()).id;
+  const response = await send(t.app, "POST", `/api/workspaces/${id}/conversations`, {
     cookie,
     body: title === undefined ? {} : { title },
   });
@@ -95,14 +95,14 @@ async function newDevice() {
   return device;
 }
 
-describe("project conversations", () => {
+describe("workspace conversations", () => {
   it("starts conversations and lists them by latest activity", async () => {
-    const project = await newProject();
-    const quiet = await newConversation(project.id, "Quiet");
-    const busy = await newConversation(project.id, "Busy");
-    const fresh = await newConversation(project.id);
+    const workspace = await newWorkspace();
+    const quiet = await newConversation(workspace.id, "Quiet");
+    const busy = await newConversation(workspace.id, "Busy");
+    const fresh = await newConversation(workspace.id);
     expect(busy).toMatchObject({
-      projectId: project.id,
+      workspaceId: workspace.id,
       title: "Busy",
       deviceId: null,
       createdBy: userId,
@@ -113,7 +113,7 @@ describe("project conversations", () => {
     expect((await post(quiet.id, "First")).status).toBe(201);
     expect((await post(busy.id, "Second")).status).toBe(201);
 
-    const response = await send(t.app, "GET", `/api/projects/${project.id}/conversations`, {
+    const response = await send(t.app, "GET", `/api/workspaces/${workspace.id}/conversations`, {
       cookie,
     });
     expect(response.status).toBe(200);
@@ -133,21 +133,21 @@ describe("project conversations", () => {
     for (const path of [
       `/api/conversations/${randomUUID()}`,
       "/api/conversations/not-an-id",
-      `/api/projects/${randomUUID()}/conversations`,
+      `/api/workspaces/${randomUUID()}/conversations`,
     ]) {
       const response = await send(t.app, "GET", path, { cookie });
       expect(response.status, path).toBe(404);
     }
-    const create = await send(t.app, "POST", `/api/projects/${randomUUID()}/conversations`, {
+    const create = await send(t.app, "POST", `/api/workspaces/${randomUUID()}/conversations`, {
       cookie,
       body: {},
     });
     expect(create.status).toBe(404);
   });
 
-  it("refuses new conversations in an archived project", async () => {
-    const project = await newProject("archived");
-    const response = await send(t.app, "POST", `/api/projects/${project.id}/conversations`, {
+  it("refuses new conversations in an archived workspace", async () => {
+    const workspace = await newWorkspace("archived");
+    const response = await send(t.app, "POST", `/api/workspaces/${workspace.id}/conversations`, {
       cookie,
       body: { title: "Too late" },
     });
@@ -156,8 +156,8 @@ describe("project conversations", () => {
   });
 
   it("validates the title", async () => {
-    const project = await newProject();
-    const response = await send(t.app, "POST", `/api/projects/${project.id}/conversations`, {
+    const workspace = await newWorkspace();
+    const response = await send(t.app, "POST", `/api/workspaces/${workspace.id}/conversations`, {
       cookie,
       body: { title: "x".repeat(201) },
     });
@@ -188,7 +188,7 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(job).toMatchObject({
       type: "producer.chat",
       status: "queued",
-      projectId: conversation.projectId,
+      workspaceId: conversation.workspaceId,
       conversationId: conversation.id,
       claimedByDevice: null,
       attempt: 0,
@@ -198,7 +198,7 @@ describe("POST /api/conversations/:id/messages", () => {
     const [row] = await testDb.db.select().from(jobs).where(eq(jobs.id, job.id));
     expect(row?.payload).toEqual({
       conversationId: conversation.id,
-      projectId: conversation.projectId,
+      workspaceId: conversation.workspaceId,
       messageId: message.id,
       text: "Write a hook about Rust lifetimes",
     });
@@ -279,7 +279,7 @@ describe("POST /api/conversations/:id/messages", () => {
     const [row] = await testDb.db.select().from(jobs).where(eq(jobs.id, job.id));
     expect(row?.payload).toEqual({
       conversationId: conversation.id,
-      projectId: conversation.projectId,
+      workspaceId: conversation.workspaceId,
       messageId: message.id,
       text: "Continue where we left off",
       producerSessionId: sessionId,
@@ -288,20 +288,20 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(enqueued.find((event) => event.payload.jobId === job.id)?.payload).toEqual({
       jobId: job.id,
       type: "producer.chat",
-      projectId: conversation.projectId,
+      workspaceId: conversation.workspaceId,
       deviceAffinity: device.id,
     });
   });
 
-  it("refuses messages in an archived project but still answers a repeat", async () => {
-    const project = await newProject();
-    const conversation = await newConversation(project.id);
+  it("refuses messages in an archived workspace but still answers a repeat", async () => {
+    const workspace = await newWorkspace();
+    const conversation = await newConversation(workspace.id);
     const clientMessageId = randomUUID();
     expect((await post(conversation.id, "Before archiving", clientMessageId)).status).toBe(201);
     await testDb.db
-      .update(projects)
+      .update(workspaces)
       .set({ status: "archived", archivedAt: new Date() })
-      .where(eq(projects.id, project.id));
+      .where(eq(workspaces.id, workspace.id));
 
     const refused = await post(conversation.id, "After archiving");
     expect(refused.status).toBe(409);
@@ -421,8 +421,8 @@ describe("authentication", () => {
   it("requires a session on every conversation route", async () => {
     const id = randomUUID();
     const requests: [string, string, unknown?][] = [
-      ["GET", `/api/projects/${id}/conversations`],
-      ["POST", `/api/projects/${id}/conversations`, {}],
+      ["GET", `/api/workspaces/${id}/conversations`],
+      ["POST", `/api/workspaces/${id}/conversations`, {}],
       ["GET", `/api/conversations/${id}`],
       ["GET", `/api/conversations/${id}/messages`],
       ["POST", `/api/conversations/${id}/messages`, { text: "Hi", clientMessageId: id }],
@@ -444,7 +444,7 @@ describe("authentication", () => {
     const crossSite = await send(
       t.app,
       "POST",
-      `/api/projects/${conversation.projectId}/conversations`,
+      `/api/workspaces/${conversation.workspaceId}/conversations`,
       {
         cookie,
         body: {},

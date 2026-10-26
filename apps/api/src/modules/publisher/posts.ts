@@ -20,8 +20,8 @@ import {
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Executor } from "../../lib/db";
 
-// Scheduled posts as the API shows them. Project, platform and publish mode come from joins: the
-// item's project, the channel's platform, and `effectivePublishMode` of the series format and the
+// Scheduled posts as the API shows them. Workspace, platform and publish mode come from joins: the
+// item's workspace, the channel's platform, and `effectivePublishMode` of the series format and the
 // channel. The calendar and the publisher both map posts here.
 
 function formatModeOf(value: unknown): PublishMode {
@@ -32,7 +32,7 @@ function formatModeOf(value: unknown): PublishMode {
 export function toScheduledPost(
   row: ScheduledPostRow,
   joined: {
-    projectId: string;
+    workspaceId: string;
     platform: ScheduledPost["platform"];
     requiresApproval: boolean;
     formatMode: unknown;
@@ -41,7 +41,7 @@ export function toScheduledPost(
 ): ScheduledPost {
   return {
     id: row.id,
-    projectId: joined.projectId,
+    workspaceId: joined.workspaceId,
     itemId: row.itemId,
     versionId: row.versionId,
     channelId: row.channelId,
@@ -74,7 +74,7 @@ export async function loadScheduledPosts(
   const rows = await executor
     .select({
       post: scheduledPosts,
-      projectId: contentItems.projectId,
+      workspaceId: contentItems.workspaceId,
       title: contentItems.title,
       state: contentItems.state,
       format: contentVersions.format,
@@ -93,7 +93,7 @@ export async function loadScheduledPosts(
     .where(inArray(scheduledPosts.id, [...ids]));
   return rows.map((row) =>
     toScheduledPost(row.post, {
-      projectId: row.projectId,
+      workspaceId: row.workspaceId,
       platform: row.platform,
       requiresApproval: row.requiresApproval,
       formatMode: row.formatMode,

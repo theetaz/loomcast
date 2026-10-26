@@ -320,7 +320,7 @@ async function fill(
         history,
       });
       const created = await deps.content.create(
-        plan.projectId,
+        plan.workspaceId,
         {
           title: plannedTitle(plan, slot),
           seriesId: plan.id,

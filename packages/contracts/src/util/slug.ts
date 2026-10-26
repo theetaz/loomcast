@@ -8,8 +8,8 @@ export const SLUG_MAX_LENGTH = 64;
 const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
- * A project slug. Slugs shaped like a UUID are rejected, because routes such as
- * `/api/projects/:idOrSlug` accept either form.
+ * A workspace slug. Slugs shaped like a UUID are rejected, because routes such as
+ * `/api/workspaces/:idOrSlug` accept either form.
  */
 export const SlugSchema = z
   .string()

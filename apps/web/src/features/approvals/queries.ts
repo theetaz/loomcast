@@ -15,15 +15,15 @@ import { useLiveEvent, useLiveReconnect } from "@/lib/live";
 
 export const approvalsKeys = {
   all: ["approvals"] as const,
-  inbox: (projectId: string | null) => ["approvals", "inbox", projectId ?? "all"] as const,
+  inbox: (workspaceId: string | null) => ["approvals", "inbox", workspaceId ?? "all"] as const,
 };
 
-export function approvalsQueryOptions(projectId: string | null) {
+export function approvalsQueryOptions(workspaceId: string | null) {
   return queryOptions({
-    queryKey: approvalsKeys.inbox(projectId),
+    queryKey: approvalsKeys.inbox(workspaceId),
     queryFn: ({ signal }) =>
       api.request("approvals.inbox", {
-        query: projectId ? { projectId } : {},
+        query: workspaceId ? { workspaceId } : {},
         signal,
       }),
     // Decisions taken elsewhere while the inbox was closed show when it opens again.

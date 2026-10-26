@@ -13,18 +13,18 @@ import { formatsServiceFor } from "../src/modules/formats";
 import {
   call,
   createPipelineHarness,
-  insertProject,
+  insertWorkspace,
   internalOf,
   type PipelineHarness,
 } from "./pipeline-support";
 import { errorCode } from "./support";
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
 });
 
 afterAll(async () => {
@@ -35,8 +35,11 @@ function rules(overrides: Partial<FormatRules> = {}): FormatRules {
   return { ...structuredClone(DEFAULT_FORMAT_RULES), ...overrides };
 }
 
-async function createFormat(body: Record<string, unknown>, project = projectId): Promise<Format> {
-  const response = await call(h, "POST", `/api/projects/${project}/formats`, body);
+async function createFormat(
+  body: Record<string, unknown>,
+  workspace = workspaceId,
+): Promise<Format> {
+  const response = await call(h, "POST", `/api/workspaces/${workspace}/formats`, body);
   expect(response.status).toBe(201);
   return FormatSchema.parse(await response.json());
 }
@@ -52,7 +55,7 @@ describe("formats", () => {
     const second = await createFormat({ name: "Rust in 60 Seconds" });
     expect(second.slug).toBe("rust-in-60-seconds-2");
 
-    const taken = await call(h, "POST", `/api/projects/${projectId}/formats`, {
+    const taken = await call(h, "POST", `/api/workspaces/${workspaceId}/formats`, {
       name: "Other",
       slug: "rust-in-60-seconds",
     });
@@ -137,15 +140,15 @@ describe("formats", () => {
     expect(current.currentVersion.rules.tone).toBe("First");
   });
 
-  it("lists the formats of a project and answers 404 for unknown ones", async () => {
-    const other = await insertProject(h);
+  it("lists the formats of a workspace and answers 404 for unknown ones", async () => {
+    const other = await insertWorkspace(h);
     const format = await createFormat({ name: "Alpha" }, other);
-    const response = await call(h, "GET", `/api/projects/${other}/formats`);
+    const response = await call(h, "GET", `/api/workspaces/${other}/formats`);
     const { items } = listSchema(FormatSchema).parse(await response.json());
     expect(items.map((item) => item.id)).toEqual([format.id]);
 
     const missing = "00000000-0000-4000-8000-000000000000";
-    expect((await call(h, "GET", `/api/projects/${missing}/formats`)).status).toBe(404);
+    expect((await call(h, "GET", `/api/workspaces/${missing}/formats`)).status).toBe(404);
     expect((await call(h, "GET", `/api/formats/${missing}`)).status).toBe(404);
     expect((await call(h, "GET", `/api/formats/${missing}/versions`)).status).toBe(404);
     const update = await call(h, "PATCH", `/api/formats/${missing}`, {
@@ -155,12 +158,12 @@ describe("formats", () => {
     expect(update.status).toBe(404);
   });
 
-  it("refuses formats in an archived project and invalid rules", async () => {
-    const archived = await insertProject(h, "archived");
-    const response = await call(h, "POST", `/api/projects/${archived}/formats`, { name: "Late" });
+  it("refuses formats in an archived workspace and invalid rules", async () => {
+    const archived = await insertWorkspace(h, "archived");
+    const response = await call(h, "POST", `/api/workspaces/${archived}/formats`, { name: "Late" });
     expect(response.status).toBe(409);
 
-    const invalid = await call(h, "POST", `/api/projects/${projectId}/formats`, {
+    const invalid = await call(h, "POST", `/api/workspaces/${workspaceId}/formats`, {
       name: "Bad",
       rules: { ...rules(), lengthSec: { min: 60, max: 30 } },
     });
@@ -170,7 +173,7 @@ describe("formats", () => {
   it("gives a series' current rules as a job snapshot", async () => {
     const formats = formatsServiceFor(h.deps);
     const format = await createFormat({ name: "Snapshot" });
-    const seriesResponse = await call(h, "POST", `/api/projects/${projectId}/series`, {
+    const seriesResponse = await call(h, "POST", `/api/workspaces/${workspaceId}/series`, {
       name: "Snapshot series",
       formatId: format.id,
     });

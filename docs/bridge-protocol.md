@@ -25,7 +25,7 @@ headers and keep the read timeout above 20 seconds (the ping interval).
 A device is paired once, with a single-use code from the web app.
 
 ```text
- Browser (Settings → Devices)       API                              Studio agent
+ Browser (Account settings)         API                              Studio agent
    │ POST /api/devices/pairing-codes  │                                    │
    │ ───────────────────────────────► │ store sha256 of the code,          │
    │ ◄─────────────────────────────── │ expires in 10 minutes              │
@@ -89,8 +89,8 @@ nothing else before it.
 - **One connection per device.** A newer connection supersedes the older one, which is closed
   with `4409`. The new connection's `hello` waits until the old one has handled every message it
   received.
-- **Revocation.** Revoking a device in Settings closes its live socket with `4403` and revokes
-  its token.
+- **Revocation.** Revoking a device in Account settings closes its live socket with `4403` and
+  revokes its token.
 - **Presence.** A device is online from its `hello` until its socket closes. Both changes are
   published as the `device.status` live event and stored as `devices.last_seen_at`.
 
@@ -147,7 +147,7 @@ message (`invalid_event`), but it is still acked.
 | Type | Payload | Notes |
 |---|---|---|
 | `hello.ok` | `{deviceId, serverTime, heartbeatMs: 20000, leaseMs: 600000, limits: {maxPayloadBytes, maxStreamTextLength}}` | Answer to `hello` |
-| `job.assign` | `{job: {id, type, attempt, payload, projectId, conversationId?}, leaseMs, credentials?}` | The agent validates `payload` against the job type and rejects a bad one |
+| `job.assign` | `{job: {id, type, attempt, payload, workspaceId, projectId, conversationId?}, leaseMs, credentials?}` | The agent validates `payload` against the job type and rejects a bad one. `projectId` repeats `workspaceId` on the job and in its payload for agents built before projects were renamed workspaces; an agent accepts either name |
 | `job.cancel` | `{jobId}` | Stop the job; the agent answers `job.fail {code: "cancelled"}` |
 | `ack` | `{jobId, upToSeq}` | Cumulative: every durable event up to `upToSeq` is stored |
 | `error` | `{code, message}` | A problem with one message that does not close the connection |
@@ -275,7 +275,7 @@ A `producer.chat` job from a message to the streamed reply:
 
 - **Session continuity.** The next turn's payload carries the conversation's
   `producerSessionId`, and the job has affinity to the device that holds the session. The agent
-  resumes the session in the same working directory, `~/Loomcast/projects/<projectId>`; a job
+  resumes the session in the same working directory, `~/Loomcast/projects/<workspaceId>`; a job
   that moves to another device starts a new session.
 - **Duplicate sends.** `clientMessageId` makes a repeated post return the stored message and its
   job instead of enqueuing again.

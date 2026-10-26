@@ -349,7 +349,7 @@ describe("voice takes", () => {
     db.assets.push(
       mockAsset({
         kind: "voice",
-        projectId: items.script.projectId,
+        workspaceId: items.script.workspaceId,
         itemId: items.script.id,
         filename: "take.mp3",
       }),

@@ -33,7 +33,7 @@ import {
   kbSearch,
   messages,
   type NewKbEntryRow,
-  projects,
+  workspaces,
 } from "@loomcast/db";
 import { and, arrayContains, asc, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit";
@@ -85,7 +85,7 @@ export interface NewDecisionEntry extends CommonEntryFields {
   kind: "decision";
   decision: string;
   rationale?: string;
-  /** A decision of the same project that this one replaces. */
+  /** A decision of the same workspace that this one replaces. */
   supersedes?: string;
 }
 
@@ -106,7 +106,7 @@ export interface NewReferenceEntry extends Omit<CommonEntryFields, "title"> {
   /** Untrusted text supplied by the user. */
   transcript?: string;
   /**
-   * A ready `reference_media` asset of the same project, uploaded by the user. It is analysed when
+   * A ready `reference_media` asset of the same workspace, uploaded by the user. It is analysed when
    * the reference has no transcript.
    */
   mediaAssetId?: string;
@@ -134,17 +134,17 @@ export interface SessionSummaryResult {
 
 export interface KbService {
   /**
-   * Creates an entry and publishes `kb.entry.created` once committed. 404 for an unknown project,
+   * Creates an entry and publishes `kb.entry.created` once committed. 404 for an unknown workspace,
    * 409 for an archived one. A decision with `supersedes` marks that decision `superseded` and
    * links both, in the same transaction.
    */
-  create(projectId: string, input: NewKbEntry, actor: KbActor): Promise<KbEntryDetail>;
+  create(workspaceId: string, input: NewKbEntry, actor: KbActor): Promise<KbEntryDetail>;
   /**
    * Writes the summary of a working session, keyed by `session:<sessionId>`: a second call for the
    * same session replaces the summary instead of adding an entry.
    */
   saveSessionSummary(
-    projectId: string,
+    workspaceId: string,
     input: SessionSummaryInput,
     actor: KbActor,
   ): Promise<SessionSummaryResult>;
@@ -152,13 +152,13 @@ export interface KbService {
    * Copies messages of a conversation into a new brainstorm or note, as `**You:**` and
    * `**Producer:**` blocks in the order they were posted.
    */
-  capture(projectId: string, input: CaptureConversation, actor: KbActor): Promise<KbEntryDetail>;
+  capture(workspaceId: string, input: CaptureConversation, actor: KbActor): Promise<KbEntryDetail>;
   /** An entry that is not deleted, or null. */
   get(id: string, executor?: Executor): Promise<KbEntryDetail | null>;
-  /** Entries of a project, most recently updated first. Null when the project is unknown. */
-  list(projectId: string, query?: ListKbQuery): Promise<CursorPage<KbEntry> | null>;
-  /** Tags in use in a project with their entry counts, most used first. Null for no project. */
-  tags(projectId: string): Promise<KbTagCount[] | null>;
+  /** Entries of a workspace, most recently updated first. Null when the workspace is unknown. */
+  list(workspaceId: string, query?: ListKbQuery): Promise<CursorPage<KbEntry> | null>;
+  /** Tags in use in a workspace with their entry counts, most used first. Null for no workspace. */
+  tags(workspaceId: string): Promise<KbTagCount[] | null>;
   /**
    * Applies a partial update and publishes `kb.entry.updated`. 409 when `expectedUpdatedAt` is
    * not the entry's current `updatedAt`; 400 for fields that do not apply to the entry's kind.
@@ -168,8 +168,8 @@ export interface KbService {
   /** Soft-deletes an entry and publishes `kb.entry.deleted`. False when there is no such entry. */
   softDelete(id: string, actor: KbActor): Promise<boolean>;
   /**
-   * Ranked full-text search over live entries (`kbSearch`): within one project when `projectId`
-   * is given, otherwise across every project.
+   * Ranked full-text search over live entries (`kbSearch`): within one workspace when `workspaceId`
+   * is given, otherwise across every workspace.
    */
   search(options: KbSearchOptions): Promise<KbSearchHit[]>;
   /**
@@ -184,22 +184,22 @@ export interface KbService {
   analyze(id: string, actor: KbActor): Promise<AnalyzeResult | null>;
   /**
    * Like `create`, on the caller's transaction, for server-side writers such as competitor
-   * research. The caller has checked the project (`requireActiveProject`).
+   * research. The caller has checked the workspace (`requireActiveWorkspace`).
    */
   createIn(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewTextEntry | NewDecisionEntry,
     actor: KbActor,
   ): Promise<KbEntryDetail>;
   /**
-   * The project's live reference for `input.url`, created when there is none, on the caller's
+   * The workspace's live reference for `input.url`, created when there is none, on the caller's
    * transaction. An existing entry keeps its fields and gains the tags of `input` it lacks. 400
-   * for a URL that cannot be normalised. The caller has checked the project.
+   * for a URL that cannot be normalised. The caller has checked the workspace.
    */
   ensureReference(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewReferenceEntry,
     actor: KbActor,
   ): Promise<EnsuredReference>;
@@ -220,7 +220,7 @@ export interface KbService {
 export interface EnsuredReference {
   entry: EntryRow;
   reference: KbReferenceRow;
-  /** False when the project already had a live reference for the URL. */
+  /** False when the workspace already had a live reference for the URL. */
   created: boolean;
 }
 
@@ -232,7 +232,7 @@ export interface AnalyzeResult {
 
 export interface KbSearchOptions {
   q: string;
-  projectId?: string;
+  workspaceId?: string;
   kinds?: readonly KbEntryKind[];
   limit?: number;
 }
@@ -259,10 +259,10 @@ export function mediaAnalysisKey(entryId: string, mediaAssetId: string): string 
   return `analyze:${entryId}:media:${mediaAssetId}`;
 }
 
-/** Throws unless `assetId` is a ready `reference_media` asset of the project. */
+/** Throws unless `assetId` is a ready `reference_media` asset of the workspace. */
 async function requireReferenceMedia(
   executor: Executor,
-  projectId: string,
+  workspaceId: string,
   assetId: string,
 ): Promise<void> {
   const [asset] = await executor
@@ -271,7 +271,7 @@ async function requireReferenceMedia(
     .where(
       and(
         eq(assets.id, assetId),
-        eq(assets.projectId, projectId),
+        eq(assets.workspaceId, workspaceId),
         eq(assets.kind, "reference_media"),
         eq(assets.status, "ready"),
       ),
@@ -279,7 +279,10 @@ async function requireReferenceMedia(
     .limit(1);
   if (asset === undefined) {
     throw validationFailed([
-      { path: "mediaAssetId", message: "No uploaded reference media with that id in this project" },
+      {
+        path: "mediaAssetId",
+        message: "No uploaded reference media with that id in this workspace",
+      },
     ]);
   }
 }
@@ -314,10 +317,10 @@ const insertedAt = sql<Date>`date_trunc('milliseconds', now())`;
  */
 export const bumpedUpdatedAt = sql<Date>`greatest(date_trunc('milliseconds', now()), ${kbEntries.updatedAt} + interval '1 millisecond')`;
 
-export const archivedProject = () =>
-  conflict("The project is archived. Restore it before adding to it.", { reason: "archived" });
+export const archivedWorkspace = () =>
+  conflict("The workspace is archived. Restore it before adding to it.", { reason: "archived" });
 
-export const projectNotFound = () => notFound("Project not found.");
+export const workspaceNotFound = () => notFound("Workspace not found.");
 
 export function encodeKbCursor(timestamp: string, id: string): string {
   return Buffer.from(`${timestamp}_${id}`, "utf8").toString("base64url");
@@ -358,52 +361,52 @@ export function authorship(actor: KbActor) {
 }
 
 /**
- * Throws unless the project exists and is active. Takes a share lock, so the project cannot be
+ * Throws unless the workspace exists and is active. Takes a share lock, so the workspace cannot be
  * archived while the entry is written.
  */
-export async function requireActiveProject(tx: Transaction, projectId: string): Promise<void> {
-  if (!IdSchema.safeParse(projectId).success) {
-    throw projectNotFound();
+export async function requireActiveWorkspace(tx: Transaction, workspaceId: string): Promise<void> {
+  if (!IdSchema.safeParse(workspaceId).success) {
+    throw workspaceNotFound();
   }
-  const [project] = await tx
-    .select({ status: projects.status })
-    .from(projects)
-    .where(eq(projects.id, projectId))
+  const [workspace] = await tx
+    .select({ status: workspaces.status })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
     .limit(1)
     .for("share");
-  if (project === undefined) {
-    throw projectNotFound();
+  if (workspace === undefined) {
+    throw workspaceNotFound();
   }
-  if (project.status === "archived") {
-    throw archivedProject();
+  if (workspace.status === "archived") {
+    throw archivedWorkspace();
   }
 }
 
-async function projectExists(executor: Executor, projectId: string): Promise<boolean> {
-  if (!IdSchema.safeParse(projectId).success) {
+async function workspaceExists(executor: Executor, workspaceId: string): Promise<boolean> {
+  if (!IdSchema.safeParse(workspaceId).success) {
     return false;
   }
   const [row] = await executor
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.id, projectId))
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
     .limit(1);
   return row !== undefined;
 }
 
-/** A conversation id of this project, or a 404. */
+/** A conversation id of this workspace, or a 404. */
 async function requireConversation(
   executor: Executor,
-  projectId: string,
+  workspaceId: string,
   conversationId: string,
 ): Promise<void> {
   const [row] = await executor
     .select({ id: conversations.id })
     .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.projectId, projectId)))
+    .where(and(eq(conversations.id, conversationId), eq(conversations.workspaceId, workspaceId)))
     .limit(1);
   if (row === undefined) {
-    throw notFound("No conversation with that id in this project.");
+    throw notFound("No conversation with that id in this workspace.");
   }
 }
 
@@ -460,7 +463,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
   }
 
   /**
-   * Like `insertEntry`, but a `dedupeKey` already used by a live entry of the project inserts
+   * Like `insertEntry`, but a `dedupeKey` already used by a live entry of the workspace inserts
    * nothing and returns null.
    */
   async function tryInsertEntry(
@@ -472,7 +475,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
       .insert(kbEntries)
       .values({ ...values, ...authorship(actor), updatedAt: insertedAt })
       .onConflictDoNothing({
-        target: [kbEntries.projectId, kbEntries.dedupeKey],
+        target: [kbEntries.workspaceId, kbEntries.dedupeKey],
         where: sql`dedupe_key is not null and deleted_at is null`,
       })
       .returning(entryColumns);
@@ -484,18 +487,18 @@ export function createKbService(deps: KbServiceDeps): KbService {
       action: "kb.entry.create",
       targetType: "kb_entry",
       targetId: row.id,
-      data: { projectId: row.projectId, kind: row.kind, via: row.createdVia },
+      data: { workspaceId: row.workspaceId, kind: row.kind, via: row.createdVia },
     });
     publishCreated(tx, row);
     return row;
   }
 
-  /** Marks `oldId` superseded by `newId`. The old decision must be active, in the same project. */
-  async function supersede(tx: Transaction, projectId: string, oldId: string): Promise<EntryRow> {
+  /** Marks `oldId` superseded by `newId`. The old decision must be active, in the same workspace. */
+  async function supersede(tx: Transaction, workspaceId: string, oldId: string): Promise<EntryRow> {
     const old = await lockEntry(tx, oldId);
-    if (old === null || old.projectId !== projectId || old.kind !== "decision") {
+    if (old === null || old.workspaceId !== workspaceId || old.kind !== "decision") {
       throw validationFailed([
-        { path: "supersedes", message: "No decision with that id in this project" },
+        { path: "supersedes", message: "No decision with that id in this workspace" },
       ]);
     }
     if (old.data.status === "superseded") {
@@ -530,14 +533,14 @@ export function createKbService(deps: KbServiceDeps): KbService {
       action: "kb.entry.update",
       targetType: "kb_entry",
       targetId: row.id,
-      data: { projectId: row.projectId, fields: ["status"], supersededBy: newId },
+      data: { workspaceId: row.workspaceId, fields: ["status"], supersededBy: newId },
     });
     publishUpdated(tx, row);
   }
 
   async function createText(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewTextEntry,
     actor: KbActor,
   ): Promise<KbEntryDetail> {
@@ -545,7 +548,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
     const row = await insertEntry(
       tx,
       {
-        projectId,
+        workspaceId,
         kind: input.kind,
         title: input.title,
         bodyMd: input.bodyMd,
@@ -560,12 +563,12 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
   async function createDecision(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewDecisionEntry,
     actor: KbActor,
   ): Promise<KbEntryDetail> {
     const old =
-      input.supersedes === undefined ? null : await supersede(tx, projectId, input.supersedes);
+      input.supersedes === undefined ? null : await supersede(tx, workspaceId, input.supersedes);
     const data: DecisionData & { supersedes?: string } = {
       decision: input.decision,
       ...(input.rationale === undefined || input.rationale === ""
@@ -577,7 +580,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
     const row = await insertEntry(
       tx,
       {
-        projectId,
+        workspaceId,
         kind: "decision",
         title: input.title,
         bodyMd: "",
@@ -601,10 +604,10 @@ export function createKbService(deps: KbServiceDeps): KbService {
     }
   }
 
-  /** The live entry of the project with `dedupeKey`, locked for update, or null. */
+  /** The live entry of the workspace with `dedupeKey`, locked for update, or null. */
   async function lockDedupedEntry(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     dedupeKey: string,
   ): Promise<EntryRow | null> {
     const [row] = await tx
@@ -612,7 +615,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
       .from(kbEntries)
       .where(
         and(
-          eq(kbEntries.projectId, projectId),
+          eq(kbEntries.workspaceId, workspaceId),
           eq(kbEntries.dedupeKey, dedupeKey),
           isNull(kbEntries.deletedAt),
         ),
@@ -624,11 +627,11 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
   /**
    * Inserts a reference entry and its `kb_references` row. Null, inserting nothing, when the
-   * project already has a live reference for the normalised URL.
+   * workspace already has a live reference for the normalised URL.
    */
   async function insertReference(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewReferenceEntry,
     actor: KbActor,
   ): Promise<{ row: EntryRow; reference: KbReferenceRow } | null> {
@@ -640,13 +643,13 @@ export function createKbService(deps: KbServiceDeps): KbService {
     const analysis = input.analysis ?? null;
     const dedupeKey = referenceDedupeKey(normalized.url);
     if (input.mediaAssetId !== undefined) {
-      await requireReferenceMedia(tx, projectId, input.mediaAssetId);
+      await requireReferenceMedia(tx, workspaceId, input.mediaAssetId);
     }
 
     const row = await tryInsertEntry(
       tx,
       {
-        projectId,
+        workspaceId,
         kind: "reference",
         title: optionalText(input.title) ?? defaultReferenceTitle(platform, author),
         bodyMd: "",
@@ -685,11 +688,11 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
   async function createReference(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewReferenceEntry,
     actor: KbActor,
   ): Promise<KbEntryDetail> {
-    const inserted = await insertReference(tx, projectId, input, actor);
+    const inserted = await insertReference(tx, workspaceId, input, actor);
     if (inserted === null) {
       const dedupeKey = referenceDedupeKey(normalizedReferenceUrl(input.url).url);
       const [existing] = await tx
@@ -697,13 +700,13 @@ export function createKbService(deps: KbServiceDeps): KbService {
         .from(kbEntries)
         .where(
           and(
-            eq(kbEntries.projectId, projectId),
+            eq(kbEntries.workspaceId, workspaceId),
             eq(kbEntries.dedupeKey, dedupeKey),
             isNull(kbEntries.deletedAt),
           ),
         )
         .limit(1);
-      throw conflict("This reference is already saved in the project.", {
+      throw conflict("This reference is already saved in the workspace.", {
         reason: "duplicate",
         entryId: existing?.id ?? null,
       });
@@ -713,16 +716,16 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
   async function ensureReference(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     input: NewReferenceEntry,
     actor: KbActor,
   ): Promise<EnsuredReference> {
-    const inserted = await insertReference(tx, projectId, input, actor);
+    const inserted = await insertReference(tx, workspaceId, input, actor);
     if (inserted !== null) {
       return { entry: inserted.row, reference: inserted.reference, created: true };
     }
     const dedupeKey = referenceDedupeKey(normalizedReferenceUrl(input.url).url);
-    const existing = await lockDedupedEntry(tx, projectId, dedupeKey);
+    const existing = await lockDedupedEntry(tx, workspaceId, dedupeKey);
     const reference = existing === null ? null : await loadReference(tx, existing.id);
     if (existing === null || reference === null) {
       throw new Error("deduplicated reference vanished inside its transaction");
@@ -744,7 +747,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
       action: "kb.entry.update",
       targetType: "kb_entry",
       targetId: row.id,
-      data: { projectId, fields: ["tags"] },
+      data: { workspaceId, fields: ["tags"] },
     });
     publishUpdated(tx, row);
     return { entry: row, reference, created: false };
@@ -766,10 +769,10 @@ export function createKbService(deps: KbServiceDeps): KbService {
   }
 
   return {
-    createIn(tx, projectId, input, actor) {
+    createIn(tx, workspaceId, input, actor) {
       return input.kind === "decision"
-        ? createDecision(tx, projectId, input, actor)
-        : createText(tx, projectId, input, actor);
+        ? createDecision(tx, workspaceId, input, actor)
+        : createText(tx, workspaceId, input, actor);
     },
 
     ensureReference,
@@ -796,14 +799,14 @@ export function createKbService(deps: KbServiceDeps): KbService {
       const { job } = await jobs.enqueue(tx, {
         type: "kb.analyze_reference",
         payload: {
-          projectId: entry.projectId,
+          workspaceId: entry.workspaceId,
           entryId: entry.id,
           url: reference.url,
           platform: reference.platform,
           fetchPublicVideo: true,
           ...(reference.likedReason === null ? {} : { likedReason: reference.likedReason }),
         },
-        projectId: entry.projectId,
+        workspaceId: entry.workspaceId,
         conversationId: null,
         idempotencyKey,
         createdBy: actor.userId,
@@ -821,38 +824,38 @@ export function createKbService(deps: KbServiceDeps): KbService {
           action: "kb.reference.analyze",
           targetType: "kb_entry",
           targetId: entry.id,
-          data: { projectId: entry.projectId, jobId: job.id },
+          data: { workspaceId: entry.workspaceId, jobId: job.id },
         });
         publishUpdated(tx, entry);
       }
       return job;
     },
 
-    create(projectId, input, actor) {
+    create(workspaceId, input, actor) {
       return transaction(db, async (tx) => {
-        await requireActiveProject(tx, projectId);
+        await requireActiveWorkspace(tx, workspaceId);
         if (input.conversationId != null) {
-          await requireConversation(tx, projectId, input.conversationId);
+          await requireConversation(tx, workspaceId, input.conversationId);
         }
         switch (input.kind) {
           case "brainstorm":
           case "note":
-            return createText(tx, projectId, input, actor);
+            return createText(tx, workspaceId, input, actor);
           case "decision":
-            return createDecision(tx, projectId, input, actor);
+            return createDecision(tx, workspaceId, input, actor);
           case "reference":
-            return createReference(tx, projectId, input, actor);
+            return createReference(tx, workspaceId, input, actor);
         }
       });
     },
 
-    saveSessionSummary(projectId, input, actor) {
+    saveSessionSummary(workspaceId, input, actor) {
       return transaction(db, async (tx) => {
-        await requireActiveProject(tx, projectId);
+        await requireActiveWorkspace(tx, workspaceId);
         const dedupeKey = `session:${input.sessionId}`;
         // Serialises writers of the same session, so two calls never race to insert.
         await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtext(${`loomcast:kb:${projectId}:${dedupeKey}`}))`,
+          sql`select pg_advisory_xact_lock(hashtext(${`loomcast:kb:${workspaceId}:${dedupeKey}`}))`,
         );
         const title = input.title ?? titleFromMarkdown(input.summaryMd, "Session summary:");
         const data: JsonObject = {
@@ -865,7 +868,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
           .from(kbEntries)
           .where(
             and(
-              eq(kbEntries.projectId, projectId),
+              eq(kbEntries.workspaceId, workspaceId),
               eq(kbEntries.dedupeKey, dedupeKey),
               isNull(kbEntries.deletedAt),
             ),
@@ -876,7 +879,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
           const row = await insertEntry(
             tx,
             {
-              projectId,
+              workspaceId,
               kind: "session_summary",
               title,
               bodyMd: input.summaryMd,
@@ -907,17 +910,17 @@ export function createKbService(deps: KbServiceDeps): KbService {
           action: "kb.entry.update",
           targetType: "kb_entry",
           targetId: row.id,
-          data: { projectId, fields: ["title", "bodyMd", "data"] },
+          data: { workspaceId, fields: ["title", "bodyMd", "data"] },
         });
         publishUpdated(tx, row);
         return { entry: toKbEntryDetail(row, null), created: false };
       });
     },
 
-    capture(projectId, input, actor) {
+    capture(workspaceId, input, actor) {
       return transaction(db, async (tx) => {
-        await requireActiveProject(tx, projectId);
-        await requireConversation(tx, projectId, input.conversationId);
+        await requireActiveWorkspace(tx, workspaceId);
+        await requireConversation(tx, workspaceId, input.conversationId);
         const rows = await tx
           .select({ id: messages.id, role: messages.role, content: messages.content })
           .from(messages)
@@ -955,7 +958,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
         const row = await insertEntry(
           tx,
           {
-            projectId,
+            workspaceId,
             kind: input.kind,
             title: input.title,
             bodyMd,
@@ -971,13 +974,13 @@ export function createKbService(deps: KbServiceDeps): KbService {
 
     get,
 
-    async list(projectId, query = {}) {
-      if (!(await projectExists(db, projectId))) {
+    async list(workspaceId, query = {}) {
+      if (!(await workspaceExists(db, workspaceId))) {
         return null;
       }
       const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
       const conditions: (SQL | undefined)[] = [
-        eq(kbEntries.projectId, projectId),
+        eq(kbEntries.workspaceId, workspaceId),
         isNull(kbEntries.deletedAt),
       ];
       if (query.kinds !== undefined) {
@@ -1008,14 +1011,14 @@ export function createKbService(deps: KbServiceDeps): KbService {
       };
     },
 
-    async tags(projectId) {
-      if (!(await projectExists(db, projectId))) {
+    async tags(workspaceId) {
+      if (!(await workspaceExists(db, workspaceId))) {
         return null;
       }
       const result = await db.execute<{ tag: string; count: number }>(sql`
         select tag, count(*)::int as count
         from ${kbEntries}, unnest(${kbEntries.tags}) as tag
-        where ${kbEntries.projectId} = ${projectId} and ${kbEntries.deletedAt} is null
+        where ${kbEntries.workspaceId} = ${workspaceId} and ${kbEntries.deletedAt} is null
         group by tag
         order by count desc, tag asc
       `);
@@ -1084,7 +1087,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
           action: "kb.entry.update",
           targetType: "kb_entry",
           targetId: row.id,
-          data: { projectId: row.projectId, fields },
+          data: { workspaceId: row.workspaceId, fields },
         });
         publishUpdated(tx, row);
         return toKbEntryDetail(row, reference);
@@ -1144,14 +1147,14 @@ export function createKbService(deps: KbServiceDeps): KbService {
           const { job, created } = await jobs.enqueue(tx, {
             type: "kb.analyze_reference",
             payload: {
-              projectId: entry.projectId,
+              workspaceId: entry.workspaceId,
               entryId: entry.id,
               url: reference.url,
               platform: reference.platform,
               ...source.payload,
               ...(reference.likedReason === null ? {} : { likedReason: reference.likedReason }),
             },
-            projectId: entry.projectId,
+            workspaceId: entry.workspaceId,
             conversationId: null,
             idempotencyKey: key,
             createdBy: actor.userId,
@@ -1180,7 +1183,7 @@ export function createKbService(deps: KbServiceDeps): KbService {
               action: "kb.reference.analyze",
               targetType: "kb_entry",
               targetId: entry.id,
-              data: { projectId: entry.projectId, jobId: job.id },
+              data: { workspaceId: entry.workspaceId, jobId: job.id },
             });
             publishUpdated(tx, entry);
           }
@@ -1205,9 +1208,9 @@ export function createKbService(deps: KbServiceDeps): KbService {
           action: "kb.entry.delete",
           targetType: "kb_entry",
           targetId: existing.id,
-          data: { projectId: existing.projectId, kind: existing.kind },
+          data: { workspaceId: existing.workspaceId, kind: existing.kind },
         });
-        const payload = { entryId: existing.id, projectId: existing.projectId };
+        const payload = { entryId: existing.id, workspaceId: existing.workspaceId };
         afterCommit(tx, () => bus.publish({ type: "kb.entry.deleted", payload }));
         return true;
       });
@@ -1259,7 +1262,7 @@ async function updateReference(
     return { reference: null };
   }
   if (input.mediaAssetId != null) {
-    await requireReferenceMedia(tx, entry.projectId, input.mediaAssetId);
+    await requireReferenceMedia(tx, entry.workspaceId, input.mediaAssetId);
   }
   const values = {
     ...(input.author === undefined ? {} : { author: optionalText(input.author) }),

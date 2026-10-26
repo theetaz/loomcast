@@ -80,7 +80,7 @@ export const ReferenceAnalysisSchema = z.object({
   visualStyle: text(limits.visualStyle).optional(),
   cta: text(limits.cta).optional(),
   takeaways: z.array(text(limits.takeaway)).min(1).max(limits.maxTakeaways),
-  /** How the takeaways apply to the project the reference was saved in. */
+  /** How the takeaways apply to the workspace the reference was saved in. */
   applicability: text(limits.applicability),
 });
 export type ReferenceAnalysis = z.infer<typeof ReferenceAnalysisSchema>;

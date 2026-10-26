@@ -15,21 +15,21 @@ import {
   call,
   createPipelineHarness,
   eventsOf,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
 } from "./pipeline-support";
 import { appWith, insertChannel, testKeyring } from "./publisher-support";
 import { errorCode, send, type TestApp } from "./support";
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 const keyring = testKeyring();
 /** A second app on the same database whose server publishes live. */
 let live: { t: TestApp; deps: ModuleDeps };
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
   live = appWith(h.db, {
     clock: h.t.clock,
     config: { publishing: { mode: "live", enabled: true }, encryption: keyring },
@@ -41,8 +41,18 @@ afterAll(async () => {
   await h.close();
 });
 
-async function createChannel(body: unknown): Promise<Response> {
-  return call(h, "POST", "/api/channels", body);
+function channelsPath(workspace = workspaceId): string {
+  return `/api/workspaces/${workspace}/channels`;
+}
+
+async function createChannel(body: unknown, workspace = workspaceId): Promise<Response> {
+  return call(h, "POST", channelsPath(workspace), body);
+}
+
+async function listed(workspace = workspaceId): Promise<Channel[]> {
+  const response = await call(h, "GET", channelsPath(workspace));
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { items: Channel[] }).items;
 }
 
 async function patch(id: string, body: unknown, app: TestApp = h.t): Promise<Response> {
@@ -54,12 +64,12 @@ async function audits(targetId: string) {
 }
 
 async function newSeries(): Promise<string> {
-  const format = await call(h, "POST", `/api/projects/${projectId}/formats`, {
+  const format = await call(h, "POST", `/api/workspaces/${workspaceId}/formats`, {
     name: `Format ${randomUUID().slice(0, 6)}`,
   });
   expect(format.status).toBe(201);
   const formatId = FormatSchema.parse(await format.json()).id;
-  const created = await call(h, "POST", `/api/projects/${projectId}/series`, {
+  const created = await call(h, "POST", `/api/workspaces/${workspaceId}/series`, {
     name: `Series ${randomUUID().slice(0, 6)}`,
     formatId,
   });
@@ -103,8 +113,12 @@ describe("channels", () => {
   });
 
   it("lists channels without credentials", async () => {
-    const connected = await insertChannel(h.db, keyring, { platform: "facebook", connected: true });
-    const response = await call(h, "GET", "/api/channels");
+    const connected = await insertChannel(h.db, keyring, {
+      workspaceId,
+      platform: "facebook",
+      connected: true,
+    });
+    const response = await call(h, "GET", channelsPath());
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).not.toContain(connected.token ?? "");
@@ -180,7 +194,7 @@ describe("channels", () => {
       },
     ];
     for (const { spec, app, reason } of cases) {
-      const channel = await insertChannel(h.db, keyring, spec);
+      const channel = await insertChannel(h.db, keyring, { ...spec, workspaceId });
       const response = await patch(channel.id, { dryRun: false }, app);
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({
@@ -191,7 +205,7 @@ describe("channels", () => {
         },
       });
       const list = (await (
-        await send(app.app, "GET", "/api/channels", { cookie: h.cookie })
+        await send(app.app, "GET", channelsPath(), { cookie: h.cookie })
       ).json()) as {
         items: Channel[];
       };
@@ -203,7 +217,11 @@ describe("channels", () => {
   });
 
   it("switches an active, connected channel live only when the server publishes live", async () => {
-    const channel = await insertChannel(h.db, keyring, { platform: "instagram", connected: true });
+    const channel = await insertChannel(h.db, keyring, {
+      workspaceId,
+      platform: "instagram",
+      connected: true,
+    });
     const response = await patch(channel.id, { dryRun: false }, live.t);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ dryRun: false, liveBlocker: null });
@@ -216,9 +234,49 @@ describe("channels", () => {
     expect(await back.json()).toMatchObject({ dryRun: true, liveBlocker: "publishing_dry_run" });
   });
 
+  it("lists and adds channels per workspace", async () => {
+    const other = await insertWorkspace(h);
+    const mine = ChannelSchema.parse(
+      await (await createChannel({ platform: "instagram", displayName: "Mine" })).json(),
+    );
+    const response = await createChannel({ platform: "threads", displayName: "Theirs" }, other);
+    expect(response.status).toBe(201);
+    const theirs = ChannelSchema.parse(await response.json());
+    expect(mine.workspaceId).toBe(workspaceId);
+    expect(theirs.workspaceId).toBe(other);
+    const seeded = await insertChannel(h.db, keyring, { workspaceId: other, platform: "facebook" });
+
+    const ids = (await listed()).map((channel) => channel.id);
+    expect(ids).toContain(mine.id);
+    expect(ids).not.toContain(theirs.id);
+    expect(ids).not.toContain(seeded.id);
+    const otherItems = await listed(other);
+    expect(otherItems.map((channel) => channel.id).sort()).toEqual([theirs.id, seeded.id].sort());
+    expect(otherItems.every((channel) => channel.workspaceId === other)).toBe(true);
+
+    const created = (await audits(theirs.id)).find((row) => row.action === "channel.created");
+    expect(created?.data).toMatchObject({ workspaceId: other, platform: "threads" });
+  });
+
+  it("refuses channels in an archived or unknown workspace", async () => {
+    const archived = await insertWorkspace(h, "archived");
+    const refused = await createChannel({ platform: "instagram", displayName: "Late" }, archived);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: { details: { reason: "archived" } } });
+    // An archived workspace still lists the channels it had.
+    expect(await listed(archived)).toEqual([]);
+
+    const missing = randomUUID();
+    const unknownList = await call(h, "GET", channelsPath(missing));
+    expect(unknownList.status).toBe(404);
+    expect(await errorCode(unknownList)).toBe("not_found");
+    const unknownCreate = await createChannel({ platform: "instagram", displayName: "A" }, missing);
+    expect(unknownCreate.status).toBe(404);
+  });
+
   it("needs a session", async () => {
-    expect((await h.t.app.request("/api/channels")).status).toBe(401);
-    const refused = await send(h.t.app, "POST", "/api/channels", {
+    expect((await h.t.app.request(channelsPath())).status).toBe(401);
+    const refused = await send(h.t.app, "POST", channelsPath(), {
       body: { platform: "instagram", displayName: "A" },
     });
     expect(refused.status).toBe(401);
@@ -232,9 +290,9 @@ describe("series channels", () => {
 
   it("replaces a series' links and audits them", async () => {
     const seriesId = await newSeries();
-    const a = await insertChannel(h.db, keyring, { platform: "instagram" });
-    const b = await insertChannel(h.db, keyring, { platform: "threads" });
-    const c = await insertChannel(h.db, keyring, { platform: "facebook" });
+    const a = await insertChannel(h.db, keyring, { workspaceId, platform: "instagram" });
+    const b = await insertChannel(h.db, keyring, { workspaceId, platform: "threads" });
+    const c = await insertChannel(h.db, keyring, { workspaceId, platform: "facebook" });
 
     const empty = await call(h, "GET", `/api/series/${seriesId}/channels`);
     expect(await empty.json()).toEqual({ seriesId, channels: [] });
@@ -268,7 +326,7 @@ describe("series channels", () => {
 
     const rows = (await audits(seriesId)).filter((row) => row.action === "series.channels.updated");
     expect(rows).toHaveLength(2);
-    expect(rows[1]?.data).toMatchObject({ projectId });
+    expect(rows[1]?.data).toMatchObject({ workspaceId });
 
     const cleared = await put(seriesId, { channels: [] });
     expect(await cleared.json()).toEqual({ seriesId, channels: [] });
@@ -282,7 +340,11 @@ describe("series channels", () => {
       error: { code: "validation_failed", details: [{ path: "channels.0.channelId" }] },
     });
 
-    const disabled = await insertChannel(h.db, keyring, { status: "disabled", connected: true });
+    const disabled = await insertChannel(h.db, keyring, {
+      workspaceId,
+      status: "disabled",
+      connected: true,
+    });
     const refused = await put(seriesId, { channels: [{ channelId: disabled.id, enabled: true }] });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toMatchObject({
@@ -307,6 +369,33 @@ describe("series channels", () => {
     expect(await archived.json()).toMatchObject({
       error: { details: { reason: "archived_series" } },
     });
+  });
+
+  it("refuses a channel of another workspace", async () => {
+    const seriesId = await newSeries();
+    const other = await insertWorkspace(h);
+    const foreign = await insertChannel(h.db, keyring, { workspaceId: other, platform: "threads" });
+    const own = await insertChannel(h.db, keyring, { workspaceId, platform: "instagram" });
+    const refused = await put(seriesId, {
+      channels: [
+        { channelId: own.id, enabled: true },
+        { channelId: foreign.id, enabled: true },
+      ],
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        details: [
+          { path: "channels.1.channelId", message: "No channel of this workspace has that id" },
+        ],
+      },
+    });
+    // Nothing was linked.
+    const got = (await (
+      await call(h, "GET", `/api/series/${seriesId}/channels`)
+    ).json()) as SeriesChannels;
+    expect(got.channels).toEqual([]);
   });
 
   it("404s unknown series", async () => {

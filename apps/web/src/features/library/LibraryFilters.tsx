@@ -249,7 +249,7 @@ function SeriesFilter({
   const known = selected === null || options.some((option) => option.series.id === selected);
   const groups = new Map<string, SeriesOption[]>();
   for (const option of options) {
-    const key = option.project?.name ?? "";
+    const key = option.workspace?.name ?? "";
     groups.set(key, [...(groups.get(key) ?? []), option]);
   }
   const grouped = groups.size > 1;
@@ -268,11 +268,11 @@ function SeriesFilter({
         {selected !== null && !known ? (
           <SelectItem value={selected}>Selected series</SelectItem>
         ) : null}
-        {[...groups].map(([project, entries]) => (
-          <Fragment key={project}>
+        {[...groups].map(([workspace, entries]) => (
+          <Fragment key={workspace}>
             <SelectSeparator />
             <SelectGroup>
-              {grouped ? <SelectLabel>{project}</SelectLabel> : null}
+              {grouped ? <SelectLabel>{workspace}</SelectLabel> : null}
               {entries.map(({ series }) => (
                 <SelectItem key={series.id} value={series.id}>
                   {series.name}

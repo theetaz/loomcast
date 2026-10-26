@@ -10,7 +10,7 @@ export interface OwnerToolsDeps {
   reviews: Pick<ReviewsService, "create">;
   calendar: CalendarService;
   /** Every channel as the API shows it. */
-  listChannels(): Promise<Channel[]>;
+  listChannels(workspaceId: string | null): Promise<Channel[]>;
 }
 
 /**
@@ -48,12 +48,12 @@ function postSummary(verb: string, post: ScheduledPost): string {
 export function createOwnerTools(deps: OwnerToolsDeps): ToolDefinition[] {
   const { content, reviews, calendar } = deps;
 
-  async function itemProject(itemId: string): Promise<string | null> {
-    return (await content.getItem(itemId))?.projectId ?? null;
+  async function itemWorkspace(itemId: string): Promise<string | null> {
+    return (await content.getItem(itemId))?.workspaceId ?? null;
   }
 
   const review = defineTool(ownerTools["content.review"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, { caller }) {
       const actor = ownerActor(caller, "review items");
       const { itemId, ...decision } = input;
@@ -74,9 +74,10 @@ export function createOwnerTools(deps: OwnerToolsDeps): ToolDefinition[] {
   });
 
   const listChannels = defineTool(ownerTools["channel.list"], {
-    async handler(_input, { caller }) {
+    resolveWorkspace: async (input) => input.workspaceId,
+    async handler(input, { caller }) {
       ownerActor(caller, "list channels");
-      return { channels: await deps.listChannels() };
+      return { channels: await deps.listChannels(input.workspaceId ?? null) };
     },
     summary: ({ channels }) => {
       const live = channels.filter((channel) => !channel.dryRun).length;
@@ -85,13 +86,13 @@ export function createOwnerTools(deps: OwnerToolsDeps): ToolDefinition[] {
   });
 
   const listPosts = defineTool(ownerTools["calendar.list_posts"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, { caller }) {
       ownerActor(caller, "read the calendar");
       return calendar.get({
         from: input.from,
         to: input.to,
-        ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+        ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
         ...(input.channelIds === undefined ? {} : { channelIds: input.channelIds }),
       });
     },
@@ -102,7 +103,7 @@ export function createOwnerTools(deps: OwnerToolsDeps): ToolDefinition[] {
   });
 
   const schedulePost = defineTool(ownerTools["calendar.schedule_post"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, { caller }) {
       const actor = ownerActor(caller, "schedule posts");
       return { post: await calendar.create(input, actor) };

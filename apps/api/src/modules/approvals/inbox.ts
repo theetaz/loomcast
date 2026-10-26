@@ -24,13 +24,13 @@ export const APPROVALS_MAX_MISSED = 100;
  */
 export async function approvalsInbox(
   executor: Executor,
-  filter: { projectId?: string },
+  filter: { workspaceId?: string },
 ): Promise<ApprovalsInbox> {
-  const inProject = (column: typeof contentItems.projectId) =>
-    filter.projectId === undefined ? undefined : eq(column, filter.projectId);
+  const inWorkspace = (column: typeof contentItems.workspaceId) =>
+    filter.workspaceId === undefined ? undefined : eq(column, filter.workspaceId);
 
   const rows = await selectItems(executor)
-    .where(and(eq(contentItems.state, "review"), inProject(contentItems.projectId)))
+    .where(and(eq(contentItems.state, "review"), inWorkspace(contentItems.workspaceId)))
     .orderBy(asc(contentItems.updatedAt), asc(contentItems.id));
   const itemIds = rows.map((row) => row.id);
   const openIds =
@@ -73,7 +73,7 @@ export async function approvalsInbox(
     .select({ id: scheduledPosts.id })
     .from(scheduledPosts)
     .innerJoin(contentItems, eq(contentItems.id, scheduledPosts.itemId))
-    .where(and(eq(scheduledPosts.status, "missed"), inProject(contentItems.projectId)))
+    .where(and(eq(scheduledPosts.status, "missed"), inWorkspace(contentItems.workspaceId)))
     .orderBy(desc(scheduledPosts.scheduledAt), desc(scheduledPosts.id))
     .limit(APPROVALS_MAX_MISSED);
   const missed = (

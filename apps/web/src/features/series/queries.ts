@@ -4,7 +4,7 @@ import { seriesKeys } from "@/features/library/queries";
 import type { LibraryFilter } from "@/features/library/search";
 import { api } from "@/lib/api";
 
-/** One series, under the same root as the shared list (`["series", "list", projectId]`). */
+/** One series, under the same root as the shared list (`["series", "list", workspaceId]`). */
 export const seriesDetailKey = (id: string) => [...seriesKeys.all, "detail", id] as const;
 
 export function seriesQueryOptions(id: string) {
@@ -14,10 +14,10 @@ export function seriesQueryOptions(id: string) {
   });
 }
 
-/** Puts a changed series into its detail and its project's list. */
+/** Puts a changed series into its detail and its workspace's list. */
 export function cacheSeries(queryClient: QueryClient, series: Series) {
   queryClient.setQueryData(seriesDetailKey(series.id), series);
-  queryClient.setQueryData<List<Series>>(seriesKeys.list(series.projectId), (list) => {
+  queryClient.setQueryData<List<Series>>(seriesKeys.list(series.workspaceId), (list) => {
     if (!list) return list;
     const exists = list.items.some((entry) => entry.id === series.id);
     return {
@@ -50,19 +50,19 @@ export function useCreateSeries() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
-      projectId,
+      workspaceId,
       name,
       formatId,
     }: {
-      projectId: string;
+      workspaceId: string;
       name: string;
       formatId: string;
-    }) => api.request("series.create", { params: { projectId }, body: { name, formatId } }),
+    }) => api.request("series.create", { params: { workspaceId }, body: { name, formatId } }),
     onSuccess: (series) => cacheSeries(queryClient, series),
   });
 }
 
-/** Switches a series to another format of its project. */
+/** Switches a series to another format of its workspace. */
 export function useSetSeriesFormat() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -85,11 +85,11 @@ export const UPCOMING_STATES: PipelineState[] = [
 ];
 
 /**
- * The library filter for a project's (or one series') unpublished items. It goes through the
+ * The library filter for a workspace's (or one series') unpublished items. It goes through the
  * library's list cache, so `content.*` live events keep it current.
  */
-export function upcomingFilter(projectId: string, seriesId: string | null = null): LibraryFilter {
-  return { projectId, states: UPCOMING_STATES, seriesId, from: null, to: null, q: "" };
+export function upcomingFilter(workspaceId: string, seriesId: string | null = null): LibraryFilter {
+  return { workspaceId, states: UPCOMING_STATES, seriesId, from: null, to: null, q: "" };
 }
 
 /** Items by target time (soonest first, undated last), then most recently changed. */

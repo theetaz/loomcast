@@ -55,7 +55,7 @@ export function competitorsServiceFor(deps: ModuleDeps): CompetitorsService {
 }
 
 /**
- * Competitor research endpoints: the competitors a project follows, their scans, starting a scan
+ * Competitor research endpoints: the competitors a workspace follows, their scans, starting a scan
  * (the most viewed Instagram videos through Business Discovery, or pasted links) and cancelling
  * one. Every write is audited; the references and the report a scan writes go through the
  * knowledge-base service and publish `kb.entry.*` events. See `docs/competitor-research.md`.
@@ -77,17 +77,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["competitors.list"].path, async (c) => {
     currentUser(c);
-    const items = await service.list(idParam(c, "projectId"));
+    const items = await service.list(idParam(c, "workspaceId"));
     if (items === null) {
-      throw notFound("Project not found.");
+      throw notFound("Workspace not found.");
     }
     return c.json({ items }, 200);
   });
 
   router.post(routes["competitors.create"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateCompetitorRequestSchema);
-    const created = await service.create(projectId, input, actor(c));
+    const created = await service.create(workspaceId, input, actor(c));
     return c.json(created, 201);
   });
 

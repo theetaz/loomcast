@@ -14,14 +14,14 @@ import {
 import { auditLog, contentItems, contentVersions } from "@loomcast/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createProjectsService } from "../src/modules/projects";
+import { createWorkspacesService } from "../src/modules/workspaces";
 import {
   call,
   createPipelineHarness,
   eventsOf,
   insertAsset,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
   script,
   storyboard,
@@ -31,19 +31,19 @@ import { errorCode } from "./support";
 const ItemPage = cursorPageSchema(ContentItemSchema);
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
+  workspaceId = await insertWorkspace(h);
 });
 
 afterAll(async () => {
   await h.close();
 });
 
-async function createItem(body: Record<string, unknown>, project = projectId) {
-  const response = await call(h, "POST", `/api/projects/${project}/content`, body);
+async function createItem(body: Record<string, unknown>, workspace = workspaceId) {
+  const response = await call(h, "POST", `/api/workspaces/${workspace}/content`, body);
   expect(response.status).toBe(201);
   return ContentItemDetailSchema.parse(await response.json());
 }
@@ -58,13 +58,13 @@ async function editOk(itemId: string, body: Record<string, unknown>) {
   return EditVersionResponseSchema.parse(await response.json());
 }
 
-async function newSeries(project = projectId) {
+async function newSeries(workspace = workspaceId) {
   const format = FormatSchema.parse(
-    await (await call(h, "POST", `/api/projects/${project}/formats`, { name: "Fmt" })).json(),
+    await (await call(h, "POST", `/api/workspaces/${workspace}/formats`, { name: "Fmt" })).json(),
   );
   const series = SeriesSchema.parse(
     await (
-      await call(h, "POST", `/api/projects/${project}/series`, {
+      await call(h, "POST", `/api/workspaces/${workspace}/series`, {
         name: "Series",
         formatId: format.id,
       })
@@ -113,9 +113,9 @@ describe("content items", () => {
     expect(event?.payload.item.currentVersionId).toBe(created.currentVersion.id);
   });
 
-  it("refuses series of other projects, archived series and archived projects", async () => {
-    const other = await newSeries(await insertProject(h));
-    const foreign = await call(h, "POST", `/api/projects/${projectId}/content`, {
+  it("refuses series of other workspaces, archived series and archived workspaces", async () => {
+    const other = await newSeries(await insertWorkspace(h));
+    const foreign = await call(h, "POST", `/api/workspaces/${workspaceId}/content`, {
       title: "Foreign",
       seriesId: other.series.id,
     });
@@ -123,14 +123,14 @@ describe("content items", () => {
 
     const { series } = await newSeries();
     await call(h, "POST", `/api/series/${series.id}/archive`);
-    const closed = await call(h, "POST", `/api/projects/${projectId}/content`, {
+    const closed = await call(h, "POST", `/api/workspaces/${workspaceId}/content`, {
       title: "Closed",
       seriesId: series.id,
     });
     expect(closed.status).toBe(409);
 
-    const archived = await insertProject(h, "archived");
-    const late = await call(h, "POST", `/api/projects/${archived}/content`, { title: "Late" });
+    const archived = await insertWorkspace(h, "archived");
+    const late = await call(h, "POST", `/api/workspaces/${archived}/content`, { title: "Late" });
     expect(late.status).toBe(409);
   });
 
@@ -165,25 +165,25 @@ describe("content items", () => {
     expect((await call(h, "PATCH", `/api/content/${missing}`, { title: "X" })).status).toBe(404);
   });
 
-  it("counts live items in the project stats", async () => {
-    const project = await insertProject(h);
-    await createItem({ title: "One" }, project);
-    await insertItem(h, { projectId: project, state: "archived" });
-    const stats = await createProjectsService(h.deps).stats(project);
+  it("counts live items in the workspace stats", async () => {
+    const workspace = await insertWorkspace(h);
+    await createItem({ title: "One" }, workspace);
+    await insertItem(h, { workspaceId: workspace, state: "archived" });
+    const stats = await createWorkspacesService(h.deps).stats(workspace);
     expect(stats.items).toBe(1);
   });
 });
 
 describe("content list", () => {
-  let project: string;
+  let workspace: string;
   let seriesId: string;
   const ids: string[] = [];
 
   beforeAll(async () => {
-    project = await insertProject(h);
+    workspace = await insertWorkspace(h);
     ({
       series: { id: seriesId },
-    } = await newSeries(project));
+    } = await newSeries(workspace));
     for (let index = 0; index < 5; index += 1) {
       const created = await createItem(
         {
@@ -191,7 +191,7 @@ describe("content list", () => {
           seriesId: index < 2 ? seriesId : undefined,
           targetAt: `2026-11-0${index + 1}T09:00:00.000Z`,
         },
-        project,
+        workspace,
       );
       ids.push(created.item.id);
     }
@@ -199,7 +199,7 @@ describe("content list", () => {
   });
 
   async function list(query: string) {
-    const response = await call(h, "GET", `/api/content?projectId=${project}${query}`);
+    const response = await call(h, "GET", `/api/content?workspaceId=${workspace}${query}`);
     expect(response.status).toBe(200);
     return ItemPage.parse(await response.json());
   }
@@ -236,10 +236,10 @@ describe("content list", () => {
     expect(range.items.map((item) => item.id).sort()).toEqual([ids[1], ids[2]].sort());
   });
 
-  it("rejects bad cursors and unknown projects", async () => {
-    const bad = await call(h, "GET", `/api/content?projectId=${project}&cursor=bm9wZQ`);
+  it("rejects bad cursors and unknown workspaces", async () => {
+    const bad = await call(h, "GET", `/api/content?workspaceId=${workspace}&cursor=bm9wZQ`);
     expect(bad.status).toBe(400);
-    expect((await call(h, "GET", `/api/content?projectId=${randomUUID()}`)).status).toBe(404);
+    expect((await call(h, "GET", `/api/content?workspaceId=${randomUUID()}`)).status).toBe(404);
     expect((await call(h, "GET", "/api/content?states=nope")).status).toBe(400);
   });
 });
@@ -267,7 +267,7 @@ describe("version edits", () => {
     expect(v3.item.state).toBe("storyboard");
     expect(v3.version.script).toEqual(script());
 
-    const voice = await insertAsset(h.db, { projectId, itemId: id, kind: "voice" });
+    const voice = await insertAsset(h.db, { workspaceId, itemId: id, kind: "voice" });
     const v4 = await editOk(id, { baseVersionId: v3.version.id, voiceAssetId: voice });
     expect(v4.item.state).toBe("voice");
     expect(v4.version.voiceAssetId).toBe(voice);
@@ -284,7 +284,7 @@ describe("version edits", () => {
   });
 
   it("clears voice, render, poster and storyboard when the script changes", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
       script: script({ hook: "A different opening line." }),
@@ -303,7 +303,7 @@ describe("version edits", () => {
   });
 
   it("keeps a storyboard sent together with a changed script", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     const board = storyboard({ styleId: "bold-grid" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
@@ -316,7 +316,7 @@ describe("version edits", () => {
   });
 
   it("clears render and poster when the storyboard changes, keeping the voice", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
       storyboard: storyboard({ styleId: "minimal" }),
@@ -331,8 +331,8 @@ describe("version edits", () => {
   });
 
   it("clears the render for a new voice take of the same item only", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
-    const take = await insertAsset(h.db, { projectId, itemId: inserted.itemId, kind: "voice" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
+    const take = await insertAsset(h.db, { workspaceId, itemId: inserted.itemId, kind: "voice" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
       voiceAssetId: take,
@@ -344,16 +344,16 @@ describe("version edits", () => {
       posterAssetId: null,
     });
 
-    const other = await insertItem(h, { projectId, state: "idea" });
-    const foreign = await insertAsset(h.db, { projectId, itemId: other.itemId, kind: "voice" });
+    const other = await insertItem(h, { workspaceId, state: "idea" });
+    const foreign = await insertAsset(h.db, { workspaceId, itemId: other.itemId, kind: "voice" });
     const pending = await insertAsset(h.db, {
-      projectId,
+      workspaceId,
       itemId: inserted.itemId,
       kind: "voice",
       status: "pending",
     });
     const wrongKind = await insertAsset(h.db, {
-      projectId,
+      workspaceId,
       itemId: inserted.itemId,
       kind: "render",
     });
@@ -368,7 +368,7 @@ describe("version edits", () => {
   });
 
   it("does not invalidate anything for an identical script", async () => {
-    const inserted = await insertItem(h, { projectId, state: "render", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "render", level: "render" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
       script: script(),
@@ -381,7 +381,7 @@ describe("version edits", () => {
 
   it("keeps an item in review or approved for a caption change", async () => {
     for (const state of ["review", "approved"] as const) {
-      const inserted = await insertItem(h, { projectId, state, level: "render" });
+      const inserted = await insertItem(h, { workspaceId, state, level: "render" });
       const result = await editOk(inserted.itemId, {
         baseVersionId: inserted.versionId,
         caption: "A sharper caption",
@@ -393,7 +393,7 @@ describe("version edits", () => {
   });
 
   it("sends an approved item back into production when its script changes", async () => {
-    const inserted = await insertItem(h, { projectId, state: "approved", level: "render" });
+    const inserted = await insertItem(h, { workspaceId, state: "approved", level: "render" });
     const result = await editOk(inserted.itemId, {
       baseVersionId: inserted.versionId,
       script: script({ cta: "Subscribe." }),
@@ -427,7 +427,7 @@ describe("version edits", () => {
 
   it("refuses edits the state machine does not allow", async () => {
     for (const state of ["scheduled", "published", "archived"] as const) {
-      const inserted = await insertItem(h, { projectId, state, level: "render" });
+      const inserted = await insertItem(h, { workspaceId, state, level: "render" });
       const response = await edit(inserted.itemId, {
         baseVersionId: inserted.versionId,
         caption: "Too late",

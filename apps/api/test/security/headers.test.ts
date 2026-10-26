@@ -61,7 +61,7 @@ function expectCommonHeaders(response: Response, label: string): void {
 describe("security headers per route class", () => {
   const cases: ReadonlyArray<{ label: string; method: string; path: string; csp: string }> = [
     { label: "web app document", method: "GET", path: "/", csp: WEB_CSP },
-    { label: "web app client route", method: "GET", path: "/projects/abc", csp: WEB_CSP },
+    { label: "web app client route", method: "GET", path: "/workspaces/abc", csp: WEB_CSP },
     { label: "web app file", method: "GET", path: "/assets/index.js", csp: WEB_CSP },
     { label: "session api", method: "GET", path: "/api/auth/me", csp: SERVER_CSP },
     { label: "public api", method: "POST", path: "/api/auth/login", csp: SERVER_CSP },

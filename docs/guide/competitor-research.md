@@ -1,6 +1,6 @@
 # Competitor research
 
-Competitor research shows you which videos work best for profiles in your niche, and why. A scan picks a competitor's most popular videos, the studio agent analyses each one, and Loomcast writes a report into the project's knowledge base. The engineering details are in the [competitor research spec](../competitor-research.md).
+Competitor research shows you which videos work best for profiles in your niche, and why. A scan picks a competitor's most popular videos, the studio agent analyses each one, and Loomcast writes a report into the workspace's knowledge base. The engineering details are in the [competitor research spec](../competitor-research.md).
 
 ## What it is for
 
@@ -12,13 +12,13 @@ Keep these limits in mind:
 - The studio agent downloads each public video to your Mac only for the length of one analysis. The video and its frames are deleted from the Mac straight afterwards, whether the analysis worked or not.
 - Loomcast keeps only the transcript, the measured numbers (views, likes, comments, length, cuts per minute) and the written analysis. It never keeps the video.
 - Only public videos are fetched, and never with your own accounts' logins.
-- A scan analyses at most 20 videos, a competitor has one scan running at a time, and a project follows at most 50 competitors.
+- A scan analyses at most 20 videos, a competitor has one scan running at a time, and a workspace follows at most 50 competitors.
 
 ## Add a competitor
 
-Competitors belong to a project. Open the project and select the **Competitors** tab.
+Competitors belong to a workspace. Open the workspace and choose **Competitors** in the sidebar, under **Studio**.
 
-![The Competitors tab with the add form and two followed profiles](images/competitors.png)
+![The Competitors page with the add form and two followed profiles](images/competitors.png)
 
 1. In **Profile link or @handle**, paste one of:
    - an Instagram profile link, such as `instagram.com/yourbrand`;
@@ -32,7 +32,7 @@ Nothing is fetched when you add a competitor; Loomcast only reads the platform a
 
 Each row in the list shows the competitor's platform, its latest scan status and how long ago it ran, and a **Report** link once a report exists. A competitor that has never been scanned shows **Not scanned**.
 
-On an archived project the add form and the **Scan** button are hidden.
+On an archived workspace the add form and the **Scan** button are hidden.
 
 ## The competitor page
 
@@ -62,7 +62,7 @@ You can let Loomcast pick the videos, or paste your own.
 
 Ranking by views needs two things:
 
-- The workspace has an **Active** Instagram channel in **Settings → Channels**. Loomcast uses its access to look the competitor up. See [Settings](settings.md) and [Channels, calendar and publishing](publishing.md).
+- Loomcast has an **Active** Instagram channel. It uses the workspace's own Instagram channel when it has one, and otherwise one from another workspace: Loomcast only uses its access to look the competitor up, and nothing is posted. Connect one in **Workspace settings → Channels**. See [Settings](settings.md) and [Channels, calendar and publishing](publishing.md).
 - The competitor is a business or creator account. Instagram does not share personal accounts.
 
 If either is missing, paste links instead: one public Reel or video link per line, up to 20. Pasted links are analysed in the order you give them, and the **Videos to analyse** choice is ignored.
@@ -127,13 +127,13 @@ Loomcast tags the entries so you can find them in the [knowledge base](knowledge
 
 ## Use reports when briefing the producer
 
-The producer session searches the project's knowledge base like any other entry, so reports and video analyses are available to it without extra steps. To make sure it uses them:
+The producer session searches the workspace's knowledge base like any other entry, so reports and video analyses are available to it without extra steps. To make sure it uses them:
 
-1. Open the project's **Chat** tab.
+1. Open the workspace's **Chat**.
 2. Name the competitor or the tag in your brief, for example: "Read the latest competitor report for @fastrust and suggest three hooks for our next video that borrow what works there."
 3. Ask it to say which entries it used, so you can check.
 
-Reports are also useful when you plan a new series or format: read the "What works" section and write your own decisions into the knowledge base. See [Projects and the producer chat](projects.md) and [Series and formats](series-and-formats.md).
+Reports are also useful when you plan a new series or format: read the "What works" section and write your own decisions into the knowledge base. See [Workspaces and the producer chat](workspaces.md) and [Series and formats](series-and-formats.md).
 
 ## Requirements
 
@@ -167,16 +167,16 @@ When the server refuses, the dialog shows a message in red. Find it below.
 | Code | What you see | What to do |
 |---|---|---|
 | `not_professional_account` | "@handle isn't a business or creator account, so Instagram won't rank its Reels. Paste links to the videos you want analysed instead." | Paste links to the Reels in **Video links** and start the scan again. This also appears when the handle does not exist; check the spelling. |
-| `no_instagram_channel` | "Ranking Reels by views needs a connected Instagram channel. Connect one in channel settings, or paste links to the videos instead." | Connect an Instagram account in **Settings → Channels**, or reconnect it if its status is **Needs reconnect**. Or paste links. |
+| `no_instagram_channel` | "Ranking Reels by views needs a connected Instagram channel. Connect one in channel settings, or paste links to the videos instead." | Connect an Instagram account in **Workspace settings → Channels**, or reconnect it if its status is **Needs reconnect**. Or paste links. |
 | `links_required` | "Facebook doesn't let Loomcast list a profile's videos. Paste links to the videos you want analysed." (or Threads) | Paste at least one video link. |
 | `invalid_link` | "Some links are not public video links of the competitor's platform." | Each line must link to one public video on the competitor's platform. Remove profile links, search pages and links from other platforms. |
 | `no_videos` | "The account has no recent videos to analyse. Paste links to the videos instead." | The last 200 posts hold no video. Paste links to older videos, or pick another competitor. |
-| `platform_error` | "Loomcast had a problem on its side. Try again in a moment." | Instagram refused the lookup. Try again later. If it keeps happening, reconnect the Instagram channel in **Settings → Channels**, or paste links. |
+| `platform_error` | "Loomcast had a problem on its side. Try again in a moment." | Instagram refused the lookup. Try again later. If it keeps happening, reconnect the Instagram channel in **Workspace settings → Channels**, or paste links. |
 | `not_configured` | "Loomcast had a problem on its side. Try again in a moment." | The server has no Meta app set up, so ranking by views is not available. Paste links, and ask the person who runs the server to configure it (see [Deploying and running the server](operations.md)). |
 | `scan_in_progress` | "A scan of this competitor is already running. Wait for it to finish, or cancel it first." | Open the active scan from the competitor page and wait, or select **Cancel scan**. |
-| `limit` | "This project already follows @handle on Instagram." | The project follows 50 competitors, the most it can. Remove one you no longer need, then add the new one. |
+| `limit` | "This workspace already follows @handle on Instagram." | The workspace follows 50 competitors, the most it can. Remove one you no longer need, then add the new one. |
 
-When adding a competitor, the same "already follows" message also means what it says: the project already follows that profile on that platform. Open it from the list instead.
+When adding a competitor, the same "already follows" message also means what it says: the workspace already follows that profile on that platform. Open it from the list instead.
 
 ### A scan that fails or stalls
 

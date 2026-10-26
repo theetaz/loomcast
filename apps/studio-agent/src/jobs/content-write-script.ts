@@ -28,7 +28,7 @@ export function createContentWriteScriptHandler(
 /**
  * `content.write_script`: writes the item's script in a new producer session.
  *
- * The session starts in the project workspace with the script skills, the format rules and the
+ * The session starts in the workspace folder with the script skills, the format rules and the
  * item's topic appended to its system prompt. Its reply must hold one fenced JSON block matching
  * `ScriptSchema`; up to two repair turns get the problems. Text after the block becomes the notes.
  */
@@ -41,7 +41,7 @@ export function writeScriptHandler(deps: ProducerStepDeps): Handler<"content.wri
         const { item, version } = await loadVersion(platform, payload);
         const workspace = await ensureItemWorkspace(
           deps.workspaceRoot,
-          payload.projectId,
+          payload.workspaceId,
           item.id,
           version.versionNo,
         );
@@ -55,10 +55,10 @@ export function writeScriptHandler(deps: ProducerStepDeps): Handler<"content.wri
         const step = await runProducerStep({
           ctx,
           runtime: deps.runtime,
-          cwd: workspace.projectDir,
+          cwd: workspace.workspaceDir,
           brief: stepBrief({
             step: "content.write_script",
-            projectId: payload.projectId,
+            workspaceId: payload.workspaceId,
             item,
             rules,
           }),

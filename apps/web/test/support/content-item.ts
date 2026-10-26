@@ -3,18 +3,18 @@ import type { RequestHandler } from "msw";
 import { mockScript } from "@/mocks/artifacts";
 import { activeJobs, mockContentItem, mockSeries } from "@/mocks/content";
 import { mockJob } from "@/mocks/conversations";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { at, onlineStudio } from "./kb";
 import { fakeStream } from "./live";
 import { renderApp } from "./render";
 
 /**
- * A signed-in db with one project, one series and an item in each interesting state. The item in
+ * A signed-in db with one workspace, one series and an item in each interesting state. The item in
  * review has five versions; its v4 and v5 scripts differ only in the hook.
  */
 export function itemSetup() {
-  const project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
-  const series = mockSeries({ projectId: project.id, name: "Ownership basics" });
+  const workspace = mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
+  const series = mockSeries({ workspaceId: workspace.id, name: "Ownership basics" });
   const versions: ContentVersion[] = [];
   const item = (
     title: string,
@@ -23,7 +23,7 @@ export function itemSetup() {
     extra: Partial<ContentItem> = {},
   ) => {
     const created = mockContentItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       seriesId: series.id,
       title,
       state,
@@ -59,7 +59,7 @@ export function itemSetup() {
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     series: [series],
     contentItems: [review.item, script.item, published.item, archived.item],
@@ -67,7 +67,7 @@ export function itemSetup() {
   });
   return {
     db,
-    project,
+    workspace,
     series,
     items: {
       review: review.item,
@@ -84,7 +84,7 @@ export function startJob(db: MockDb, itemId: string) {
   const item = db.contentItems.find((entry) => entry.id === itemId);
   if (!item) throw new Error("No such item.");
   const job = mockJob({
-    projectId: item.projectId,
+    workspaceId: item.workspaceId,
     conversationId: null,
     type: "content.render",
     status: "running",
@@ -102,8 +102,15 @@ export function renderItem(
   overrides: RequestHandler[] = [],
 ) {
   const stream = fakeStream(db);
-  const view = renderApp(`/content/${itemId}${search}`, db, overrides, {
-    createEventSource: stream.factory,
-  });
+  const item = db.contentItems.find((entry) => entry.id === itemId);
+  const workspace = db.workspaces.find((entry) => entry.id === item?.workspaceId);
+  const view = renderApp(
+    `/w/${workspace?.slug ?? "missing"}/content/${itemId}${search}`,
+    db,
+    overrides,
+    {
+      createEventSource: stream.factory,
+    },
+  );
   return { ...view, stream };
 }

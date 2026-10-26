@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { jobEvents, messages } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
-import { insertConversation, insertJob, insertProject, insertUser, PG, pgError } from "./fixtures";
+import {
+  insertConversation,
+  insertJob,
+  insertUser,
+  insertWorkspace,
+  PG,
+  pgError,
+} from "./fixtures";
 
 let testDb: TestDb;
 
@@ -30,8 +37,8 @@ describe("users.email", () => {
 describe("job_events (job_id, seq)", () => {
   it("is unique, and a replay with ON CONFLICT DO NOTHING inserts nothing", async () => {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const job = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id });
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const job = await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: user.id });
     const event = { jobId: job.id, seq: 1, kind: "log" as const, data: { level: "info" } };
 
     await testDb.db.insert(jobEvents).values(event);
@@ -50,8 +57,8 @@ describe("job_events (job_id, seq)", () => {
 
   it("rejects sequence numbers below 1", async () => {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const job = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id });
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const job = await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: user.id });
 
     const error = await pgError(
       testDb.db.insert(jobEvents).values({ jobId: job.id, seq: 0, kind: "log", data: {} }),
@@ -63,9 +70,9 @@ describe("job_events (job_id, seq)", () => {
 describe("messages (conversation_id, client_message_id)", () => {
   async function setup() {
     const user = await insertUser(testDb.db);
-    const project = await insertProject(testDb.db, user.id);
-    const first = await insertConversation(testDb.db, project.id, user.id);
-    const second = await insertConversation(testDb.db, project.id, user.id);
+    const workspace = await insertWorkspace(testDb.db, user.id);
+    const first = await insertConversation(testDb.db, workspace.id, user.id);
+    const second = await insertConversation(testDb.db, workspace.id, user.id);
     const message = (conversationId: string, clientMessageId: string | null) => ({
       conversationId,
       role: "user" as const,

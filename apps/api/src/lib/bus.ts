@@ -24,7 +24,7 @@ export type InternalEvent =
       payload: {
         jobId: string;
         type: JobType;
-        projectId: string;
+        workspaceId: string;
         deviceAffinity: string | null;
       };
     }
@@ -40,7 +40,7 @@ export type InternalEvent =
       type: "format.updated";
       payload: {
         formatId: string;
-        projectId: string;
+        workspaceId: string;
         versionId: string;
         previousVersionId: string;
       };
@@ -49,7 +49,7 @@ export type InternalEvent =
       type: "series.updated";
       payload: {
         seriesId: string;
-        projectId: string;
+        workspaceId: string;
         status: SeriesStatus;
         previousStatus: SeriesStatus;
         formatId: string;
@@ -60,7 +60,7 @@ export type InternalEvent =
 /** A committed move of a content item (`content.item.state_changed`). */
 export interface ContentStateChange {
   itemId: string;
-  projectId: string;
+  workspaceId: string;
   from: PipelineState;
   to: PipelineState;
   /** Who moved it; `id` is the user, token or device id, null for the system. */

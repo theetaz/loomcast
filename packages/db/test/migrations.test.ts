@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MIGRATIONS_FOLDER, migrate } from "../src/migrate";
 import { apiTokens, jobs } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
-import { apiTokenValues, insertProject, insertUser } from "./fixtures";
+import { apiTokenValues, insertUser, insertWorkspace } from "./fixtures";
 
 const TABLES = [
   "api_idempotency_keys",
@@ -38,7 +38,6 @@ const TABLES = [
   "pairing_codes",
   "password_tokens",
   "post_metrics",
-  "projects",
   "publish_attempts",
   "reviews",
   "scheduled_posts",
@@ -49,6 +48,7 @@ const TABLES = [
   "skill_versions",
   "skills",
   "users",
+  "workspaces",
 ];
 
 const journal = JSON.parse(
@@ -151,20 +151,20 @@ describe("migrations on a database from before the knowledge base", () => {
 
     expect(await publicTables(testDb)).toEqual(TABLES);
     expect(await appliedMigrations(testDb)).toBe(journal.entries.length);
-    const project = await insertProject(testDb.db, user.id);
+    const workspace = await insertWorkspace(testDb.db, user.id);
     const [job] = await testDb.db
       .insert(jobs)
       .values({
         type: "kb.analyze_reference",
         payload: {},
-        projectId: project.id,
+        workspaceId: workspace.id,
         createdBy: user.id,
       })
       .returning();
     await testDb.db
       .insert(apiTokens)
       .values(
-        apiTokenValues({ userId: user.id, kind: "job", projectId: project.id, jobId: job?.id }),
+        apiTokenValues({ userId: user.id, kind: "job", workspaceId: workspace.id, jobId: job?.id }),
       );
   });
 });

@@ -20,7 +20,7 @@ import { afterCommit, type Executor, type Transaction, transaction } from "../..
 import { conflict, HttpError, validationFailed } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { assetStorageKey, type Storage } from "../../lib/storage";
-import { requireActiveProject } from "../kb/service";
+import { requireActiveWorkspace } from "../kb/service";
 import { toAsset, toAssetDetail } from "./mappers";
 
 /** Pending uploads older than this are deleted by `cleanupPendingUploads`. */
@@ -45,10 +45,10 @@ export interface AssetActor {
 }
 
 export interface CreateUploadInput {
-  projectId: string;
+  workspaceId: string;
   /**
-   * Must be an item of `projectId`. The asset belongs to the item, and uploads are deduplicated
-   * per item; without it the asset is project-level media, deduplicated per project.
+   * Must be an item of `workspaceId`. The asset belongs to the item, and uploads are deduplicated
+   * per item; without it the asset is workspace-level media, deduplicated per workspace.
    */
   itemId?: string;
   kind: AssetKind;
@@ -77,9 +77,9 @@ export interface AssetsService {
    * one), that asset is returned instead: `upload: null` when it is ready, a fresh upload URL when
    * it is still pending. The owner is the item when `itemId` is given, so another item's copy of
    * the same bytes is never returned and a version can always use the asset; without `itemId` it
-   * is the project's project-level media (reference media). A failed asset with the same key is
-   * reset to pending and reused. 404 for an unknown project, 409 for an archived one, 400 when
-   * `itemId` is not an item of the project.
+   * is the workspace's workspace-level media (reference media). A failed asset with the same key is
+   * reset to pending and reused. 404 for an unknown workspace, 409 for an archived one, 400 when
+   * `itemId` is not an item of the workspace.
    */
   createUpload(input: CreateUploadInput, actor: AssetActor): Promise<CreateUploadResult>;
   /**
@@ -126,8 +126,8 @@ export const storageUnavailable = () =>
 
 /**
  * `status <> 'failed'`, the shared part of the predicates of the dedupe indexes
- * `assets_project_id_item_id_kind_sha256_uq` (item assets) and `assets_project_id_kind_sha256_uq`
- * (project-level media).
+ * `assets_workspace_id_item_id_kind_sha256_uq` (item assets) and `assets_workspace_id_kind_sha256_uq`
+ * (workspace-level media).
  */
 const LIVE = ne(assets.status, "failed");
 
@@ -166,26 +166,26 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
     return { ...upload, expiresAt: upload.expiresAt.toISOString() };
   }
 
-  async function requireItemOfProject(
+  async function requireItemOfWorkspace(
     tx: Transaction,
-    projectId: string,
+    workspaceId: string,
     itemId: string,
   ): Promise<void> {
     const [item] = await tx
       .select({ id: contentItems.id })
       .from(contentItems)
-      .where(and(eq(contentItems.id, itemId), eq(contentItems.projectId, projectId)))
+      .where(and(eq(contentItems.id, itemId), eq(contentItems.workspaceId, workspaceId)))
       .limit(1);
     if (item === undefined) {
       throw validationFailed([
-        { path: "itemId", message: "No content item with that id in this project" },
+        { path: "itemId", message: "No content item with that id in this workspace" },
       ]);
     }
   }
 
   /**
-   * The live asset an upload deduplicates against: same owner (the item, or the project's
-   * project-level media when there is no item), kind and SHA-256. Locked until the transaction ends.
+   * The live asset an upload deduplicates against: same owner (the item, or the workspace's
+   * workspace-level media when there is no item), kind and SHA-256. Locked until the transaction ends.
    */
   async function findLive(tx: Transaction, input: CreateUploadInput): Promise<AssetRow | null> {
     const [row] = await tx
@@ -193,7 +193,7 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
       .from(assets)
       .where(
         and(
-          eq(assets.projectId, input.projectId),
+          eq(assets.workspaceId, input.workspaceId),
           input.itemId === undefined ? isNull(assets.itemId) : eq(assets.itemId, input.itemId),
           eq(assets.kind, input.kind),
           eq(assets.sha256, input.sha256),
@@ -267,16 +267,16 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
       const sha256 = input.sha256.toLowerCase();
       const request = { ...input, sha256 };
       const storageKey = assetStorageKey(
-        { projectId: input.projectId, itemId: input.itemId ?? null },
+        { workspaceId: input.workspaceId, itemId: input.itemId ?? null },
         input.kind,
         sha256,
         input.mime,
       );
 
       const { row, created } = await transaction(db, async (tx) => {
-        await requireActiveProject(tx, input.projectId);
+        await requireActiveWorkspace(tx, input.workspaceId);
         if (input.itemId !== undefined) {
-          await requireItemOfProject(tx, input.projectId, input.itemId);
+          await requireItemOfWorkspace(tx, input.workspaceId, input.itemId);
         }
 
         const live = await findLive(tx, request);
@@ -285,7 +285,7 @@ export function createAssetsService(deps: AssetsServiceDeps): AssetsService {
         }
 
         const fresh = {
-          projectId: input.projectId,
+          workspaceId: input.workspaceId,
           itemId: input.itemId ?? null,
           kind: input.kind,
           status: "pending" as const,

@@ -55,6 +55,10 @@ Details: [deploy.md](deploy.md).
 
 - Migrations are not rolled back. If the older release cannot read the data, restore instead
   (section 5).
+- **The workspaces release** (migrations `0017` and `0018`): deploy the server first, then
+  rebuild and restart the studio agent on the Mac; an older agent keeps working against the new
+  server meanwhile. Rolling back past it needs a restore. See
+  [deploy.md](deploy.md#31-the-workspaces-release-migrations-0017-and-0018).
 - **After every deploy**, check the headers from your machine:
 
   ```bash
@@ -70,7 +74,7 @@ Stops every post from going out, in dry-run and live mode alike. Due posts wait 
 once publishing is back on.
 
 1. **server:** set `PUBLISHING_ENABLED=false` in `api.env`, then recreate the api.
-2. Check: the banner on **Settings → Channels** shows publishing as paused
+2. Check: the banner on **Workspace settings → Channels** shows publishing as paused
    (`GET /api/publisher/status` answers `"enabled": false`).
 3. To resume: set `PUBLISHING_ENABLED=true`, recreate the api, and review the calendar first.
    Posts that came due while paused publish on the next scheduler ticks.
@@ -82,8 +86,8 @@ first step of any incident involving a channel.
 
 Two levels; see [../scheduling-and-publishing.md](../scheduling-and-publishing.md#dry-run-and-going-live).
 
-- **One channel** (immediate, no restart): **Settings → Channels**, turn **Dry run** on. Posts
-  already queued on it stop going out live.
+- **One channel** (immediate, no restart): turn the channel's **Dry run** on in its workspace's
+  **Workspace settings → Channels**. Posts already queued on it stop going out live.
 - **Everything:** **server**, set `PUBLISHING_MODE=dry-run` in `api.env` and recreate the api.
   Every post then records what it would send instead of calling the platforms.
 
@@ -97,9 +101,10 @@ alert; its posts fail with an `auth` error.
 
 1. Find out why, if you can: the person who connected it lost their Page role, changed their
    Facebook password, removed the app under *Business integrations*, or a Threads token expired.
-2. **Settings → Channels**, the channel's **Reconnect** banner, and sign in again with an account
-   that has the Page (or the Threads profile). Accept the same Page or profile.
-3. Failed posts: retry them from the post or from **Settings → Scheduler** (dead tasks), or
+2. In the channel's workspace, **Workspace settings → Channels**, the channel's **Reconnect**
+   banner, and sign in again with an account that has the Page (or the Threads profile). Accept the
+   same Page or profile.
+3. Failed posts: retry them from the post or from **Account settings → Scheduler** (dead tasks), or
    reschedule.
 4. If every channel of a platform fails at once, check the app itself (**server**):
    `dc exec api node dist/cli/meta-check.mjs`. A failure there means the app ID or secret is
@@ -114,7 +119,7 @@ Details and the scratch-restore check: [backup-and-restore.md](backup-and-restor
 2. Restore the backup into a scratch database first and check it.
 3. **server:** `dc stop api`, then
    `dc run --rm backup restore.sh --into-production --yes-i-understand /backups/daily/<file>.dump`.
-4. `dc up -d --wait api`, check `/readyz`, sign in, look at recent projects and the calendar.
+4. `dc up -d --wait api`, check `/readyz`, sign in, look at recent workspaces and the calendar.
 5. Resume publishing once the schedule is reviewed. Drop `loomcast_pre_restore_<stamp>` a few
    days later.
 
@@ -158,21 +163,21 @@ backup alert fires, or deploys fail to pull.
 The Mac holds a device token (the bridge), possibly MCP tokens, the TTS provider key, a signed-in
 browser session and the producer session's own account.
 
-1. **Revoke the device:** **Settings → Devices → Revoke**. Its bridge connection closes at once
-   (4403) and its token stops working. Jobs it was running are handled by the lease reaper, as
+1. **Revoke the device:** **Account settings → Devices → Revoke**. Its bridge connection closes at
+   once (4403) and its token stops working. Jobs it was running are handled by the lease reaper, as
    for any lost connection.
-2. **Revoke MCP tokens** used on that Mac: **Settings → Access tokens → Revoke**.
+2. **Revoke MCP tokens** used on that Mac: **Account settings → Access tokens → Revoke**.
 3. **End browser sessions:** if the browser was signed in, reset your password (**server**):
    `dc exec -it api node dist/cli/admin.mjs reset-password --email <you>`. This ends every
    session of the account. Do the same for any member who used the Mac, or disable them in
-   **Settings → Members** (which also revokes the devices they paired).
+   **Account settings → Members** (which also revokes the devices they paired).
 4. **Rotate the TTS provider key** at the provider and set the new one on the replacement Mac
    (`pnpm agent secrets set voice-provider-key`).
 5. **Sign the producer session's account out** of that device from the account's own settings.
 6. If the Mac held the deploy key or your server SSH key, rotate them (section 8.8) and remove
    the old public keys from the server.
-7. Pair the replacement: create a pairing code on **Settings → Devices**, then on the new Mac
-   `pnpm agent pair --server https://loomcast.prabhavalabs.com --code <code>`.
+7. Pair the replacement: create a pairing code on **Account settings → Devices**, then on the new
+   Mac `pnpm agent pair --server https://loomcast.prabhavalabs.com --code <code>`.
 
 ## 8. Rotating secrets
 
@@ -236,7 +241,8 @@ the app secrets (8.2).
    tokens → OAuth 2.0 client secret → Regenerate*.
 3. **server:** update `META_APP_SECRET`, `THREADS_APP_SECRET` or `X_CLIENT_SECRET` in `api.env`,
    recreate the api, then `dc exec api node dist/cli/meta-check.mjs` (exit code 0).
-4. Open **Settings → Channels**: reconnect any channel that turns `needs_reauth`.
+4. Open each workspace's **Workspace settings → Channels**: reconnect any channel that turns
+   `needs_reauth`.
 5. Resume publishing.
 
 ### 8.3 R2 keys
@@ -274,8 +280,8 @@ backup service reads it on every run, so both files change together.
 
 ### 8.5 MCP tokens
 
-1. **Settings → Access tokens → Create**, with the same scopes and an expiry (90 days). Or on the
-   **server**: `dc exec -it api node dist/cli/admin.mjs token --email <you> --name <name>
+1. **Account settings → Access tokens → Create**, with the same scopes and an expiry (90 days). Or
+   on the **server**: `dc exec -it api node dist/cli/admin.mjs token --email <you> --name <name>
    --scopes mcp:read,mcp:write`.
 2. Put the new token in the client's configuration.
 3. Revoke the old token on the same page. Its next request gets 401.
@@ -286,12 +292,12 @@ Job tokens need no rotation: each lives for one job and is revoked when the job 
 
 There is no in-place rotation: revoke and pair again.
 
-1. Create a pairing code on **Settings → Devices**.
+1. Create a pairing code on **Account settings → Devices**.
 2. On the Mac: `pnpm agent pair --server https://loomcast.prabhavalabs.com --code <code>`; the
    new token replaces the old one in the agent's config.
-3. Revoke the old device entry on **Settings → Devices**, then restart the agent so it connects
-   with the new token (stop and start `pnpm agent run`, or `pnpm agent service install` again for
-   the launchd service). Check that **Settings → Devices** shows it online.
+3. Revoke the old device entry on **Account settings → Devices**, then restart the agent so it
+   connects with the new token (stop and start `pnpm agent run`, or `pnpm agent service install`
+   again for the launchd service). Check that **Account settings → Devices** shows it online.
 
 ### 8.7 Alert webhook and backup key
 
@@ -312,5 +318,5 @@ or `status`, then remove the old line. For a leaked key, remove the old line fir
 
 - Daily: alerts, if any. Weekly: `/api/ops/status` (backup age, dead tasks), the `ci` audit job.
 - Monthly: scratch-restore the latest backup ([backup-and-restore.md](backup-and-restore.md#the-drill)).
-- Quarterly: review **Settings → Members**, **Access tokens** and **Devices** and revoke what is
-  no longer used; restore from the bucket with the age identity.
+- Quarterly: review **Account settings → Members**, **Access tokens** and **Devices** and revoke
+  what is no longer used; restore from the bucket with the age identity.

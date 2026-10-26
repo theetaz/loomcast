@@ -7,6 +7,7 @@ import { ArrowDownIcon, ArrowUpIcon, TriangleAlertIcon } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useRef, useState } from "react";
 import { RelativeTime } from "@/components/RelativeTime";
 import { FormatIcon } from "@/features/post-formats/FormatBadge";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { formatDuration, formatTargetDay, isOverdue } from "./format";
@@ -45,6 +46,7 @@ export function LibraryTable({
   seriesName,
   actions,
 }: LibraryTableProps) {
+  const workspaceParam = useWorkspaceParam();
   const navigate = useNavigate();
   const now = useNow();
   const bodyRef = useRef<HTMLTableSectionElement>(null);
@@ -76,7 +78,10 @@ export function LibraryTable({
     // Links, buttons and menus inside the row handle their own clicks.
     if ((event.target as HTMLElement).closest("a, button, [role=menu], [role=menuitem]")) return;
     if (window.getSelection()?.toString()) return;
-    void navigate({ to: "/content/$itemId", params: { itemId: item.id } });
+    void navigate({
+      to: "/w/$workspace/content/$itemId",
+      params: { workspace: workspaceParam, itemId: item.id },
+    });
   };
 
   return (
@@ -135,8 +140,8 @@ export function LibraryTable({
                 <div className="flex min-w-0 items-center gap-1.5">
                   <FormatIcon format={item.format} label />
                   <Link
-                    to="/content/$itemId"
-                    params={{ itemId: item.id }}
+                    to="/w/$workspace/content/$itemId"
+                    params={{ workspace: workspaceParam, itemId: item.id }}
                     data-row-link=""
                     tabIndex={index === activeIndex ? 0 : -1}
                     onFocus={() => setActiveId(item.id)}

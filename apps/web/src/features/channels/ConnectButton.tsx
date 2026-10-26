@@ -1,3 +1,4 @@
+import type { Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import {
   DropdownMenu,
@@ -17,7 +18,14 @@ import { PlatformTile } from "./platforms";
  * leaves the app for the platform's consent dialog, which comes back to the connect page. X is
  * only offered while the server's X publishing flag is on.
  */
-export function ConnectButton({ size = "sm" }: { size?: "sm" | "default" }) {
+export function ConnectButton({
+  workspace,
+  size = "sm",
+}: {
+  /** The workspace the accounts are for; the connect page offers it first. */
+  workspace: Pick<Workspace, "id" | "slug">;
+  size?: "sm" | "default";
+}) {
   const providers = connectProviders(useXPublishing());
   return (
     <DropdownMenu>
@@ -37,7 +45,7 @@ export function ConnectButton({ size = "sm" }: { size?: "sm" | "default" }) {
           return (
             <DropdownMenuItem
               key={provider}
-              onSelect={() => startOAuth(provider)}
+              onSelect={() => startOAuth(provider, workspace)}
               className="h-auto items-start gap-2.5 py-2"
             >
               <PlatformTile platform={meta.platform} className="size-6 text-[10.5px]" />

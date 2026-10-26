@@ -214,10 +214,10 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
   }
 
   /**
-   * The channel of a new post, checked against the item's current version: it exists, is not
-   * disabled, and its platform publishes the version's format.
+   * The channel of a new post, checked against the item's current version: it is a channel of the
+   * item's workspace, is not disabled, and its platform publishes the version's format.
    */
-  async function postChannel(tx: Transaction, channelId: string) {
+  async function postChannel(tx: Transaction, item: ContentItemRow, channelId: string) {
     const [channel] = await tx
       .select({
         id: channels.id,
@@ -226,10 +226,10 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         dryRun: channels.dryRun,
       })
       .from(channels)
-      .where(eq(channels.id, channelId))
+      .where(and(eq(channels.id, channelId), eq(channels.workspaceId, item.workspaceId)))
       .limit(1);
     if (channel === undefined) {
-      throw notFound("No channel has that id.");
+      throw notFound("No channel of this workspace has that id.");
     }
     return channel;
   }
@@ -284,7 +284,9 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
           and(
             gte(scheduledPosts.scheduledAt, from),
             lt(scheduledPosts.scheduledAt, to),
-            query.projectId === undefined ? undefined : eq(contentItems.projectId, query.projectId),
+            query.workspaceId === undefined
+              ? undefined
+              : eq(contentItems.workspaceId, query.workspaceId),
             query.seriesIds === undefined
               ? undefined
               : inArray(scheduledPosts.seriesId, query.seriesIds),
@@ -305,7 +307,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
       const slots = await listSlots(db, {
         from: slotsFrom,
         to,
-        ...(query.projectId === undefined ? {} : { projectId: query.projectId }),
+        ...(query.workspaceId === undefined ? {} : { workspaceId: query.workspaceId }),
         ...(query.seriesIds === undefined ? {} : { seriesIds: query.seriesIds }),
         ...(query.channelIds === undefined ? {} : { channelIds: query.channelIds }),
       });
@@ -318,7 +320,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         if (item === null) {
           throw notFound("No content item has that id.");
         }
-        const channel = await postChannel(tx, input.channelId);
+        const channel = await postChannel(tx, item, input.channelId);
         if (!APPROVED_ITEM_STATES.includes(item.state)) {
           throw invalidTransition(item.state, "scheduled", "Only approved items can be scheduled.");
         }
@@ -369,7 +371,7 @@ export function createCalendarService(deps: CalendarServiceDeps): CalendarServic
         if (item === null) {
           throw notFound("No content item has that id.");
         }
-        const channel = await postChannel(tx, input.channelId);
+        const channel = await postChannel(tx, item, input.channelId);
         if (item.state === "archived") {
           throw invalidTransition(item.state, "scheduled", "Archived items cannot be planned.");
         }

@@ -5,8 +5,8 @@ import {
   type LiveEvent,
   type LiveEventOf,
   type LiveEventType,
-  type Project,
   parseLiveEvent,
+  type Workspace,
 } from "@loomcast/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -72,13 +72,13 @@ function defaultFactory(): EventSourceFactory | null {
   return (url) => new EventSource(url);
 }
 
-function upsertProject(
-  list: List<Project> | undefined,
-  project: Project,
-): List<Project> | undefined {
+function upsertWorkspace(
+  list: List<Workspace> | undefined,
+  workspace: Workspace,
+): List<Workspace> | undefined {
   if (!list) return list;
-  const items = list.items.filter((item) => item.id !== project.id);
-  items.push(project);
+  const items = list.items.filter((item) => item.id !== workspace.id);
+  items.push(workspace);
   items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return { items };
 }
@@ -89,14 +89,14 @@ function upsertProject(
  */
 export function applyLiveEvent(queryClient: QueryClient, event: LiveEvent) {
   switch (event.type) {
-    case "project.created":
-    case "project.updated": {
-      const { project } = event.payload;
-      queryClient.setQueryData<List<Project>>(queryKeys.projects.list, (list) =>
-        upsertProject(list, project),
+    case "workspace.created":
+    case "workspace.updated": {
+      const { workspace } = event.payload;
+      queryClient.setQueryData<List<Workspace>>(queryKeys.workspaces.list, (list) =>
+        upsertWorkspace(list, workspace),
       );
-      queryClient.setQueryData(queryKeys.projects.detail(project.id), project);
-      queryClient.setQueryData(queryKeys.projects.detail(project.slug), project);
+      queryClient.setQueryData(queryKeys.workspaces.detail(workspace.id), workspace);
+      queryClient.setQueryData(queryKeys.workspaces.detail(workspace.slug), workspace);
       return;
     }
     case "device.status": {

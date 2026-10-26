@@ -1,4 +1,4 @@
-import type { Conversation, JobSummary, Message, Project } from "@loomcast/contracts";
+import type { Conversation, JobSummary, Message, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { ScrollArea } from "@loomcast/ui/components/scroll-area";
 import { cn } from "@loomcast/ui/lib/cn";
@@ -66,8 +66,8 @@ function useStudioAvailability(conversation: Conversation | undefined): StudioAv
 const EMPTY_MESSAGES: Message[] = [];
 
 export interface ConversationThreadProps {
-  project: Project;
-  /** Undefined until the project has a conversation; the first message starts one. */
+  workspace: Workspace;
+  /** Undefined until the workspace has a conversation; the first message starts one. */
   conversation: Conversation | undefined;
   store: ConversationStore;
   onConversationCreated: (conversation: Conversation) => void;
@@ -76,7 +76,7 @@ export interface ConversationThreadProps {
 
 /** One conversation: its messages, the streaming reply, the job status and the composer. */
 export function ConversationThread({
-  project,
+  workspace,
   conversation,
   store,
   onConversationCreated,
@@ -145,7 +145,7 @@ export function ConversationThread({
       try {
         if (!targetId) {
           const created = await api.request("conversations.create", {
-            params: { projectId: project.id },
+            params: { workspaceId: workspace.id },
             body: {},
           });
           addConversation(queryClient, created);
@@ -160,7 +160,7 @@ export function ConversationThread({
         cacheMessage(queryClient, result.message);
         cacheJob(queryClient, result.job);
         store.trackJob(result.job, message.text);
-        touchConversation(queryClient, project.id, targetId, result.message.createdAt);
+        touchConversation(queryClient, workspace.id, targetId, result.message.createdAt);
         if (queryClient.getQueryData(queryKeys.conversations.messages(targetId))) {
           store.removePending(message.clientMessageId);
         }
@@ -170,7 +170,7 @@ export function ConversationThread({
         setSending(false);
       }
     },
-    [project.id, queryClient, store, onConversationCreated],
+    [workspace.id, queryClient, store, onConversationCreated],
   );
 
   const send = useCallback(
@@ -237,7 +237,7 @@ export function ConversationThread({
         size="compact"
         icon={MessagesSquareIcon}
         title="No messages yet"
-        description="Ask the studio agent anything about this project. Replies stream in here."
+        description="Ask the studio agent anything about this workspace. Replies stream in here."
         className="flex-1"
       />
     ) : (
@@ -245,7 +245,7 @@ export function ConversationThread({
         size="compact"
         icon={SparklesIcon}
         title="Start a conversation"
-        description="Chat with the studio agent about this project: research a topic, draft a script or plan a video."
+        description="Chat with the studio agent about this workspace: research a topic, draft a script or plan a video."
         className="flex-1"
       />
     );

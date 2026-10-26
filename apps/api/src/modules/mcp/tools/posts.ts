@@ -14,7 +14,7 @@ import { refusedChannels, scheduleComposed, throwRefusals } from "../../calendar
 import type { CalendarService } from "../../calendar/service";
 import { type ContentService, staleVersion } from "../../content";
 import { lockItem } from "../../content/queries";
-import { requireActiveProject } from "../../kb/service";
+import { requireActiveWorkspace } from "../../kb/service";
 import type { ReviewsService } from "../../reviews/service";
 import { ownerActor } from "./owner";
 import { defineTool, McpToolError, type ToolContext, type ToolDefinition } from "./registry";
@@ -55,15 +55,15 @@ function composed(item: ContentItem, version: ContentVersion) {
 export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
   const { db, content, reviews, calendar, assets } = deps;
 
-  async function itemProject(itemId: string): Promise<string | null> {
-    return (await content.getItem(itemId))?.projectId ?? null;
+  async function itemWorkspace(itemId: string): Promise<string | null> {
+    return (await content.getItem(itemId))?.workspaceId ?? null;
   }
 
-  function projectOf(ctx: ToolContext, what: string): string {
-    if (ctx.projectId === null) {
+  function workspaceOf(ctx: ToolContext, what: string): string {
+    if (ctx.workspaceId === null) {
       throw new McpToolError("not_found", `No ${what} has that id.`);
     }
-    return ctx.projectId;
+    return ctx.workspaceId;
   }
 
   /** Media entries with their type read from each asset's MIME type. */
@@ -97,13 +97,13 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
   });
 
   const create = defineTool(postTools["post.create"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, ctx) {
       const actor = ownerActor(ctx.caller, "create posts");
-      const projectId = projectOf(ctx, "project");
+      const workspaceId = workspaceOf(ctx, "workspace");
       const result = await transaction(db, async (tx) => {
         const created = await content.create(
-          projectId,
+          workspaceId,
           {
             title: input.title,
             format: input.format,
@@ -130,18 +130,18 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
   });
 
   const compose = defineTool(postTools["post.compose"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, ctx) {
       const actor = ownerActor(ctx.caller, "compose posts");
-      const projectId = projectOf(ctx, "content item");
+      const workspaceId = workspaceOf(ctx, "content item");
       const item = await content.getItem(input.itemId);
-      if (item === null || item.projectId !== projectId) {
+      if (item === null || item.workspaceId !== workspaceId) {
         throw new McpToolError("not_found", "No content item has that id.");
       }
       const media =
         input.media === undefined ? undefined : await mediaEntries(item.id, input.media);
       const result = await transaction(db, async (tx) => {
-        await requireActiveProject(tx, item.projectId);
+        await requireActiveWorkspace(tx, item.workspaceId);
         return content.createVersion(
           tx,
           item.id,
@@ -171,14 +171,14 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
   });
 
   const schedule = defineTool(postTools["post.schedule"], {
-    resolveProject: (input) => itemProject(input.itemId),
+    resolveWorkspace: (input) => itemWorkspace(input.itemId),
     async handler(input, ctx) {
       const actor = ownerActor(ctx.caller, "schedule posts");
-      const projectId = projectOf(ctx, "content item");
+      const workspaceId = workspaceOf(ctx, "content item");
       return transaction(db, async (tx) => {
         // The item is locked first, as every writer of an item and its posts does.
         const item = await lockItem(tx, input.itemId);
-        if (item === null || item.projectId !== projectId) {
+        if (item === null || item.workspaceId !== workspaceId) {
           throw new McpToolError("not_found", "No content item has that id.");
         }
         const versionId = item.currentVersionId;
@@ -189,7 +189,9 @@ export function createPostTools(deps: PostToolsDeps): ToolDefinition[] {
         if (version === null) {
           throw new Error("content item without its current version");
         }
-        throwRefusals(await refusedChannels(tx, item.id, version, input.channelIds));
+        throwRefusals(
+          await refusedChannels(tx, item.workspaceId, item.id, version, input.channelIds),
+        );
         const scheduled = await scheduleComposed(
           tx,
           { content, reviews, calendar },

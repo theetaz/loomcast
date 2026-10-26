@@ -22,11 +22,14 @@ interface Settled {
 }
 
 /**
- * Content items of every project whose title or pitch matches `query`, for the palette. Waits
+ * Content items of one workspace (or every one) whose title or pitch matches `query`, for the palette. Waits
  * after the last keystroke, needs a few characters, and aborts the request for an older query as
  * soon as the query changes. The previous items stay up while a search runs.
  */
-export function useContentSearch(query: string): ContentSearchState {
+export function useContentSearch(
+  query: string,
+  workspaceId: string | null = null,
+): ContentSearchState {
   const q = query.trim();
   const active = q.length >= CONTENT_SEARCH_MIN_LENGTH;
   const [settled, setSettled] = useState<Settled | null>(null);
@@ -37,7 +40,7 @@ export function useContentSearch(query: string): ContentSearchState {
     const timer = setTimeout(() => {
       api
         .request("content.list", {
-          query: { q, limit: CONTENT_SEARCH_LIMIT },
+          query: { q, limit: CONTENT_SEARCH_LIMIT, ...(workspaceId ? { workspaceId } : {}) },
           signal: controller.signal,
         })
         .then(
@@ -53,7 +56,7 @@ export function useContentSearch(query: string): ContentSearchState {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q]);
+  }, [q, workspaceId]);
 
   if (!active) return { status: "idle", items: [] };
   if (!settled) return { status: "pending", items: [] };

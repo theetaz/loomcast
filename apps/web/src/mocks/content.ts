@@ -19,12 +19,12 @@ import {
   PRODUCTION_STATES,
   PRODUCTION_STEPS,
   type ProduceTarget,
-  type Project,
   routes,
   type Series,
   SeriesStatusSchema,
   slugify,
   UpdateContentItemRequestSchema,
+  type Workspace,
 } from "@loomcast/contracts";
 import { HttpResponse, http } from "msw";
 import type { z } from "zod";
@@ -55,7 +55,7 @@ function nextTimestamp(previous: string): string {
 // Builders ----------------------------------------------------------------------
 
 export function mockSeries(
-  overrides: Partial<Series> & Pick<Series, "projectId" | "name">,
+  overrides: Partial<Series> & Pick<Series, "workspaceId" | "name">,
 ): Series {
   const at = overrides.createdAt ?? new Date().toISOString();
   return {
@@ -116,7 +116,7 @@ export function mockVersion(
  * moves it one stage on, up to its state.
  */
 export function mockContentItem(
-  overrides: Partial<ContentItem> & Pick<ContentItem, "projectId" | "title">,
+  overrides: Partial<ContentItem> & Pick<ContentItem, "workspaceId" | "title">,
 ): { item: ContentItem; versions: ContentVersion[] } {
   const id = overrides.id ?? mockId();
   const state = overrides.state ?? "idea";
@@ -169,7 +169,7 @@ export function mockContentItem(
  */
 export function mockComposedItem(
   overrides: Partial<ContentItem> &
-    Pick<ContentItem, "projectId" | "title" | "format"> & {
+    Pick<ContentItem, "workspaceId" | "title" | "format"> & {
       media?: PostMediaEntry[];
       caption?: string | null;
     },
@@ -242,10 +242,10 @@ export function addContentVersion(db: MockDb, itemId: string, stage: PipelineSta
     jobId,
   });
   db.contentVersions.push(version);
-  const project = item.projectId;
+  const workspace = item.workspaceId;
   publish(db, {
     type: "content.version.created",
-    payload: { projectId: project, version: summary(version) },
+    payload: { workspaceId: workspace, version: summary(version) },
   });
   return updateContentItem(db, itemId, (entry) => {
     entry.state = stage;
@@ -421,14 +421,15 @@ function inRange(value: string | null, from: string | undefined, to: string | un
 /** Content items and series, following `@loomcast/contracts`. */
 export function createContentHandlers(db: MockDb) {
   const findItem = (id: string) => db.contentItems.find((item) => item.id === id);
-  const findProject = (id: string): Project | undefined =>
-    db.projects.find((project) => project.id === id);
+  const findWorkspace = (id: string): Workspace | undefined =>
+    db.workspaces.find((workspace) => workspace.id === id);
 
   return [
     http.get(path("series.list"), ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!findProject(projectId)) return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!findWorkspace(workspaceId))
+        return apiError(404, "not_found", "No workspace has that id.");
       const status = new URL(request.url).searchParams.get("status");
       const parsedStatus = status === null ? undefined : SeriesStatusSchema.safeParse(status);
       if (parsedStatus && !parsedStatus.success) {
@@ -437,7 +438,7 @@ export function createContentHandlers(db: MockDb) {
       const items = db.series
         .filter(
           (series) =>
-            series.projectId === projectId &&
+            series.workspaceId === workspaceId &&
             (!parsedStatus || series.status === parsedStatus.data),
         )
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -463,7 +464,7 @@ export function createContentHandlers(db: MockDb) {
       const all = db.contentItems
         .filter(
           (item) =>
-            (!query.projectId || item.projectId === query.projectId) &&
+            (!query.workspaceId || item.workspaceId === query.workspaceId) &&
             (query.states ? query.states.includes(item.state) : item.state !== "archived") &&
             (!query.seriesId || item.seriesId === query.seriesId) &&
             (!q ||
@@ -481,10 +482,10 @@ export function createContentHandlers(db: MockDb) {
 
     http.post(path("content.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const project = findProject(String(params.projectId));
-      if (!project) return apiError(404, "not_found", "No project has that id.");
-      if (project.status === "archived") {
-        return apiError(409, "conflict", "The project is archived and takes no new items.");
+      const workspace = findWorkspace(String(params.workspaceId));
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
+      if (workspace.status === "archived") {
+        return apiError(409, "conflict", "The workspace is archived and takes no new items.");
       }
       const parsed = CreateContentItemRequestSchema.safeParse(
         await request.json().catch(() => null),
@@ -493,12 +494,14 @@ export function createContentHandlers(db: MockDb) {
       const input = parsed.data;
       if (
         input.seriesId &&
-        !db.series.some((series) => series.id === input.seriesId && series.projectId === project.id)
+        !db.series.some(
+          (series) => series.id === input.seriesId && series.workspaceId === workspace.id,
+        )
       ) {
-        return apiError(400, "validation_failed", "seriesId: The series is not in this project.");
+        return apiError(400, "validation_failed", "seriesId: The series is not in this workspace.");
       }
       const { item, versions } = mockContentItem({
-        projectId: project.id,
+        workspaceId: workspace.id,
         title: input.title,
         ...(input.format ? { format: input.format } : {}),
         pitch: input.pitch || null,
@@ -594,7 +597,7 @@ export function createContentHandlers(db: MockDb) {
       }
       const step = action === "produce" ? version && nextProductionStep(version) : action;
       const job = mockJob({
-        projectId: item.projectId,
+        workspaceId: item.workspaceId,
         conversationId: null,
         type: STEP_JOB_TYPES[step ?? "write_script"] ?? "content.write_script",
         maxAttempts: 3,
@@ -619,11 +622,11 @@ function daysFrom(now: number, days: number, hour = 9): string {
 
 /** Demo series and items for `pnpm --filter @loomcast/web dev:mock`. */
 export function demoContent(
-  projects: readonly Project[],
+  workspaces: readonly Workspace[],
   userId: string,
   now: number,
 ): Pick<MockDb, "series" | "contentItems" | "contentVersions"> {
-  const [rust, agents] = projects;
+  const [rust, agents] = workspaces;
   const series: Series[] = [];
   const contentItems: ContentItem[] = [];
   const contentVersions: ContentVersion[] = [];
@@ -631,15 +634,15 @@ export function demoContent(
 
   const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
   const ownership = mockSeries({
-    projectId: rust.id,
+    workspaceId: rust.id,
     name: "Ownership basics",
     createdAt: ago(9e3),
   });
-  const errors = mockSeries({ projectId: rust.id, name: "Error handling", createdAt: ago(8e3) });
+  const errors = mockSeries({ workspaceId: rust.id, name: "Error handling", createdAt: ago(8e3) });
   series.push(ownership, errors);
 
   const add = (
-    projectId: string,
+    workspaceId: string,
     title: string,
     state: PipelineState,
     versionNo: number,
@@ -647,7 +650,7 @@ export function demoContent(
     extra: Partial<ContentItem> = {},
   ) => {
     const { item, versions } = mockContentItem({
-      projectId,
+      workspaceId,
       title,
       state,
       versionNo,
@@ -714,7 +717,7 @@ export function demoContent(
     extra: { media?: PostMediaEntry[]; caption?: string } = {},
   ) => {
     const { item, versions } = mockComposedItem({
-      projectId: rust.id,
+      workspaceId: rust.id,
       title,
       format,
       state,
@@ -744,7 +747,7 @@ export function demoContent(
 
   if (agents) {
     const patterns = mockSeries({
-      projectId: agents.id,
+      workspaceId: agents.id,
       name: "Agent patterns",
       createdAt: ago(7e3),
     });

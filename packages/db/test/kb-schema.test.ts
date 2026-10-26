@@ -17,7 +17,6 @@ import {
   POST_FORMATS,
   POST_STATUSES,
   PRODUCE_TARGETS,
-  PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
   REVIEW_DECISIONS,
   SERIES_STATUSES,
@@ -27,6 +26,8 @@ import {
   TOKEN_SCOPES,
   USER_ROLES,
   VERSION_CREATED_VIA,
+  WORKSPACE_COLORS,
+  WORKSPACE_STATUSES,
 } from "@loomcast/contracts";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -45,8 +46,8 @@ import {
   insertChannel,
   insertJob,
   insertKbEntry,
-  insertProject,
   insertUser,
+  insertWorkspace,
   PG,
   pgError,
   randomHash,
@@ -64,8 +65,8 @@ afterAll(async () => {
 
 async function setup() {
   const user = await insertUser(testDb.db);
-  const project = await insertProject(testDb.db, user.id);
-  return { user, project };
+  const workspace = await insertWorkspace(testDb.db, user.id);
+  return { user, workspace };
 }
 
 async function searchVector(id: string): Promise<string> {
@@ -86,9 +87,9 @@ function weightOf(vector: string, lexeme: string): string | undefined {
 
 describe("kb_entries.search", () => {
   it("weights title, tags, body and search_extra, and follows every change", async () => {
-    const { project } = await setup();
+    const { workspace } = await setup();
     const entry = await insertKbEntry(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       title: "Rust walkthrough",
       tags: ["graphql"],
       bodyMd: "A zebra crossing.",
@@ -125,17 +126,17 @@ describe("kb_entries.search", () => {
   });
 
   it("lowercases tags", async () => {
-    const { project } = await setup();
-    const entry = await insertKbEntry(testDb.db, { projectId: project.id, tags: ["GraphQL"] });
+    const { workspace } = await setup();
+    const entry = await insertKbEntry(testDb.db, { workspaceId: workspace.id, tags: ["GraphQL"] });
     expect(weightOf(await searchVector(entry.id), "graphql")).toBe("B");
   });
 
   it("cannot be written", async () => {
-    const { project } = await setup();
+    const { workspace } = await setup();
     const error = await pgError(
       testDb.db.execute(
-        sql`insert into kb_entries (project_id, kind, title, created_via, search)
-            values (${project.id}, 'note', 'x', 'ui', to_tsvector('x'))`,
+        sql`insert into kb_entries (workspace_id, kind, title, created_via, search)
+            values (${workspace.id}, 'note', 'x', 'ui', to_tsvector('x'))`,
       ),
     );
     expect(error.code).toBe("428C9"); // generated_always
@@ -144,51 +145,51 @@ describe("kb_entries.search", () => {
 
 describe("kb_entries constraints", () => {
   it("limits titles to 300 characters", async () => {
-    const { project } = await setup();
-    await insertKbEntry(testDb.db, { projectId: project.id, title: "t".repeat(300) });
+    const { workspace } = await setup();
+    await insertKbEntry(testDb.db, { workspaceId: workspace.id, title: "t".repeat(300) });
     const error = await pgError(
-      insertKbEntry(testDb.db, { projectId: project.id, title: "t".repeat(301) }),
+      insertKbEntry(testDb.db, { workspaceId: workspace.id, title: "t".repeat(301) }),
     );
     expect(error).toEqual({ code: PG.checkViolation, constraint: "kb_entries_title_length_ck" });
   });
 
-  it("keeps dedupe keys unique among the live entries of a project", async () => {
-    const { user, project } = await setup();
-    const other = await insertProject(testDb.db, user.id);
-    const first = await insertKbEntry(testDb.db, { projectId: project.id, dedupeKey: "key-1" });
+  it("keeps dedupe keys unique among the live entries of a workspace", async () => {
+    const { user, workspace } = await setup();
+    const other = await insertWorkspace(testDb.db, user.id);
+    const first = await insertKbEntry(testDb.db, { workspaceId: workspace.id, dedupeKey: "key-1" });
 
     const error = await pgError(
-      insertKbEntry(testDb.db, { projectId: project.id, dedupeKey: "key-1" }),
+      insertKbEntry(testDb.db, { workspaceId: workspace.id, dedupeKey: "key-1" }),
     );
     expect(error).toEqual({
       code: PG.uniqueViolation,
-      constraint: "kb_entries_project_id_dedupe_key_uq",
+      constraint: "kb_entries_workspace_id_dedupe_key_uq",
     });
 
-    // Another project may use the key, and entries without a key never conflict.
-    await insertKbEntry(testDb.db, { projectId: other.id, dedupeKey: "key-1" });
-    await insertKbEntry(testDb.db, { projectId: project.id });
-    await insertKbEntry(testDb.db, { projectId: project.id });
+    // Another workspace may use the key, and entries without a key never conflict.
+    await insertKbEntry(testDb.db, { workspaceId: other.id, dedupeKey: "key-1" });
+    await insertKbEntry(testDb.db, { workspaceId: workspace.id });
+    await insertKbEntry(testDb.db, { workspaceId: workspace.id });
 
     // Deleting the entry frees its key.
     await testDb.db
       .update(kbEntries)
       .set({ deletedAt: new Date() })
       .where(eq(kbEntries.id, first.id));
-    await insertKbEntry(testDb.db, { projectId: project.id, dedupeKey: "key-1" });
+    await insertKbEntry(testDb.db, { workspaceId: workspace.id, dedupeKey: "key-1" });
 
     // The insert-or-skip pattern the API and the seed use.
     const skipped = await testDb.db
       .insert(kbEntries)
       .values({
-        projectId: project.id,
+        workspaceId: workspace.id,
         kind: "note",
         title: "Again",
         createdVia: "ui",
         dedupeKey: "key-1",
       })
       .onConflictDoNothing({
-        target: [kbEntries.projectId, kbEntries.dedupeKey],
+        target: [kbEntries.workspaceId, kbEntries.dedupeKey],
         where: sql`${kbEntries.dedupeKey} is not null and ${kbEntries.deletedAt} is null`,
       })
       .returning({ id: kbEntries.id });
@@ -196,8 +197,8 @@ describe("kb_entries constraints", () => {
   });
 
   it("defaults tags, data, body and search_extra, and bumps updated_at on update", async () => {
-    const { project } = await setup();
-    const entry = await insertKbEntry(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const entry = await insertKbEntry(testDb.db, { workspaceId: workspace.id });
     expect(entry).toMatchObject({
       tags: [],
       data: {},
@@ -217,9 +218,9 @@ describe("kb_entries constraints", () => {
 
 describe("kb_references", () => {
   async function referenceEntry() {
-    const { user, project } = await setup();
-    const entry = await insertKbEntry(testDb.db, { projectId: project.id, kind: "reference" });
-    return { user, project, entry };
+    const { user, workspace } = await setup();
+    const entry = await insertKbEntry(testDb.db, { workspaceId: workspace.id, kind: "reference" });
+    return { user, workspace, entry };
   }
 
   it("defaults the analysis status to none and rejects unknown statuses", async () => {
@@ -242,9 +243,9 @@ describe("kb_references", () => {
   });
 
   it("is deleted with its entry, and keeps its analysis when the job is deleted", async () => {
-    const { user, project, entry } = await referenceEntry();
+    const { user, workspace, entry } = await referenceEntry();
     const job = await insertJob(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdBy: user.id,
       type: "kb.analyze_reference",
     });
@@ -274,8 +275,8 @@ describe("kb_references", () => {
 
 describe("api_tokens job binding", () => {
   it("requires a job id on job tokens and forbids it on every other kind", async () => {
-    const { user, project } = await setup();
-    const job = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id });
+    const { user, workspace } = await setup();
+    const job = await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: user.id });
 
     const unbound = await pgError(
       testDb.db.insert(apiTokens).values(apiTokenValues({ userId: user.id, kind: "job" })),
@@ -300,27 +301,27 @@ describe("api_tokens job binding", () => {
         apiTokenValues({
           userId: user.id,
           kind: "job",
-          projectId: project.id,
+          workspaceId: workspace.id,
           jobId: job.id,
           scopes: ["mcp:read", "mcp:write"],
         }),
       )
       .returning();
-    expect(token).toMatchObject({ kind: "job", projectId: project.id, jobId: job.id });
+    expect(token).toMatchObject({ kind: "job", workspaceId: workspace.id, jobId: job.id });
   });
 
   it("deletes a job token together with its job", async () => {
-    const { user, project } = await setup();
-    const job = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id });
+    const { user, workspace } = await setup();
+    const job = await insertJob(testDb.db, { workspaceId: workspace.id, createdBy: user.id });
     const [token] = await testDb.db
       .insert(apiTokens)
       .values(
-        apiTokenValues({ userId: user.id, kind: "job", projectId: project.id, jobId: job.id }),
+        apiTokenValues({ userId: user.id, kind: "job", workspaceId: workspace.id, jobId: job.id }),
       )
       .returning();
     // An entry written with the token keeps existing, without the token reference.
     const entry = await insertKbEntry(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdVia: "producer",
       createdBy: user.id,
       createdByTokenId: token?.id ?? null,
@@ -367,43 +368,51 @@ describe("password_tokens", () => {
 });
 
 describe("api clients", () => {
-  it("binds an API client to a project, and only job and API tokens to one", async () => {
-    const { user, project } = await setup();
+  it("binds an API client to a workspace, and only job and API tokens to one", async () => {
+    const { user, workspace } = await setup();
     const unbound = await pgError(
       testDb.db.insert(apiTokens).values(apiTokenValues({ userId: user.id, kind: "api" })),
     );
-    expect(unbound).toEqual({ code: PG.checkViolation, constraint: "api_tokens_project_id_ck" });
+    expect(unbound).toEqual({ code: PG.checkViolation, constraint: "api_tokens_workspace_id_ck" });
     const mcp = await pgError(
       testDb.db
         .insert(apiTokens)
-        .values(apiTokenValues({ userId: user.id, kind: "mcp", projectId: project.id })),
+        .values(apiTokenValues({ userId: user.id, kind: "mcp", workspaceId: workspace.id })),
     );
-    expect(mcp).toEqual({ code: PG.checkViolation, constraint: "api_tokens_project_id_ck" });
+    expect(mcp).toEqual({ code: PG.checkViolation, constraint: "api_tokens_workspace_id_ck" });
 
     const [client] = await testDb.db
       .insert(apiTokens)
-      .values(apiTokenValues({ userId: user.id, kind: "api", projectId: project.id }))
+      .values(apiTokenValues({ userId: user.id, kind: "api", workspaceId: workspace.id }))
       .returning();
-    expect(client).toMatchObject({ kind: "api", projectId: project.id, jobId: null });
+    expect(client).toMatchObject({ kind: "api", workspaceId: workspace.id, jobId: null });
   });
 
   it("keeps one grant per channel and drops grants with their token or channel", async () => {
-    const { user, project } = await setup();
+    const { user, workspace } = await setup();
     const [client] = await testDb.db
       .insert(apiTokens)
-      .values(apiTokenValues({ userId: user.id, kind: "api", projectId: project.id }))
+      .values(apiTokenValues({ userId: user.id, kind: "api", workspaceId: workspace.id }))
       .returning();
     if (client === undefined) throw new Error("token was not inserted");
-    const channel = await insertChannel(testDb.db);
-    await testDb.db
-      .insert(apiTokenChannels)
-      .values({ tokenId: client.id, channelId: channel.id, access: "write" });
+    const channel = await insertChannel(testDb.db, { workspaceId: workspace.id });
+    const grant = { workspaceId: workspace.id, tokenId: client.id, channelId: channel.id };
+    await testDb.db.insert(apiTokenChannels).values({ ...grant, access: "write" });
     const twice = await pgError(
-      testDb.db
-        .insert(apiTokenChannels)
-        .values({ tokenId: client.id, channelId: channel.id, access: "read" }),
+      testDb.db.insert(apiTokenChannels).values({ ...grant, access: "read" }),
     );
     expect(twice.code).toBe(PG.uniqueViolation);
+
+    // A client is granted only channels of its own workspace.
+    const elsewhere = await insertWorkspace(testDb.db, user.id);
+    const foreign = await insertChannel(testDb.db, { workspaceId: elsewhere.id });
+    expect(
+      await pgError(
+        testDb.db
+          .insert(apiTokenChannels)
+          .values({ ...grant, channelId: foreign.id, access: "read" }),
+      ),
+    ).toEqual({ code: PG.foreignKeyViolation, constraint: "api_token_channels_channel_fk" });
 
     await testDb.db.delete(apiTokens).where(eq(apiTokens.id, client.id));
     const left = await testDb.db
@@ -419,7 +428,8 @@ describe("pg enums", () => {
     user_role: USER_ROLES,
     token_kind: TOKEN_KINDS,
     token_scope: TOKEN_SCOPES,
-    project_status: PROJECT_STATUSES,
+    workspace_status: WORKSPACE_STATUSES,
+    workspace_color: WORKSPACE_COLORS,
     job_type: JOB_TYPES,
     job_status: JOB_STATUSES,
     message_role: MESSAGE_ROLES,
@@ -457,9 +467,9 @@ describe("pg enums", () => {
   });
 
   it("accept the values added after M1", async () => {
-    const { user, project } = await setup();
+    const { user, workspace } = await setup();
     const job = await insertJob(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdBy: user.id,
       type: "kb.analyze_reference",
     });

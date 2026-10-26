@@ -9,7 +9,7 @@ import { renderApp } from "./support/render";
 import { seriesSetup } from "./support/series";
 
 function formatPath(setup: ReturnType<typeof seriesSetup>) {
-  return `/projects/${setup.rust.slug}/series/${setup.series.ownership.id}/format`;
+  return `/w/${setup.rust.slug}/series/${setup.series.ownership.id}/format`;
 }
 
 async function editor() {

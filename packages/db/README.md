@@ -80,7 +80,7 @@ applies pending migrations under an advisory lock and records them in
 `migrate(url)`.
 
 Other scripts: `pnpm db:studio` opens drizzle-kit studio on `DATABASE_URL`, and
-`pnpm --filter @loomcast/db seed:dev` creates a sample project for the first owner account and
+`pnpm --filter @loomcast/db seed:dev` creates a sample workspace for the first owner account and
 fills its knowledge base with the 30 entries in `src/fixtures/kb.ts`. The seed never creates
 users; create the owner with `pnpm admin:create` first. Rerunning it skips entries that are
 already there (dedupe keys `seed:<key>`).
@@ -105,32 +105,36 @@ parent always points at its current version (`current_version_id` is never null)
   calling it.
 - **Same parent.** `content_versions.parent_version_id` and `reviews.version_id` must be versions
   of the same item (composite keys `content_versions_parent_version_fk` and `reviews_version_fk`),
-  and a series' format must belong to the series' project (`series_format_fk`).
+  and a series' format must belong to the series' workspace (`series_format_fk`).
 - **Idempotent job results.** `content_versions_job_id_uq` allows one version per job. Store a job
   result with ``onConflictDoNothing({ target: contentVersions.jobId, where: sql`job_id is not null` })``,
   or treat `23505` on that constraint as "already stored".
-- **Assets.** Uploads are deduplicated per owner. `assets_project_id_item_id_kind_sha256_uq` keeps
-  one pending or ready asset per item, kind and SHA-256 (lowercase hex, `assets_sha256_ck`), so two
-  items may each hold the same voice take or render and a version always points at its own item's
-  asset. `assets_project_id_kind_sha256_uq` does the same per project for project-level media
-  (`item_id` null, such as reference media). Failed assets are left out of both so an upload can
-  be retried. Insert-or-skip with `target: [projectId, itemId, kind, sha256]` and
-  ``where: sql`item_id is not null and status <> 'failed'` ``, or `target: [projectId, kind,
-  sha256]` and ``where: sql`item_id is null and status <> 'failed'` ``; or leave the target out.
-  `meta` holds `{ probe?, alignment? }` (`AssetMeta`). Assets a version points at cannot be
-  deleted.
+- **Assets.** Uploads are deduplicated per owner. `assets_workspace_id_item_id_kind_sha256_uq`
+  keeps one pending or ready asset per item, kind and SHA-256 (lowercase hex, `assets_sha256_ck`),
+  so two items may each hold the same voice take or render and a version always points at its own
+  item's asset. `assets_workspace_id_kind_sha256_uq` does the same per workspace for the
+  workspace's own media (`item_id` null, such as reference media). Failed assets are left out of
+  both so an upload can be retried. Insert-or-skip with `target: [workspaceId, itemId, kind, sha256]`
+  and ``where: sql`item_id is not null and status <> 'failed'` ``, or
+  `target: [workspaceId, kind, sha256]` and ``where: sql`item_id is null and status <> 'failed'` ``;
+  or leave the target out. `meta` holds `{ probe?, alignment? }` (`AssetMeta`). Assets a version
+  points at cannot be deleted.
 - **Skills.** `skill_versions_skill_id_checksum_uq` refuses a version whose files a skill already
   has, including an earlier version's; answer with that version. Names follow `SKILL_NAME_RE`
   (`skills_name_ck`).
-- **Jobs.** `jobs.project_id` stays required, because the contracts' `JobSummary.projectId` is
-  required and job tokens are bound to their job's project. Queue a project-less job such as
-  `skills.sync` under the project it was started from.
+- **Jobs.** `jobs.workspace_id` stays required, because the contracts' `JobSummary.workspaceId` is
+  required and job tokens are bound to their job's workspace. Queue a workspace-less job such as
+  `skills.sync` under the workspace it was started from.
 
 ## Channels, posts and scheduled tasks
 
-**Channels** (`channels`) are the accounts the publisher posts to. They belong to the workspace,
-not to a project; `series_channels` links series to them (primary key `(series_id, channel_id)`,
-with `enabled`).
+**Channels** (`channels`) are the accounts the publisher posts to. Each belongs to one workspace
+(`workspace_id`, since migration `0018`). `series_channels` links series to them (primary key
+`(series_id, channel_id)`, with `enabled`) and `api_token_channels` grants them to API clients.
+Both carry `workspace_id`, and their composite foreign keys on `(workspace_id, series_id)`,
+`(workspace_id, token_id)` and `(workspace_id, channel_id)` (`series_channels_series_fk`,
+`series_channels_channel_fk`, `api_token_channels_token_fk`, `api_token_channels_channel_fk`)
+keep every link inside one workspace.
 
 - **Credentials** exist only as AES-256-GCM output: `secret_ciphertext` (the encrypted JSON with
   the 16-byte tag appended), `secret_nonce` (12 bytes) and `key_version`. There is no plaintext
@@ -141,9 +145,10 @@ with `enabled`).
 - **Status.** An `active` channel has credentials and a `disconnected` one has none
   (`channels_status_secret_ck`), so disconnecting clears the secret columns and sets the status in
   one update. `dry_run` defaults to true and `requires_approval` to false.
-- **Accounts.** `channels_platform_external_id_uq` lets a platform account be connected once;
-  planning channels have a null `external_id`. An Instagram account published through a Facebook
-  Page points at the Page's channel with `parent_channel_id` (set null if the Page is deleted).
+- **Accounts.** `channels_platform_external_id_uq` lets a platform account be connected once, so
+  it is a channel of one workspace only; planning channels have a null `external_id`. An Instagram
+  account published through a Facebook Page points at the Page's channel with `parent_channel_id`
+  (set null if the Page is deleted).
 - A channel with posts cannot be deleted (`scheduled_posts_channel_id_channels_id_fk`); disable it.
 - **Health.** `last_verified_at` is when the daily check last found the credentials valid,
   `last_error` the `PublishError` of the last refusal (cleared by a successful check or
@@ -158,9 +163,10 @@ with `enabled`).
 - `version_id` must be a version of the post's item (`scheduled_posts_version_fk`), and `queued`,
   `publishing` and `published` posts must have one (`scheduled_posts_version_ck`). A published
   post has `published_at` (`scheduled_posts_published_at_ck`).
-- The contracts' `ScheduledPost` adds joined fields: `projectId` from the item, `platform` from the
-  channel, and `publishMode` as `effectivePublishMode(rules.publishMode, channel.requiresApproval)`
-  with the rules of the series format's current version. `dry_run` is stored, fixed at creation.
+- The contracts' `ScheduledPost` adds joined fields: `workspaceId` from the item, `platform` from
+  the channel, and `publishMode` as
+  `effectivePublishMode(rules.publishMode, channel.requiresApproval)` with the rules of the series
+  format's current version. `dry_run` is stored, fixed at creation.
 - `publish_attempts` keeps one row per try (`(post_id, attempt)` unique, from 1). Its `request` is
   stored as given: redact credentials before inserting it.
 
@@ -261,7 +267,7 @@ built from `OAUTH_PROVIDERS`.
 leave it out of API responses. Put text that should be findable but not shown in `search_extra`;
 for references use `referenceSearchExtra({ author, likedReason, transcript })`.
 
-`kbSearch(db, { q, projectId?, kinds?, limit? })` returns `KbSearchHit[]` (the contracts shape),
+`kbSearch(db, { q, workspaceId?, kinds?, limit? })` returns `KbSearchHit[]` (the contracts shape),
 best first:
 
 - **Matching.** `websearch_to_tsquery('english', q)` (so `"exact phrase"`, `-exclude` and `or`
@@ -308,7 +314,7 @@ globalSetup: ["./test/global-setup.ts"],
 ```
 
 ```ts
-// test/projects.test.ts
+// test/workspaces.test.ts
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { afterAll, beforeAll } from "vitest";
 

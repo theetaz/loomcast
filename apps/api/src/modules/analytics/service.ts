@@ -35,7 +35,7 @@ type LivePost = Omit<PostPerformance, "metrics">;
 const liveColumns = {
   postId: scheduledPosts.id,
   itemId: scheduledPosts.itemId,
-  projectId: contentItems.projectId,
+  workspaceId: contentItems.workspaceId,
   seriesId: sql<string | null>`coalesce(${scheduledPosts.seriesId}, ${contentItems.seriesId})`,
   channelId: scheduledPosts.channelId,
   platform: channels.platform,
@@ -229,7 +229,9 @@ export function createAnalyticsService(db: Database): AnalyticsService {
       const posts = await withLatest(
         await livePosts(
           ...inRange(query),
-          ...(query.projectId === undefined ? [] : [eq(contentItems.projectId, query.projectId)]),
+          ...(query.workspaceId === undefined
+            ? []
+            : [eq(contentItems.workspaceId, query.workspaceId)]),
         ),
       );
       return overviewOf(posts, query);

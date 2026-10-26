@@ -112,14 +112,14 @@ export function versionSummaries(executor: Executor, itemId: string): Promise<Ve
  */
 export async function activeProductionJob(
   executor: Executor,
-  item: Pick<ContentItemRow, "id" | "projectId">,
+  item: Pick<ContentItemRow, "id" | "workspaceId">,
 ): Promise<JobRow | null> {
   const [row] = await executor
     .select()
     .from(jobs)
     .where(
       and(
-        eq(jobs.projectId, item.projectId),
+        eq(jobs.workspaceId, item.workspaceId),
         inArray(jobs.type, [...PRODUCTION_JOB_TYPES]),
         inArray(jobs.status, [...ACTIVE_JOB_STATUSES]),
         sql`${jobs.payload}->>'itemId' = ${item.id}`,

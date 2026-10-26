@@ -112,7 +112,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
     const minted = await tokens.mintJobToken(
       {
         jobId: job.id,
-        projectId: job.projectId,
+        workspaceId: job.workspaceId,
         userId: job.createdBy,
         access: definition.mcpAccess,
         ttlMs: definition.timeoutMs + leaseMs,

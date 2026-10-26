@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type LiveEvent, type Project, parseLiveEvent } from "@loomcast/contracts";
+import { type LiveEvent, parseLiveEvent, type Workspace } from "@loomcast/contracts";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createEventBus } from "../src/lib/bus";
@@ -26,7 +26,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function fakeProject(name = "Live"): Project {
+function fakeWorkspace(name = "Live"): Workspace {
   const now = new Date().toISOString();
   return {
     id: randomUUID(),
@@ -34,14 +34,17 @@ function fakeProject(name = "Live"): Project {
     name,
     description: null,
     status: "active",
+    color: "thread",
+    iconUrl: null,
+    timeZone: "UTC",
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
   };
 }
 
-function projectEvent(name?: string): LiveEvent {
-  return { type: "project.updated", payload: { project: fakeProject(name) } };
+function workspaceEvent(name?: string): LiveEvent {
+  return { type: "workspace.updated", payload: { workspace: fakeWorkspace(name) } };
 }
 
 /** One parsed server-sent event frame. */
@@ -170,12 +173,12 @@ describe("GET /api/stream", () => {
       payload: {
         jobId: randomUUID(),
         type: "system.ping",
-        projectId: randomUUID(),
+        workspaceId: randomUUID(),
         deviceAffinity: null,
       },
     });
-    const first = projectEvent("First");
-    const second = projectEvent("Second");
+    const first = workspaceEvent("First");
+    const second = workspaceEvent("Second");
     t.bus.publish(first);
     t.bus.publish(second);
 
@@ -192,7 +195,7 @@ describe("GET /api/stream", () => {
   it("fans one event out to every connected client", async () => {
     const one = await openStream();
     const two = await openStream();
-    const event = projectEvent("Fan out");
+    const event = workspaceEvent("Fan out");
     t.bus.publish(event);
     const [a, b] = await Promise.all([one.nextEvent(), two.nextEvent()]);
     expect(a).toEqual(b);
@@ -202,7 +205,7 @@ describe("GET /api/stream", () => {
 
   it("replays the events after Last-Event-ID, then continues live", async () => {
     const first = await openStream();
-    const events = [projectEvent("R1"), projectEvent("R2"), projectEvent("R3")];
+    const events = [workspaceEvent("R1"), workspaceEvent("R2"), workspaceEvent("R3")];
     for (const event of events) {
       t.bus.publish(event);
     }
@@ -217,7 +220,7 @@ describe("GET /api/stream", () => {
     expect(await resumed.nextEvent()).toEqual(received[1]);
     expect(await resumed.nextEvent()).toEqual(received[2]);
 
-    const live = projectEvent("After replay");
+    const live = workspaceEvent("After replay");
     t.bus.publish(live);
     expect((await resumed.nextEvent()).event).toEqual(live);
     await resumed.cancel();
@@ -225,7 +228,7 @@ describe("GET /api/stream", () => {
 
   it("sends resync, with the current id, for an id it cannot replay", async () => {
     const stream = await openStream();
-    t.bus.publish(projectEvent("Head"));
+    t.bus.publish(workspaceEvent("Head"));
     const head = await stream.nextEvent();
     await stream.cancel();
 
@@ -247,7 +250,7 @@ describe("GET /api/stream", () => {
     await stream.cancel();
     await vi.waitFor(() => expect(closedLogs(own)).toEqual([{ clients: 0 }]));
     // Publishing after the abort reaches no client and raises nothing.
-    own.bus.publish(projectEvent("Nobody listens"));
+    own.bus.publish(workspaceEvent("Nobody listens"));
     await own.deps.lifecycle.close();
   });
 
@@ -278,7 +281,7 @@ describe("live hub", () => {
     const hub = createLiveHub(bus, { bufferSize, epoch: "e1" });
     const publish = (count: number) => {
       for (let index = 0; index < count; index += 1) {
-        bus.publish(projectEvent(`Event ${index}`));
+        bus.publish(workspaceEvent(`Event ${index}`));
       }
     };
     const client = () => {

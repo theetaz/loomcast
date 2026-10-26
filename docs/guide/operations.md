@@ -1,6 +1,6 @@
 # Deploying and running the server
 
-This page is for the workspace owner. It explains how a change gets from a pull request to the live server, and how to check, restart, roll back, back up and restore it. Each section links to the runbook with the exact commands.
+This page is for the owner, who runs the server. It explains how a change gets from a pull request to the live server, and how to check, restart, roll back, back up and restore it. Each section links to the runbook with the exact commands.
 
 ## How it fits together
 
@@ -67,7 +67,7 @@ Details: [Monitoring, logs and alerting](../runbooks/monitoring.md).
 
 ## Reading logs
 
-On the server, the logs of each container are read with Docker Compose, scoped to the Loomcast project:
+On the server, the logs of each container are read with Docker Compose, scoped to the Loomcast Compose project:
 
 ```bash
 docker compose -p loomcast ps                       # state and health of each container
@@ -94,7 +94,7 @@ Details: [Deploy and rollback runbook](../runbooks/deploy.md#4-rolling-back-by-h
 
 Two switches stop posts going out, without a deploy:
 
-- **One channel:** **Settings → Channels**, turn the channel's **Dry run** on. Its posts record what they would send instead.
+- **One channel:** in the channel's workspace, **Workspace settings → Channels**, turn the channel's **Dry run** on. Its posts record what they would send instead.
 - **Everything:** set the publishing settings in the server's api configuration (pause publishing, or switch the whole server to dry-run), then recreate the api.
 
 Pause publishing before restoring an older backup and as the first step of any incident involving a channel.
@@ -139,4 +139,4 @@ For an incident, write down the time, save the logs before restarting anything, 
 - **Daily:** read any alerts.
 - **Weekly:** open the ops status (backup age, dead tasks) and check the `ci` audit job.
 - **Monthly:** run the backup drill.
-- **Quarterly:** review **Settings → Members**, **Access tokens** and **Devices**, and revoke what is no longer used.
+- **Quarterly:** review **Account settings → Members**, **Access tokens** and **Devices**, and revoke what is no longer used.

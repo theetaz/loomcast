@@ -66,27 +66,29 @@ export function createSeriesHandlers(db: MockDb) {
   return [
     http.post(path("series.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const project = db.projects.find((entry) => entry.id === params.projectId);
-      if (!project) return apiError(404, "not_found", "No project has that id.");
-      if (project.status === "archived") {
-        return apiError(409, "conflict", "The project is archived.");
+      const workspace = db.workspaces.find((entry) => entry.id === params.workspaceId);
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
+      if (workspace.status === "archived") {
+        return apiError(409, "conflict", "The workspace is archived.");
       }
       const parsed = CreateSeriesRequestSchema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) return invalid(parsed.error);
       ensureFormats(db);
       const format = db.formats.find((entry) => entry.id === parsed.data.formatId);
-      if (!format || format.projectId !== project.id) {
+      if (!format || format.workspaceId !== workspace.id) {
         return apiError(400, "validation_failed", "The request is not valid.", [
-          { path: "formatId", message: "The format is not in this project." },
+          { path: "formatId", message: "The format is not in this workspace." },
         ]);
       }
       const taken = new Set(
-        db.series.filter((series) => series.projectId === project.id).map((series) => series.slug),
+        db.series
+          .filter((series) => series.workspaceId === workspace.id)
+          .map((series) => series.slug),
       );
       let slug = parsed.data.slug ?? (slugify(parsed.data.name) || "series");
       for (let n = 2; taken.has(slug); n += 1) slug = `${slugify(parsed.data.name)}-${n}`;
       const series = mockSeries({
-        projectId: project.id,
+        workspaceId: workspace.id,
         name: parsed.data.name,
         slug,
         formatId: format.id,
@@ -104,9 +106,9 @@ export function createSeriesHandlers(db: MockDb) {
       if (parsed.data.formatId !== undefined) {
         ensureFormats(db);
         const format = db.formats.find((entry) => entry.id === parsed.data.formatId);
-        if (!format || format.projectId !== series.projectId) {
+        if (!format || format.workspaceId !== series.workspaceId) {
           return apiError(400, "validation_failed", "The request is not valid.", [
-            { path: "formatId", message: "The format is not in this project." },
+            { path: "formatId", message: "The format is not in this workspace." },
           ]);
         }
         series.formatId = format.id;

@@ -1,6 +1,15 @@
 import type { PostOptions } from "@loomcast/contracts";
 import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  foreignKey,
+  index,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { apiTokens } from "./auth";
 import { channels } from "./channels";
 import { createdAt, timestamptz } from "./columns";
@@ -10,23 +19,31 @@ import { apiChannelAccess, postFormat } from "./enums";
 /**
  * The channels an API client (an `api` token) may use, and how far: `read`, `write` or
  * `publish` (cumulative, see `API_CHANNEL_ACCESS`). A client reaches no channel without a row
- * here. Revoking the token or deleting the channel deletes the grant.
+ * here. Revoking the token or deleting the channel deletes the grant. Both keys carry the
+ * workspace, so a client is only ever granted channels of its own workspace.
  */
 export const apiTokenChannels = pgTable(
   "api_token_channels",
   {
-    tokenId: uuid("token_id")
-      .notNull()
-      .references(() => apiTokens.id, { onDelete: "cascade" }),
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channels.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").notNull(),
+    tokenId: uuid("token_id").notNull(),
+    channelId: uuid("channel_id").notNull(),
     access: apiChannelAccess("access").notNull(),
     createdAt: createdAt(),
   },
   (t) => [
     primaryKey({ columns: [t.tokenId, t.channelId] }),
     index("api_token_channels_channel_id_idx").on(t.channelId),
+    foreignKey({
+      name: "api_token_channels_token_fk",
+      columns: [t.workspaceId, t.tokenId],
+      foreignColumns: [apiTokens.workspaceId, apiTokens.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "api_token_channels_channel_fk",
+      columns: [t.workspaceId, t.channelId],
+      foreignColumns: [channels.workspaceId, channels.id],
+    }).onDelete("cascade"),
   ],
 );
 

@@ -49,11 +49,12 @@ export function useItemJob(detail: ContentItemDetail | undefined) {
     });
   });
 
-  // A production job of this project started elsewhere (autopilot, another tab): read the item.
+  // A production job of this workspace started elsewhere (autopilot, another tab): read the item.
   useLiveEvent("job.updated", ({ payload }) => {
     if (!detail || !itemId) return;
     const { job: updated } = payload;
-    if (updated.projectId !== detail.item.projectId || !updated.type.startsWith("content.")) return;
+    if (updated.workspaceId !== detail.item.workspaceId || !updated.type.startsWith("content."))
+      return;
     if (updated.id === active?.id || isTerminal(updated.status)) return;
     void queryClient.invalidateQueries({ queryKey: contentKeys.detail(itemId) });
   });

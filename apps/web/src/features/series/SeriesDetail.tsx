@@ -1,4 +1,4 @@
-import type { ContentItem, Project, Series } from "@loomcast/contracts";
+import type { ContentItem, Series, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { StatusPill } from "@loomcast/ui/components/StatusPill";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
@@ -24,16 +24,16 @@ import { SeriesStatusBadge } from "./SeriesStatusBadge";
 
 /** A series: its status and actions, the videos coming up and the cards beside them. */
 export function SeriesDetail({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
   seriesId,
 }: {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   seriesId: string;
 }) {
   const query = useQuery(seriesQueryOptions(seriesId));
-  useTitle(query.data ? `${query.data.name} · ${project.name}` : `Series · ${project.name}`);
+  useTitle(query.data ? `${query.data.name} · ${workspace.name}` : `Series · ${workspace.name}`);
 
   if (query.isPending) {
     return (
@@ -46,15 +46,15 @@ export function SeriesDetail({
       </div>
     );
   }
-  if (query.isError || query.data.projectId !== project.id) {
+  if (query.isError || query.data.workspaceId !== workspace.id) {
     return isApiError(query.error, 404) || query.data ? (
       <EmptyState
         icon={ListVideoIcon}
         title="Series not found"
-        description="It may belong to another project, or the link points somewhere else."
+        description="It may belong to another workspace, or the link points somewhere else."
         action={
           <Button asChild variant="outline">
-            <Link to="/projects/$projectId/series" params={{ projectId: projectParam }}>
+            <Link to="/w/$workspace/series" params={{ workspace: workspaceParam }}>
               All series
             </Link>
           </Button>
@@ -69,21 +69,21 @@ export function SeriesDetail({
       />
     );
   }
-  return <SeriesBody series={query.data} project={project} projectParam={projectParam} />;
+  return <SeriesBody series={query.data} workspace={workspace} workspaceParam={workspaceParam} />;
 }
 
 function SeriesBody({
   series,
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
 }: {
   series: Series;
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
 }) {
   useContentLive();
   const format = useQuery(formatQueryOptions(series.formatId));
-  const writable = project.status === "active";
+  const writable = workspace.status === "active";
   const canPlan = writable && series.status !== "archived";
 
   return (
@@ -91,7 +91,7 @@ function SeriesBody({
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="text-title min-w-0 break-words">{series.name}</h2>
+            <h1 className="text-title min-w-0 break-words">{series.name}</h1>
             <SeriesStatusBadge status={series.status} />
           </div>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted-foreground">
@@ -104,7 +104,7 @@ function SeriesBody({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {canPlan ? (
-            <NewIdeaDialog projectId={project.id} defaultSeriesId={series.id}>
+            <NewIdeaDialog workspaceId={workspace.id} defaultSeriesId={series.id}>
               <Button>
                 <PlusIcon aria-hidden="true" />
                 New idea
@@ -137,15 +137,15 @@ function SeriesBody({
       ) : null}
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <UpcomingVideos series={series} project={project} projectParam={projectParam} />
+        <UpcomingVideos series={series} workspace={workspace} workspaceParam={workspaceParam} />
         <div className="flex min-w-0 flex-col gap-4">
           {seriesCards.map(({ id, Card }) => (
             <Card
               key={id}
               series={series}
-              project={project}
+              workspace={workspace}
               format={format.data}
-              projectParam={projectParam}
+              workspaceParam={workspaceParam}
             />
           ))}
         </div>
@@ -156,15 +156,15 @@ function SeriesBody({
 
 function UpcomingVideos({
   series,
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
 }: {
   series: Series;
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
 }) {
   const now = useNow();
-  const query = useInfiniteQuery(contentListQueryOptions(upcomingFilter(project.id, series.id)));
+  const query = useInfiniteQuery(contentListQueryOptions(upcomingFilter(workspace.id, series.id)));
   const items: ContentItem[] = (query.data?.pages.flatMap((page) => page.items) ?? [])
     .filter((item) => item.seriesId === series.id)
     .sort(compareUpcoming);
@@ -183,11 +183,11 @@ function UpcomingVideos({
         ) : null}
         <Button asChild variant="ghost" size="sm" className="ml-auto">
           <Link
-            to="/projects/$projectId/content"
-            params={{ projectId: projectParam }}
+            to="/w/$workspace/library"
+            params={{ workspace: workspaceParam }}
             search={{ series: series.id }}
           >
-            Open in content
+            Open in library
           </Link>
         </Button>
       </div>
@@ -230,8 +230,8 @@ function UpcomingVideos({
               className="flex h-10 items-center gap-3 border-divider border-t px-3.5 text-control first:border-t-0 hover:bg-secondary"
             >
               <Link
-                to="/content/$itemId"
-                params={{ itemId: item.id }}
+                to="/w/$workspace/content/$itemId"
+                params={{ workspace: workspaceParam, itemId: item.id }}
                 className="min-w-0 flex-1 truncate rounded-sm text-body text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {item.title}

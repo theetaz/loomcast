@@ -265,7 +265,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' --http1.1 \
 A `4xx` from the api proves the route reaches it; a `502`, `520` to `526` or a Cloudflare error
 page does not (see [Troubleshooting](#troubleshooting)). Then, end to end:
 
-- Sign in and keep a project open: the browser's network panel shows `/api/stream` as an open
+- Sign in and keep a workspace open: the browser's network panel shows `/api/stream` as an open
   event stream with a heartbeat every 15 s.
 - Pair a studio agent against `https://loomcast.prabhavalabs.com`; it shows **Online** and stays
   online for several minutes.

@@ -100,7 +100,7 @@ export async function applyTransition(
   const mapped = toContentItem(updated);
   const change: ContentStateChange = {
     itemId: item.id,
-    projectId: item.projectId,
+    workspaceId: item.workspaceId,
     from,
     to,
     actor: { kind: actor.kind, id: actor.id },

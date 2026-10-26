@@ -29,22 +29,22 @@ import { useContentLive } from "./use-content-live";
 import { type LibraryView as LibraryViewMode, useLibraryView } from "./view-preference";
 
 export interface LibraryViewProps {
-  /** The project of a Content tab; `null` for the library across projects. */
-  projectId: string | null;
+  /** The workspace whose library this is. */
+  workspaceId: string;
   search: LibrarySearch;
   onSearchChange: (next: LibrarySearch) => void;
 }
 
 /**
- * Content items with their filters: the Library page across projects, or a project's Content
- * tab, as a table or a read-only pipeline board (remembered per browser). Filters and sort live
+ * A workspace's content items with their filters, as a table or a read-only pipeline board
+ * (remembered per browser). Filters and sort live
  * in the address; `content.*` events keep the rows current.
  */
-export function LibraryView({ projectId, search, onSearchChange }: LibraryViewProps) {
+export function LibraryView({ workspaceId, search, onSearchChange }: LibraryViewProps) {
   useContentLive();
-  const filter = useMemo(() => filterFromSearch(search, projectId), [search, projectId]);
+  const filter = useMemo(() => filterFromSearch(search, workspaceId), [search, workspaceId]);
   const sort = search.sort ?? DEFAULT_LIBRARY_SORT;
-  const series = useSeriesOptions(projectId);
+  const series = useSeriesOptions(workspaceId);
   const seriesName = useCallback((id: string) => series.byId.get(id)?.name, [series.byId]);
 
   const list = useInfiniteQuery(contentListQueryOptions(filter));
@@ -92,7 +92,7 @@ export function LibraryView({ projectId, search, onSearchChange }: LibraryViewPr
               changeFilter({ ...filter, states: [], seriesId: null, from: null, to: null, q: "" })
             }
             emptyAction={
-              <NewIdeaDialog projectId={projectId}>
+              <NewIdeaDialog workspaceId={workspaceId}>
                 <Button variant="outline">
                   <PlusIcon aria-hidden="true" />
                   New idea

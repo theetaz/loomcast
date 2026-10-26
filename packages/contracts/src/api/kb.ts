@@ -173,7 +173,7 @@ export function parseKbEntryData<K extends KbEntryKind>(
  */
 export const KbEntrySchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   kind: KbEntryKindSchema,
   title: z.string(),
   bodyMd: z.string(),
@@ -202,7 +202,7 @@ export const KbReferenceDetailSchema = z.object({
   analysis: ReferenceAnalysisSchema.nullable(),
   analysisStatus: ReferenceAnalysisStatusSchema,
   /**
-   * An uploaded `reference_media` asset of the same project, analysed when there is no
+   * An uploaded `reference_media` asset of the same workspace, analysed when there is no
    * transcript. Optional until every server sends it.
    */
   mediaAssetId: IdSchema.nullable().optional(),
@@ -247,7 +247,7 @@ export const CreateKbEntrySchema = z.discriminatedUnion("kind", [
     likedReason: z.string().trim().max(KB_LIKED_REASON_MAX_LENGTH).optional(),
     author: z.string().trim().max(KB_AUTHOR_MAX_LENGTH).optional(),
     transcript: TranscriptSchema.optional(),
-    /** A ready `reference_media` asset of the same project, uploaded by the user. */
+    /** A ready `reference_media` asset of the same workspace, uploaded by the user. */
     mediaAssetId: IdSchema.optional(),
     tags: KbTagsSchema.optional(),
   }),
@@ -296,17 +296,17 @@ export const KbKindsQuerySchema = z.union([
     .pipe(z.array(KbEntryKindSchema).min(1).max(KB_ENTRY_KINDS.length)),
 ]);
 
-/** `GET /api/projects/:projectId/kb`: newest first, cursor-paginated. */
+/** `GET /api/workspaces/:workspaceId/kb`: newest first, cursor-paginated. */
 export const ListKbQuerySchema = CursorPageQuerySchema.extend({
   kinds: KbKindsQuerySchema.optional(),
   tag: KbTagSchema.optional(),
 });
 export type ListKbQuery = z.infer<typeof ListKbQuerySchema>;
 
-/** Full-text search over titles, tags and bodies. Without `projectId` it searches every project. */
+/** Full-text search over titles, tags and bodies. Without `workspaceId` it searches every workspace. */
 export const KbSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(KB_SEARCH_QUERY_MAX_LENGTH),
-  projectId: IdSchema.optional(),
+  workspaceId: IdSchema.optional(),
   kinds: KbKindsQuerySchema.optional(),
   /** Defaults to `KB_SEARCH_DEFAULT_LIMIT`. */
   limit: z.coerce.number().int().min(1).max(KB_SEARCH_MAX_LIMIT).optional(),
@@ -316,7 +316,7 @@ export type KbSearchQuery = z.infer<typeof KbSearchQuerySchema>;
 /** One search result. `snippet` marks matches with `KB_SNIPPET_MATCH_START` and `_END`. */
 export const KbSearchHitSchema = z.object({
   entryId: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   kind: KbEntryKindSchema,
   title: z.string(),
   snippet: z.string().max(2_000),
@@ -342,7 +342,7 @@ export const CaptureConversationSchema = z.object({
 });
 export type CaptureConversation = z.infer<typeof CaptureConversationSchema>;
 
-/** A tag in use in a project, with the number of entries carrying it. */
+/** A tag in use in a workspace, with the number of entries carrying it. */
 export const KbTagCountSchema = z.object({
   tag: z.string(),
   count: z.number().int().min(1),

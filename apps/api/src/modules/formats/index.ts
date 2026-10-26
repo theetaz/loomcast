@@ -26,10 +26,10 @@ export function formatsServiceFor(deps: FormatsServiceDeps): FormatsService {
 }
 
 const formatNotFound = () => notFound("No format has that id.");
-const projectNotFound = () => notFound("Project not found.");
+const workspaceNotFound = () => notFound("Workspace not found.");
 
 /**
- * Format endpoints: the formats of a project and their versioned rules. Every update stores a new
+ * Format endpoints: the formats of a workspace and their versioned rules. Every update stores a new
  * immutable version and moves the format's current version; a stale `baseVersionId` is a 409.
  */
 export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
@@ -39,17 +39,17 @@ export function register(app: Hono<AppEnv>, deps: ModuleDeps): Hono<AppEnv> {
 
   router.get(routes["formats.list"].path, async (c) => {
     currentUser(c);
-    const items = await formats.list(idParam(c, "projectId"));
+    const items = await formats.list(idParam(c, "workspaceId"));
     if (items === null) {
-      throw projectNotFound();
+      throw workspaceNotFound();
     }
     return c.json({ items }, 200);
   });
 
   router.post(routes["formats.create"].path, async (c) => {
-    const projectId = idParam(c, "projectId");
+    const workspaceId = idParam(c, "workspaceId");
     const input = await readJson(c, CreateFormatRequestSchema);
-    const format = await formats.create(projectId, input, userActor(c, trustProxy));
+    const format = await formats.create(workspaceId, input, userActor(c, trustProxy));
     return c.json(format, 201);
   });
 

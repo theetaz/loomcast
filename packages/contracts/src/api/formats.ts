@@ -18,10 +18,10 @@ export const FormatVersionSchema = z.object({
 });
 export type FormatVersion = z.infer<typeof FormatVersionSchema>;
 
-/** A format of a project, with its current version. */
+/** A format of a workspace, with its current version. */
 export const FormatSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   name: z.string(),
   slug: SlugSchema,
   currentVersion: FormatVersionSchema,
@@ -33,7 +33,7 @@ export type Format = z.infer<typeof FormatSchema>;
 
 /**
  * Creates a format with version 1. Without `rules` it starts from `DEFAULT_FORMAT_RULES`; without
- * `slug` the API derives one from the name, unique within the project.
+ * `slug` the API derives one from the name, unique within the workspace.
  */
 export const CreateFormatRequestSchema = z.object({
   name: FormatNameSchema,

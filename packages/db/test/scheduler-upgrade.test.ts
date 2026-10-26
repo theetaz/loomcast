@@ -3,14 +3,14 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "../src/migrate";
 import { claimDueTasks, enqueueTask } from "../src/queries/scheduler";
-import { contentItems, publishAttempts, series, seriesChannels } from "../src/schema";
+import { contentItems, publishAttempts, seriesChannels } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
 import {
   insertActiveChannel,
-  insertFormat,
   insertLegacyContentItem,
+  insertLegacySeries,
+  insertLegacyWorkspace,
   insertPost,
-  insertProject,
   insertUser,
 } from "./fixtures";
 import { journal, migrateFolder, migrationsUpTo } from "./upgrade";
@@ -47,15 +47,14 @@ describe("scheduler migrations on a database of the previous release", () => {
 
   it("apply in one batch, keep existing rows and take scheduler rows", async () => {
     const db = testDb.db;
-    // Pipeline rows as the previous release stores them; these tables are unchanged since.
+    // Pipeline rows as the previous release stores them, under the old names (`projects`,
+    // `project_id`); these tables are otherwise unchanged since.
     const user = await insertUser(db, { role: "owner" });
-    const project = await insertProject(db, user.id);
-    const { format } = await insertFormat(db, project.id, user.id);
-    const [created] = await db
-      .insert(series)
-      .values({ projectId: project.id, name: "Upgraded", slug: "upgraded", formatId: format.id })
-      .returning();
-    if (created === undefined) throw new Error("series was not inserted");
+    const project = await insertLegacyWorkspace(db, user.id);
+    const created = await insertLegacySeries(db, project.id, {
+      createdBy: user.id,
+      slug: "upgraded",
+    });
     const { item, version } = await insertLegacyContentItem(db, {
       projectId: project.id,
       seriesId: created.id,
@@ -91,14 +90,20 @@ describe("scheduler migrations on a database of the previous release", () => {
     });
 
     // The upgraded database takes channels, links, posts, attempts and tasks.
-    const page = await insertActiveChannel(db, { platform: "facebook", createdBy: user.id });
+    const workspaceId = project.id;
+    const page = await insertActiveChannel(db, {
+      workspaceId,
+      platform: "facebook",
+      createdBy: user.id,
+    });
     const account = await insertActiveChannel(db, {
+      workspaceId,
       platform: "instagram",
       parentChannelId: page.id,
     });
     await db.insert(seriesChannels).values([
-      { seriesId: created.id, channelId: page.id },
-      { seriesId: created.id, channelId: account.id, enabled: false },
+      { workspaceId, seriesId: created.id, channelId: page.id },
+      { workspaceId, seriesId: created.id, channelId: account.id, enabled: false },
     ]);
     const post = await insertPost(db, {
       itemId: item.id,

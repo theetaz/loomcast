@@ -51,7 +51,7 @@ export function storyboardHandler(deps: ProducerStepDeps): Handler<"content.stor
         }
         const workspace = await ensureItemWorkspace(
           deps.workspaceRoot,
-          payload.projectId,
+          payload.workspaceId,
           item.id,
           version.versionNo,
         );
@@ -88,10 +88,10 @@ export function storyboardHandler(deps: ProducerStepDeps): Handler<"content.stor
         const step = await runProducerStep({
           ctx,
           runtime: deps.runtime,
-          cwd: workspace.projectDir,
+          cwd: workspace.workspaceDir,
           brief: stepBrief({
             step: "content.storyboard",
-            projectId: payload.projectId,
+            workspaceId: payload.workspaceId,
             item,
             rules,
             itemDir: workspace.itemDir,

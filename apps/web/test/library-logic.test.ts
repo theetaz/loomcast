@@ -23,7 +23,7 @@ import { createQueryClient } from "@/lib/query-client";
 import { librarySetup } from "./support/library";
 
 const NO_FILTER: LibraryFilter = {
-  projectId: null,
+  workspaceId: null,
   states: [],
   seriesId: null,
   from: null,
@@ -118,7 +118,7 @@ describe("library search params", () => {
   it("builds the content.list query with comma-separated states and day bounds", () => {
     expect(
       contentListQuery({
-        projectId: "p",
+        workspaceId: "p",
         states: ["script", "voice"],
         seriesId: "s",
         from: "2026-10-01",
@@ -126,7 +126,7 @@ describe("library search params", () => {
         q: "loop",
       }),
     ).toEqual({
-      projectId: "p",
+      workspaceId: "p",
       states: "script,voice",
       seriesId: "s",
       q: "loop",
@@ -223,12 +223,12 @@ describe("live patching", () => {
     return { queryClient, read };
   }
 
-  it("decides membership from project, state, series and target range", () => {
+  it("decides membership from workspace, state, series and target range", () => {
     const { items, rust, series } = librarySetup();
     expect(matchesFilter(items.borrow, NO_FILTER)).toBe(true);
     expect(matchesFilter(items.archived, NO_FILTER)).toBe(false);
     expect(matchesFilter(items.archived, { ...NO_FILTER, states: ["archived"] })).toBe(true);
-    expect(matchesFilter(items.handoffs, { ...NO_FILTER, projectId: rust.id })).toBe(false);
+    expect(matchesFilter(items.handoffs, { ...NO_FILTER, workspaceId: rust.id })).toBe(false);
     expect(matchesFilter(items.question, { ...NO_FILTER, seriesId: series.ownership.id })).toBe(
       false,
     );

@@ -19,7 +19,7 @@ default) and captions, a topic pool and an avoid list, the publishing cadence, t
 hashtags and a call to action. Formats are versioned: every save creates a format version, and the
 editor shows the history with a JSON diff. Several series may share a format.
 
-A **series** groups items that share a format. Create one in a project's **Series** tab; choosing
+A **series** groups items that share a format. Create one on a workspace's **Series** page; choosing
 "New format with default rules" opens the format editor next. The default rules have no voice, so
 production stops before the voice step until a voice ID is set.
 
@@ -84,7 +84,7 @@ follows `allowedActions` for the item's state and current version.
 | `content.render` | studio runtime, HyperFrames and ffmpeg | render | read and write | 45 min | 2, requeued |
 | `skills.sync` | studio agent | render | read | 5 min | 3, requeued |
 
-Payloads name the project, the item, the version the job starts from and the format snapshot;
+Payloads name the workspace, the item, the version the job starts from and the format snapshot;
 `voice` adds the voice ID and speed, `render` the voice asset, and `revise` the review comment.
 Artifacts are never in the payload: the studio agent reads them through MCP with the job's own
 token (`content.get`, `asset.get_url`, `format.get_rules`) and uploads media with
@@ -139,7 +139,7 @@ compared word by word.
   poster (and the storyboard unless one is given with it); a new storyboard clears the render and
   poster; a new voice take clears the render and poster. Notes describe one version and are not
   copied forward.
-- Media files are assets: content-addressed (`projects/<projectId>/<kind>/<sha256>.<ext>` in the
+- Media files are assets: content-addressed (`projects/<workspaceId>/<kind>/<sha256>.<ext>` in the
   private bucket), verified by size and SHA-256 when finalized, and kept with every version that
   used them. The voice tab lists every take of the item, and "Use this take" makes a new version
   with another one.
@@ -149,9 +149,9 @@ revision adds four more: the revised script, then storyboard, voice and render a
 
 ## Reviews
 
-Items in review are listed in **Review** (the review queue), nearest target date first, then the
-longest waiting. `j` and `k` move between them and Enter opens one; the decisions are on the item
-page, in its Review panel:
+Items in review are listed in their workspace's **Review** (the review queue), nearest target date
+first, then the longest waiting. `j` and `k` move between them and Enter opens one; the decisions
+are on the item page, in its Review panel:
 
 - **Approve** needs a rendered current version and moves the item to `approved`.
 - **Request changes** needs a comment. With **Ask the producer to revise** (on by default) the

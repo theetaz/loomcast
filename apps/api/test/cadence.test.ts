@@ -25,7 +25,7 @@ import {
   rulesWith,
   tasksOfKind,
 } from "./calendar-support";
-import { eventsOf, insertProject, userOf } from "./pipeline-support";
+import { eventsOf, insertWorkspace, userOf } from "./pipeline-support";
 
 describe("pickTopic", () => {
   it("takes never-used topics first, in pool order", () => {
@@ -103,17 +103,17 @@ describe("cadence planning", () => {
 
   /** A series publishing Mon/Wed/Fri at 09:00 UTC on two channels, produced an hour ahead. */
   async function weeklySeries(overrides: Partial<FormatRules> = {}) {
-    const projectId = await insertProject(h);
+    const workspaceId = await insertWorkspace(h);
     const rules = rulesWith(
       { days: ["mon", "wed", "fri"], slots: ["09:00"], tz: "UTC", leadTimeHours: 1 },
       { topicPool: ["Ownership", "Lifetimes", "Traits", "Unsafe code"], avoid: ["unsafe"] },
     );
-    const setup = await createSeries(h, projectId, { ...rules, ...overrides });
-    const instagram = await insertChannel(h, { platform: "instagram" });
-    const threads = await insertChannel(h, { platform: "threads" });
+    const setup = await createSeries(h, workspaceId, { ...rules, ...overrides });
+    const instagram = await insertChannel(h, workspaceId, { platform: "instagram" });
+    const threads = await insertChannel(h, workspaceId, { platform: "threads" });
     await linkChannel(h, setup.seriesId, instagram);
     await linkChannel(h, setup.seriesId, threads);
-    return { projectId, ...setup, instagram, threads };
+    return { workspaceId, ...setup, instagram, threads };
   }
 
   async function itemsOf(seriesId: string) {
@@ -216,14 +216,14 @@ describe("cadence planning", () => {
   it("marks posts dry-run only when the channel or the server says so", async () => {
     await h.close();
     h = await createCalendarHarness({ config: { publishing: { mode: "live", enabled: true } } });
-    const projectId = await insertProject(h);
+    const workspaceId = await insertWorkspace(h);
     const { seriesId } = await createSeries(
       h,
-      projectId,
+      workspaceId,
       rulesWith({ days: ["mon"], slots: ["09:00"], tz: "UTC", leadTimeHours: 1 }),
     );
-    const live = await insertChannel(h, { dryRun: false });
-    const dry = await insertChannel(h, { dryRun: true });
+    const live = await insertChannel(h, workspaceId, { dryRun: false });
+    const dry = await insertChannel(h, workspaceId, { dryRun: true });
     await linkChannel(h, seriesId, live);
     await linkChannel(h, seriesId, dry);
     await cadenceServiceFor(h.deps).plan(seriesId);
@@ -235,19 +235,19 @@ describe("cadence planning", () => {
   });
 
   it("follows the series' time zone across both daylight saving changes", async () => {
-    const projectId = await insertProject(h);
+    const workspaceId = await insertWorkspace(h);
     const everyDay = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
     const newYork = (slot: string) =>
       rulesWith({ days: [...everyDay], slots: [slot], tz: "America/New_York", leadTimeHours: 1 });
-    const fall = await createSeries(h, projectId, newYork("09:00"), "Fall back");
-    const spring = await createSeries(h, projectId, newYork("02:30"), "Spring forward");
+    const fall = await createSeries(h, workspaceId, newYork("09:00"), "Fall back");
+    const spring = await createSeries(h, workspaceId, newYork("02:30"), "Spring forward");
     const colombo = await createSeries(
       h,
-      projectId,
+      workspaceId,
       rulesWith({ days: ["mon"], slots: ["18:30"], tz: "Asia/Colombo", leadTimeHours: 2 }),
       "Colombo",
     );
-    const channel = await insertChannel(h);
+    const channel = await insertChannel(h, workspaceId);
     for (const setup of [fall, spring, colombo]) await linkChannel(h, setup.seriesId, channel);
 
     // New York falls back on Sunday 1 November 2026: 09:00 is 13:00Z before, 14:00Z after.
@@ -421,16 +421,17 @@ describe("cadence planning", () => {
 
   it("plans every active series on the hourly run", async () => {
     const one = await weeklySeries();
-    const projectId = await insertProject(h);
+    // The second series shares the first one's workspace, so it may publish on its channel.
+    const workspaceId = one.workspaceId;
     const two = await createSeries(
       h,
-      projectId,
+      workspaceId,
       rulesWith({ days: ["tue"], slots: ["10:00"], tz: "Europe/London", leadTimeHours: 1 }),
       "Second",
     );
     await linkChannel(h, two.seriesId, one.instagram);
     // A series without channels has no slots to fill.
-    const bare = await createSeries(h, projectId, rulesWith({ days: ["mon"] }), "Bare");
+    const bare = await createSeries(h, workspaceId, rulesWith({ days: ["mon"] }), "Bare");
     const results = await cadenceServiceFor(h.deps).plan();
     const byId = new Map(results.map((result) => [result.seriesId, result]));
     expect(byId.get(one.seriesId)?.createdItems).toHaveLength(6);

@@ -15,7 +15,7 @@ export const TOKEN_SECRET_LENGTH = 43;
 
 export const MCP_TOKEN_RE = /^lc_mcp_[0-9A-Za-z]{43}$/;
 export const DEVICE_TOKEN_RE = /^lc_dev_[0-9A-Za-z]{43}$/;
-/** A job-scoped MCP token: bound to one job and its project, and expiring with the job. */
+/** A job-scoped MCP token: bound to one job and its workspace, and expiring with the job. */
 export const JOB_TOKEN_RE = /^lc_job_[0-9A-Za-z]{43}$/;
 
 /** An API client's key for the machine API (`/api/v1`). */

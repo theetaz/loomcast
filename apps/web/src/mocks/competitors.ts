@@ -2,7 +2,7 @@ import {
   ACTIVE_COMPETITOR_SCAN_STATUSES,
   type ApiError,
   COMPETITOR_SCAN_DEFAULT_VIDEOS,
-  COMPETITORS_PER_PROJECT_MAX,
+  COMPETITORS_PER_WORKSPACE_MAX,
   type Competitor,
   type CompetitorPlatform,
   type CompetitorScan,
@@ -49,7 +49,7 @@ export function isActiveScan(status: CompetitorScanStatus): boolean {
 }
 
 export function mockCompetitor(
-  overrides: Partial<Competitor> & Pick<Competitor, "projectId" | "platform" | "handle">,
+  overrides: Partial<Competitor> & Pick<Competitor, "workspaceId" | "platform" | "handle">,
 ): Competitor {
   const at = overrides.createdAt ?? new Date().toISOString();
   const { profileUrl } = parseCompetitorUrl(
@@ -74,7 +74,7 @@ export function mockCompetitor(
 
 export function mockCompetitorScan(
   overrides: Partial<CompetitorScan> &
-    Pick<CompetitorScan, "competitorId" | "projectId" | "status">,
+    Pick<CompetitorScan, "competitorId" | "workspaceId" | "status">,
 ): CompetitorScan {
   const at = overrides.createdAt ?? new Date().toISOString();
   const videos = overrides.videos ?? [];
@@ -95,7 +95,7 @@ export function mockCompetitorScan(
 
 /** A reference entry for one competitor video, tagged like the server tags them. */
 export function mockCompetitorReference(input: {
-  projectId: string;
+  workspaceId: string;
   platform: CompetitorPlatform;
   handle: string;
   url: string;
@@ -105,7 +105,7 @@ export function mockCompetitorReference(input: {
 }): KbEntryDetail {
   const done = input.analysisStatus === "done";
   return mockKbEntry({
-    projectId: input.projectId,
+    workspaceId: input.workspaceId,
     kind: "reference",
     title: `${PLATFORM_NAMES[input.platform]} video by @${input.handle}`,
     tags: ["competitor", competitorTag(input.platform, input.handle)],
@@ -126,7 +126,7 @@ export function mockCompetitorReference(input: {
 
 /** The report note a finished scan leaves in the knowledge base. */
 export function mockCompetitorReport(input: {
-  projectId: string;
+  workspaceId: string;
   platform: CompetitorPlatform;
   handle: string;
   at?: string;
@@ -134,7 +134,7 @@ export function mockCompetitorReport(input: {
   const at = input.at ?? new Date().toISOString();
   const day = new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(Date.parse(at));
   return mockKbEntry({
-    projectId: input.projectId,
+    workspaceId: input.workspaceId,
     kind: "note",
     title: `Competitor report: @${input.handle} (${day})`,
     tags: ["competitor", competitorTag(input.platform, input.handle), "competitor-report"],
@@ -239,7 +239,7 @@ function finish(db: MockDb, scan: CompetitorScan) {
     };
   } else {
     const report = mockCompetitorReport({
-      projectId: scan.projectId,
+      workspaceId: scan.workspaceId,
       platform: competitor.platform,
       handle: competitor.handle,
     });
@@ -315,11 +315,11 @@ function pickVideos(
 ): CompetitorScanVideo[] {
   return urls.map((video, index) => {
     let entry = db.kbEntries.find(
-      (item) => item.projectId === competitor.projectId && item.reference?.url === video.url,
+      (item) => item.workspaceId === competitor.workspaceId && item.reference?.url === video.url,
     );
     if (!entry) {
       entry = mockCompetitorReference({
-        projectId: competitor.projectId,
+        workspaceId: competitor.workspaceId,
         platform: competitor.platform,
         handle: competitor.handle,
         url: video.url,
@@ -350,7 +350,7 @@ export function createCompetitorHandlers(db: MockDb) {
     http.get(path("competitors.list"), ({ params }) => {
       if (!db.signedIn) return unauthorized();
       const items = db.competitors
-        .filter((item) => item.projectId === params.projectId)
+        .filter((item) => item.workspaceId === params.workspaceId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((item) => competitorView(db, item));
       return HttpResponse.json({ items });
@@ -358,8 +358,8 @@ export function createCompetitorHandlers(db: MockDb) {
 
     http.post(path("competitors.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const project = db.projects.find((item) => item.id === params.projectId);
-      if (!project) return apiError(404, "not_found", "No project has that id.");
+      const workspace = db.workspaces.find((item) => item.id === params.workspaceId);
+      if (!workspace) return apiError(404, "not_found", "No workspace has that id.");
       const parsed = CreateCompetitorRequestSchema.safeParse(
         await request.json().catch(() => null),
       );
@@ -373,7 +373,7 @@ export function createCompetitorHandlers(db: MockDb) {
         }
         throw error;
       }
-      const followed = db.competitors.filter((item) => item.projectId === project.id);
+      const followed = db.competitors.filter((item) => item.workspaceId === workspace.id);
       if (
         followed.some(
           (item) =>
@@ -381,19 +381,19 @@ export function createCompetitorHandlers(db: MockDb) {
             item.handle.toLowerCase() === profile.handle.toLowerCase(),
         )
       ) {
-        return apiError(409, "conflict", "The project already follows this profile.", {
+        return apiError(409, "conflict", "The workspace already follows this profile.", {
           reason: "duplicate",
         });
       }
-      if (followed.length >= COMPETITORS_PER_PROJECT_MAX) {
+      if (followed.length >= COMPETITORS_PER_WORKSPACE_MAX) {
         return apiError(
           422,
           "limit_reached",
-          `A project follows at most ${COMPETITORS_PER_PROJECT_MAX} competitors.`,
+          `A workspace follows at most ${COMPETITORS_PER_WORKSPACE_MAX} competitors.`,
         );
       }
       const competitor = mockCompetitor({
-        projectId: project.id,
+        workspaceId: workspace.id,
         platform: profile.platform,
         handle: profile.handle,
         notes: parsed.data.notes || null,
@@ -507,7 +507,7 @@ export function createCompetitorHandlers(db: MockDb) {
       }
       const scan = mockCompetitorScan({
         competitorId: competitor.id,
-        projectId: competitor.projectId,
+        workspaceId: competitor.workspaceId,
         status: "analyzing",
         source: links ? "links" : "official_api",
         topN: links ? Math.min(links.length, topN) : topN,
@@ -553,15 +553,15 @@ export function createCompetitorHandlers(db: MockDb) {
 }
 
 /**
- * Mock mode: two competitors of the first project. `@fastrust` on Instagram has a finished scan
+ * Mock mode: two competitors of the first workspace. `@fastrust` on Instagram has a finished scan
  * with a report; `rustaceans` on Facebook has none yet.
  */
 export function seedCompetitorDemo(db: MockDb, now: number) {
-  const project = db.projects[0];
-  if (!project) return;
+  const workspace = db.workspaces[0];
+  if (!workspace) return;
   const at = (days: number) => new Date(now - days * 24 * 60 * 60_000).toISOString();
   const fastrust = mockCompetitor({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "instagram",
     handle: "fastrust",
     notes: "Closest competitor: same audience, posts daily.",
@@ -570,7 +570,7 @@ export function seedCompetitorDemo(db: MockDb, now: number) {
     updatedAt: at(6),
   });
   const page = mockCompetitor({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "facebook",
     handle: "rustaceans",
     createdAt: at(2),
@@ -581,7 +581,7 @@ export function seedCompetitorDemo(db: MockDb, now: number) {
   const scannedAt = at(5);
   const entries = SAMPLE_CAPTIONS.slice(0, 8).map((caption, index) =>
     mockCompetitorReference({
-      projectId: project.id,
+      workspaceId: workspace.id,
       platform: "instagram",
       handle: fastrust.handle,
       url: `https://www.instagram.com/reel/fr${index + 1}demo/`,
@@ -591,7 +591,7 @@ export function seedCompetitorDemo(db: MockDb, now: number) {
     }),
   );
   const report = mockCompetitorReport({
-    projectId: project.id,
+    workspaceId: workspace.id,
     platform: "instagram",
     handle: fastrust.handle,
     at: at(5),
@@ -600,7 +600,7 @@ export function seedCompetitorDemo(db: MockDb, now: number) {
   db.competitorScans.push(
     mockCompetitorScan({
       competitorId: fastrust.id,
-      projectId: project.id,
+      workspaceId: workspace.id,
       status: "partial",
       topN: 8,
       createdAt: scannedAt,

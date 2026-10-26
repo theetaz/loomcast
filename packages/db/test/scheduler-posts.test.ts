@@ -15,9 +15,9 @@ import {
   insertChannel,
   insertContentItem,
   insertPost,
-  insertProject,
   insertSeries,
   insertUser,
+  insertWorkspace,
   PG,
   pgError,
   postValues,
@@ -35,15 +35,15 @@ afterAll(async () => {
 
 async function setup() {
   const user = await insertUser(testDb.db);
-  const project = await insertProject(testDb.db, user.id);
-  const created = await insertSeries(testDb.db, project.id, user.id);
+  const workspace = await insertWorkspace(testDb.db, user.id);
+  const created = await insertSeries(testDb.db, workspace.id, user.id);
   const { item, version } = await insertContentItem(testDb.db, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     seriesId: created.id,
     createdBy: user.id,
   });
-  const channel = await insertChannel(testDb.db);
-  return { user, project, series: created, item, version, channel };
+  const channel = await insertChannel(testDb.db, { workspaceId: workspace.id });
+  return { user, workspace, series: created, item, version, channel };
 }
 
 describe("scheduled_posts", () => {
@@ -67,8 +67,11 @@ describe("scheduled_posts", () => {
   });
 
   it("allow one open post per item and channel", async () => {
-    const { item, channel } = await setup();
-    const other = await insertChannel(testDb.db, { platform: "threads" });
+    const { workspace, item, channel } = await setup();
+    const other = await insertChannel(testDb.db, {
+      workspaceId: workspace.id,
+      platform: "threads",
+    });
     const first = await insertPost(testDb.db, { itemId: item.id, channelId: channel.id });
     await insertPost(testDb.db, { itemId: item.id, channelId: other.id });
 
@@ -220,9 +223,10 @@ describe("scheduled_posts", () => {
     ).toEqual([]);
   });
 
-  it("join to the project, platform and effective publish mode of the contracts shape", async () => {
-    const { project, item, series: created } = await setup();
+  it("join to the workspace, platform and effective publish mode of the contracts shape", async () => {
+    const { workspace, item, series: created } = await setup();
     const channel = await insertActiveChannel(testDb.db, {
+      workspaceId: workspace.id,
       platform: "facebook",
       requiresApproval: true,
     });
@@ -235,7 +239,7 @@ describe("scheduled_posts", () => {
     const [row] = await testDb.db
       .select({
         id: scheduledPosts.id,
-        projectId: contentItems.projectId,
+        workspaceId: contentItems.workspaceId,
         platform: channels.platform,
         requiresApproval: channels.requiresApproval,
         formatMode: sql<"auto" | "approval">`${formatVersions.rules}->>'publishMode'`,
@@ -255,7 +259,7 @@ describe("scheduled_posts", () => {
       .where(eq(scheduledPosts.id, post.id));
 
     expect(row).toMatchObject({
-      projectId: project.id,
+      workspaceId: workspace.id,
       platform: "facebook",
       formatMode: "approval",
     });

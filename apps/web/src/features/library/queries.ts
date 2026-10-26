@@ -3,8 +3,8 @@ import type {
   ContentItemDetail,
   CreateContentItemRequest,
   CursorPage,
-  Project,
   Series,
+  Workspace,
 } from "@loomcast/contracts";
 import {
   type InfiniteData,
@@ -17,7 +17,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { workspacesQueryOptions } from "@/features/workspaces/queries";
 import { api } from "@/lib/api";
 import { contentListQuery, endOfDay, type LibraryFilter, startOfDay } from "./search";
 
@@ -32,10 +32,10 @@ export const contentKeys = {
   detail: (id: string) => ["content", "detail", id] as const,
 };
 
-/** Raw `series.list` pages by project (every status), shared by every screen that names series. */
+/** Raw `series.list` pages by workspace (every status), shared by every screen that names series. */
 export const seriesKeys = {
   all: ["series"] as const,
-  list: (projectId: string) => ["series", "list", projectId] as const,
+  list: (workspaceId: string) => ["series", "list", workspaceId] as const,
 };
 
 export type ContentPages = InfiniteData<CursorPage<ContentItem>, string | undefined>;
@@ -64,49 +64,53 @@ export function contentItemQueryOptions(id: string) {
   });
 }
 
-export function seriesListQueryOptions(projectId: string) {
+export function seriesListQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: seriesKeys.list(projectId),
-    queryFn: ({ signal }) => api.request("series.list", { params: { projectId }, signal }),
+    queryKey: seriesKeys.list(workspaceId),
+    queryFn: ({ signal }) => api.request("series.list", { params: { workspaceId }, signal }),
     staleTime: 60_000,
   });
 }
 
 export interface SeriesOption {
   series: Series;
-  project: Project | null;
+  workspace: Workspace | null;
 }
 
 /**
- * The series the library can name and filter by: those of one project, or of every project when
- * the library spans them. Sorted by project, then name.
+ * The series the library can name and filter by: those of one workspace, or of every workspace when
+ * the library spans them. Sorted by workspace, then name.
  */
-export function useSeriesOptions(projectId: string | null): {
+export function useSeriesOptions(workspaceId: string | null): {
   options: SeriesOption[];
   byId: Map<string, Series>;
 } {
-  const projects = useQuery({ ...projectsQueryOptions(), enabled: projectId === null });
-  const projectIds = projectId ? [projectId] : (projects.data ?? []).map((project) => project.id);
+  const workspaces = useQuery({ ...workspacesQueryOptions(), enabled: workspaceId === null });
+  const workspaceIds = workspaceId
+    ? [workspaceId]
+    : (workspaces.data ?? []).map((workspace) => workspace.id);
   const lists = useQueries({
-    queries: projectIds.map((id) => seriesListQueryOptions(id)),
+    queries: workspaceIds.map((id) => seriesListQueryOptions(id)),
     combine: (results) => results.map((result) => result.data),
   });
 
   return useMemo(() => {
-    const projectById = new Map((projects.data ?? []).map((project) => [project.id, project]));
+    const workspaceById = new Map(
+      (workspaces.data ?? []).map((workspace) => [workspace.id, workspace]),
+    );
     const options: SeriesOption[] = [];
     for (const list of lists) {
       for (const series of list?.items ?? []) {
-        options.push({ series, project: projectById.get(series.projectId) ?? null });
+        options.push({ series, workspace: workspaceById.get(series.workspaceId) ?? null });
       }
     }
     options.sort(
       (a, b) =>
-        (a.project?.name ?? "").localeCompare(b.project?.name ?? "") ||
+        (a.workspace?.name ?? "").localeCompare(b.workspace?.name ?? "") ||
         a.series.name.localeCompare(b.series.name),
     );
     return { options, byId: new Map(options.map((option) => [option.series.id, option.series])) };
-  }, [projects.data, lists]);
+  }, [workspaces.data, lists]);
 }
 
 // Live patching -------------------------------------------------------------------
@@ -116,7 +120,7 @@ export function useSeriesOptions(projectId: string | null): {
  * searched list answers `null`: the item may or may not match.
  */
 export function matchesFilter(item: ContentItem, filter: LibraryFilter): boolean | null {
-  if (filter.projectId && item.projectId !== filter.projectId) return false;
+  if (filter.workspaceId && item.workspaceId !== filter.workspaceId) return false;
   if (filter.states.length > 0 ? !filter.states.includes(item.state) : item.state === "archived") {
     return false;
   }
@@ -203,8 +207,8 @@ export function cachedContentItems(queryClient: QueryClient): ContentItem[] {
 export function useCreateIdea() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, body }: { projectId: string; body: CreateContentItemRequest }) =>
-      api.request("content.create", { params: { projectId }, body }),
+    mutationFn: ({ workspaceId, body }: { workspaceId: string; body: CreateContentItemRequest }) =>
+      api.request("content.create", { params: { workspaceId }, body }),
     onSuccess: (detail) => {
       queryClient.setQueryData(contentKeys.detail(detail.item.id), detail);
       upsertContentItem(queryClient, detail.item);

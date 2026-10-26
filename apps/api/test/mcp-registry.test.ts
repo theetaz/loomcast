@@ -44,7 +44,7 @@ const EchoInput = z.object({ text: z.string().min(1).max(100) });
 const EchoOutput = z.object({ text: z.string() });
 
 interface ContractOverrides {
-  projectBinding: McpToolContract["projectBinding"];
+  workspaceBinding: McpToolContract["workspaceBinding"];
   jobTokens?: McpToolContract["jobTokens"];
   scope?: TokenScope;
   input?: z.ZodObject;
@@ -66,7 +66,7 @@ function contract<const T extends ContractOverrides>(
 }
 
 function caller(
-  options: { kind?: "mcp" | "job"; scopes?: TokenScope[]; boundProjectId?: string | null } = {},
+  options: { kind?: "mcp" | "job"; scopes?: TokenScope[]; boundWorkspaceId?: string | null } = {},
 ): McpCaller {
   return {
     token: {
@@ -76,7 +76,7 @@ function caller(
       scopes: options.scopes ?? ["mcp:read", "mcp:write"],
       user: { id: randomUUID(), email: "someone@example.test", name: "Someone", role: "admin" },
     },
-    boundProjectId: options.boundProjectId ?? null,
+    boundWorkspaceId: options.boundWorkspaceId ?? null,
     jobId: options.kind === "job" ? randomUUID() : null,
     ip: testIp(7),
   };
@@ -101,7 +101,7 @@ function text(result: { content: unknown[] }): string {
 describe("defineTool", () => {
   it("returns structured content with a summary and audits the call", async () => {
     let runs = 0;
-    const tool = defineTool(contract({ projectBinding: "none" }), {
+    const tool = defineTool(contract({ workspaceBinding: "none" }), {
       async handler(input) {
         runs += 1;
         return { text: input.text.toUpperCase(), extra: "stripped" } as { text: string };
@@ -128,7 +128,7 @@ describe("defineTool", () => {
 
   it("refuses a token without the tool's scope before running it", async () => {
     let runs = 0;
-    const tool = defineTool(contract({ projectBinding: "none" }), {
+    const tool = defineTool(contract({ workspaceBinding: "none" }), {
       async handler(input) {
         runs += 1;
         return input;
@@ -148,15 +148,15 @@ describe("defineTool", () => {
 
   it("applies the job-token policy", async () => {
     const handler = async (input: { text: string }) => input;
-    const denied = defineTool(contract({ projectBinding: "none", jobTokens: "deny" }), {
+    const denied = defineTool(contract({ workspaceBinding: "none", jobTokens: "deny" }), {
       handler,
       summary: () => "ran",
     });
-    const allowed = defineTool(contract({ projectBinding: "none", jobTokens: "allow" }), {
+    const allowed = defineTool(contract({ workspaceBinding: "none", jobTokens: "allow" }), {
       handler,
       summary: () => "ran",
     });
-    const job = caller({ kind: "job", boundProjectId: randomUUID() });
+    const job = caller({ kind: "job", boundWorkspaceId: randomUUID() });
 
     const refused = await call(denied, { text: "a" }, job);
     expect(refused.isError).toBe(true);
@@ -169,75 +169,77 @@ describe("defineTool", () => {
     expect(rows.map((row) => row.data?.jobId)).toEqual([job.jobId, job.jobId]);
   });
 
-  describe("project binding", () => {
-    const ProjectInput = z.object({ projectId: z.string().optional() });
+  describe("workspace binding", () => {
+    const WorkspaceInput = z.object({ workspaceId: z.string().optional() });
 
     function boundTool(seen: (string | null)[]) {
       return defineTool(
         contract({
-          projectBinding: "input",
+          workspaceBinding: "input",
           jobTokens: "allow",
           scope: "mcp:read",
-          input: ProjectInput,
+          input: WorkspaceInput,
         }),
         {
-          async resolveProject(input) {
-            if (input.projectId === undefined) {
+          async resolveWorkspace(input) {
+            if (input.workspaceId === undefined) {
               return undefined;
             }
-            return input.projectId === "missing" ? null : input.projectId;
+            return input.workspaceId === "missing" ? null : input.workspaceId;
           },
           async handler(_input, ctx) {
-            seen.push(ctx.projectId);
-            return { text: ctx.projectId ?? "none" };
+            seen.push(ctx.workspaceId);
+            return { text: ctx.workspaceId ?? "none" };
           },
           summary: (output) => output.text,
         },
       );
     }
 
-    it("holds a bound caller to its project", async () => {
+    it("holds a bound caller to its workspace", async () => {
       const seen: (string | null)[] = [];
       const tool = boundTool(seen);
       const own = randomUUID();
-      const job = caller({ kind: "job", scopes: ["mcp:read"], boundProjectId: own });
+      const job = caller({ kind: "job", scopes: ["mcp:read"], boundWorkspaceId: own });
 
-      expect((await call(tool, { projectId: own }, job)).structuredContent).toEqual({ text: own });
+      expect((await call(tool, { workspaceId: own }, job)).structuredContent).toEqual({
+        text: own,
+      });
       expect((await call(tool, {}, job)).structuredContent).toEqual({ text: own });
 
       for (const other of [randomUUID(), "missing"]) {
-        const refused = await call(tool, { projectId: other }, job);
+        const refused = await call(tool, { workspaceId: other }, job);
         expect(refused.isError).toBe(true);
         expect(text(refused)).toMatch(/^forbidden: /);
       }
       expect(seen).toEqual([own, own]);
     });
 
-    it("leaves an unbound caller free to name any project", async () => {
+    it("leaves an unbound caller free to name any workspace", async () => {
       const seen: (string | null)[] = [];
       const tool = boundTool(seen);
       const any = randomUUID();
-      await call(tool, { projectId: any }, caller());
-      await call(tool, { projectId: "missing" }, caller());
+      await call(tool, { workspaceId: any }, caller());
+      await call(tool, { workspaceId: "missing" }, caller());
       await call(tool, {}, caller());
       expect(seen).toEqual([any, null, null]);
 
       const who = caller();
-      await call(tool, { projectId: any }, who);
+      await call(tool, { workspaceId: any }, who);
       const [row] = await auditFor(who);
-      expect(row?.data).toEqual({ outcome: "ok", projectId: any });
+      expect(row?.data).toEqual({ outcome: "ok", workspaceId: any });
     });
   });
 
   it("maps failures to tool errors without internals", async () => {
     const failing = (error: unknown) =>
-      defineTool(contract({ projectBinding: "none" }), {
+      defineTool(contract({ workspaceBinding: "none" }), {
         async handler() {
           throw error;
         },
         summary: () => "ran",
       });
-    const badOutput = defineTool(contract({ projectBinding: "none" }), {
+    const badOutput = defineTool(contract({ workspaceBinding: "none" }), {
       async handler() {
         return { text: 42 } as unknown as { text: string };
       },
@@ -270,7 +272,7 @@ describe("tools over HTTP", () => {
       name: "test.echo",
       scope: "mcp:write",
       jobTokens: "deny",
-      projectBinding: "none",
+      workspaceBinding: "none",
       description: "Echo text back.",
       input: EchoInput,
       output: EchoOutput,

@@ -5,7 +5,7 @@ import {
   SkillPullOutputSchema,
   skillChecksumInput,
 } from "@loomcast/contracts";
-import { jobs, projects, skills } from "@loomcast/db";
+import { jobs, skills, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { eq } from "drizzle-orm";
@@ -24,7 +24,7 @@ type CallResult = Awaited<ReturnType<Client["callTool"]>>;
 let testDb: TestDb;
 let server: McpTestServer;
 let userId: string;
-let projectId: string;
+let workspaceId: string;
 let writer: Client;
 let reader: Client;
 let job: Client;
@@ -34,14 +34,14 @@ beforeAll(async () => {
   server = await startMcpTestServer(testDb.db);
   const user = await insertUser(testDb.db);
   userId = user.id;
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `mcp-skills-${randomUUID().slice(0, 8)}`, name: "Skills", createdBy: userId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  projectId = project.id;
+  workspaceId = workspace.id;
   writer = await connectClient(
     server.url,
     (await issueToken(server.deps, userId, ["mcp:read", "mcp:write"])).secret,
@@ -52,7 +52,7 @@ beforeAll(async () => {
   );
   const issued = await issueJobToken(testDb.db, {
     userId,
-    projectId,
+    workspaceId,
     scopes: ["mcp:read", "mcp:write"],
   });
   job = await connectClient(server.url, issued.secret);
@@ -108,7 +108,7 @@ describe("skill tools", () => {
 
     // The new version queues a sync for studio agents.
     const [sync] = await testDb.db.select().from(jobs).where(eq(jobs.type, "skills.sync"));
-    expect(sync).toMatchObject({ idempotencyKey: `skills:${output.checksum}`, projectId });
+    expect(sync).toMatchObject({ idempotencyKey: `skills:${output.checksum}`, workspaceId });
 
     const pulled = await job.callTool({ name: "skill.pull", arguments: { name: "hooks" } });
     expectOk(pulled);

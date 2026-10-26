@@ -5,7 +5,7 @@ import {
   type LiveEventOf,
   type ReferenceAnalysisStatus,
 } from "@loomcast/contracts";
-import { auditLog, jobs, kbEntries, projects } from "@loomcast/db";
+import { auditLog, jobs, kbEntries, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,7 @@ let server: BridgeServer;
 let agent: FakeAgent;
 let cookie: string;
 let userId: string;
-let projectId: string;
+let workspaceId: string;
 let updates: LiveEventOf<"kb.entry.updated">[];
 
 beforeAll(async () => {
@@ -32,14 +32,14 @@ beforeAll(async () => {
   const user = await insertUser(testDb.db);
   userId = user.id;
   ({ cookie } = await login(server.app, user.email));
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `analysis-${randomUUID().slice(0, 8)}`, name: "Analysis", createdBy: userId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  projectId = project.id;
+  workspaceId = workspace.id;
   const device = await pairDevice(testDb.db, userId);
   agent = await FakeAgent.connect(server.port, { secret: device.secret });
   await agent.hello({ jobTypes: ["kb.analyze_reference"], credits: { producer: 1 } });
@@ -57,7 +57,7 @@ afterAll(async () => {
 });
 
 async function newReference(transcript?: string) {
-  const response = await send(server.app, "POST", `/api/projects/${projectId}/kb`, {
+  const response = await send(server.app, "POST", `/api/workspaces/${workspaceId}/kb`, {
     cookie,
     body: {
       kind: "reference",
@@ -115,11 +115,11 @@ describe("reference analysis", () => {
     const transcript = "Quick: what happens when you type a URL and press enter?";
     const reference = await newReference(transcript);
     const job = await analyzed(reference.id);
-    expect(job).toMatchObject({ type: "kb.analyze_reference", projectId });
+    expect(job).toMatchObject({ type: "kb.analyze_reference", workspaceId });
     const [row] = await testDb.db.select().from(jobs).where(eq(jobs.id, job.id));
     expect(row?.idempotencyKey).toBe(analysisKey(reference.id, transcript));
     expect(row?.payload).toEqual({
-      projectId,
+      workspaceId,
       entryId: reference.id,
       url: reference.sourceUrl,
       platform: "youtube",
@@ -272,8 +272,8 @@ describe("reference analysis", () => {
   });
 
   it("analyses uploaded media when there is no transcript and keeps the transcript it made", async () => {
-    const media = await insertAsset(testDb.db, projectId);
-    const response = await send(server.app, "POST", `/api/projects/${projectId}/kb`, {
+    const media = await insertAsset(testDb.db, workspaceId);
+    const response = await send(server.app, "POST", `/api/workspaces/${workspaceId}/kb`, {
       cookie,
       body: {
         kind: "reference",
@@ -309,7 +309,7 @@ describe("reference analysis", () => {
     expect(missing.status).toBe(409);
     expect(await errorCode(missing)).toBe("conflict");
 
-    const note = await send(server.app, "POST", `/api/projects/${projectId}/kb`, {
+    const note = await send(server.app, "POST", `/api/workspaces/${workspaceId}/kb`, {
       cookie,
       body: { kind: "note", title: "Not a reference", bodyMd: "Text" },
     });

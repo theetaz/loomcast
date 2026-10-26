@@ -209,7 +209,7 @@ describe("analytics formatting", () => {
 
     const post: PostPerformance = {
       ...mockLivePost({
-        item: { id: "i", projectId: "p", seriesId: null, title: "Moves" },
+        item: { id: "i", workspaceId: "p", seriesId: null, title: "Moves" },
         platform: "threads",
         publishedAt: "2026-10-02T12:00:00.000Z",
       }).post,
@@ -242,14 +242,14 @@ describe("analytics ranges", () => {
   });
 
   it("drops unknown search values instead of failing", () => {
-    expect(OverviewSearchSchema.parse({ range: "5y", project: "nope" })).toEqual({});
+    expect(OverviewSearchSchema.parse({ range: "5y", workspace: "nope" })).toEqual({});
     expect(OverviewSearchSchema.parse({ range: "90d" })).toEqual({ range: "90d" });
   });
 });
 
 describe("mock analytics", () => {
   it("groups daily views by UTC publish day and ranks the top posts", () => {
-    const item = { id: "i", projectId: "p", seriesId: null, title: "Late night" };
+    const item = { id: "i", workspaceId: "p", seriesId: null, title: "Late night" };
     // 23:30 at UTC-5 is the next day in UTC.
     const late = mockLivePost({
       item,

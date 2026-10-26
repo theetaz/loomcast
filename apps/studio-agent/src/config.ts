@@ -21,7 +21,7 @@ import { normalizeServerUrl } from "./server-url";
 /** Jobs run at the same time per concurrency class, unless the config says otherwise. */
 export const DEFAULT_CONCURRENCY: Credits = { producer: 1, render: 1 };
 
-/** `~/Loomcast`: producer sessions work in `<workspaceRoot>/projects/<projectId>`. */
+/** `~/Loomcast`: producer sessions work in `<workspaceRoot>/projects/<workspaceId>`. */
 export function defaultWorkspaceRoot(): string {
   return join(homedir(), "Loomcast");
 }

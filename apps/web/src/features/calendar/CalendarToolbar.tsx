@@ -4,7 +4,6 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -25,7 +24,6 @@ import {
   RadioTowerIcon,
   XIcon,
 } from "lucide-react";
-import { Fragment } from "react";
 import { PlatformDot, platformLabel } from "@/features/channels/platforms";
 import type { SeriesOption } from "@/features/library/queries";
 import type { CalendarView, CalendarZoneMode } from "./search";
@@ -106,6 +104,7 @@ export interface CalendarFiltersProps {
   seriesIds: string[];
   onSeriesChange: (ids: string[]) => void;
   zoneMode: CalendarZoneMode;
+  workspaceZone: string;
   localZone: string;
   /** The filtered series' time zone; null when they don't share one. */
   seriesZone: string | null;
@@ -127,6 +126,7 @@ export function CalendarFilters({
   seriesIds,
   onSeriesChange,
   zoneMode,
+  workspaceZone,
   localZone,
   seriesZone,
   onZoneChange,
@@ -148,14 +148,10 @@ export function CalendarFilters({
         ? (series.find((option) => option.series.id === firstSeries)?.series.name ?? "1 series")
         : `${seriesIds.length} series`;
 
-  const groups = new Map<string, SeriesOption[]>();
-  for (const option of series) {
-    const key = option.project?.name ?? "";
-    groups.set(key, [...(groups.get(key) ?? []), option]);
-  }
-
-  const usesSeriesZone = zoneMode === "series" && seriesZone !== null;
-  const zone = usesSeriesZone ? seriesZone : localZone;
+  const mode: CalendarZoneMode =
+    zoneMode === "series" && seriesZone === null ? "workspace" : zoneMode;
+  const zone =
+    mode === "series" && seriesZone ? seriesZone : mode === "local" ? localZone : workspaceZone;
 
   return (
     <search
@@ -218,26 +214,19 @@ export function CalendarFilters({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-60">
+          <DropdownMenuLabel>Series</DropdownMenuLabel>
           {series.length === 0 ? <DropdownMenuItem disabled>No series yet</DropdownMenuItem> : null}
-          {[...groups].map(([project, options], index) => (
-            <Fragment key={project}>
-              {index > 0 ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>{project || "Series"}</DropdownMenuLabel>
-                {options.map(({ series: entry }) => (
-                  <DropdownMenuCheckboxItem
-                    key={entry.id}
-                    checked={seriesIds.includes(entry.id)}
-                    onSelect={(event) => event.preventDefault()}
-                    onCheckedChange={(checked) =>
-                      onSeriesChange(toggle(seriesIds, entry.id, checked === true))
-                    }
-                  >
-                    <span className="min-w-0 truncate">{entry.name}</span>
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuGroup>
-            </Fragment>
+          {series.map(({ series: entry }) => (
+            <DropdownMenuCheckboxItem
+              key={entry.id}
+              checked={seriesIds.includes(entry.id)}
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={(checked) =>
+                onSeriesChange(toggle(seriesIds, entry.id, checked === true))
+              }
+            >
+              <span className="min-w-0 truncate">{entry.name}</span>
+            </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={seriesIds.length === 0} onSelect={() => onSeriesChange([])}>
@@ -251,7 +240,11 @@ export function CalendarFilters({
           <Button variant="ghost" className="h-8 max-w-72" aria-label={`Time zone: ${zone}`}>
             <GlobeIcon aria-hidden="true" />
             <span className="truncate">
-              {usesSeriesZone ? "Series time" : "Your time"}
+              {mode === "series"
+                ? "Series time"
+                : mode === "local"
+                  ? "Your time"
+                  : "Workspace time"}
               <span className="text-muted-foreground"> · {zone.replaceAll("_", " ")}</span>
             </span>
             <ChevronDownIcon aria-hidden="true" className="text-text-4" />
@@ -260,9 +253,15 @@ export function CalendarFilters({
         <DropdownMenuContent align="start" className="min-w-64">
           <DropdownMenuLabel>Show times in</DropdownMenuLabel>
           <DropdownMenuRadioGroup
-            value={usesSeriesZone ? "series" : "local"}
-            onValueChange={(value) => onZoneChange(value === "series" ? "series" : "local")}
+            value={mode}
+            onValueChange={(value) =>
+              onZoneChange(value === "series" || value === "local" ? value : "workspace")
+            }
           >
+            <DropdownMenuRadioItem value="workspace">
+              Workspace time zone
+              <span className="ml-auto pl-3 text-small text-muted-foreground">{workspaceZone}</span>
+            </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="local">
               Your time zone
               <span className="ml-auto pl-3 text-small text-muted-foreground">{localZone}</span>

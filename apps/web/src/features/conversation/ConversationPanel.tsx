@@ -1,4 +1,4 @@
-import type { Conversation, Project } from "@loomcast/contracts";
+import type { Conversation, Workspace } from "@loomcast/contracts";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
@@ -13,7 +13,7 @@ import { addConversation, conversationsQueryOptions } from "./queries";
 import { createConversationStore } from "./store";
 import { useConversationLive } from "./use-conversation-live";
 
-const projectRoute = getRouteApi("/_app/projects/$projectId");
+const workspaceRoute = getRouteApi("/_app/w/$workspace");
 
 // The thread brings the markdown renderer; load it with the panel, not the app.
 const ConversationThread = lazy(() =>
@@ -21,30 +21,30 @@ const ConversationThread = lazy(() =>
 );
 
 export interface ConversationPanelProps {
-  project: Project;
+  workspace: Workspace;
 }
 
 /**
- * The project's conversations with the studio agent: a list of conversations
+ * The workspace's conversations with the studio agent: a list of conversations
  * (a column on wide screens, a picker on phones) and the open conversation
  * with its streaming reply, job status and composer. The open conversation is
  * in the address (`?conversation=`); without one, the latest is open.
  */
-export function ConversationPanel({ project }: ConversationPanelProps) {
+export function ConversationPanel({ workspace }: ConversationPanelProps) {
   const queryClient = useQueryClient();
-  const { projectId: projectParam } = projectRoute.useParams();
-  const search = projectRoute.useSearch();
-  const navigate = projectRoute.useNavigate();
+  const { workspace: workspaceParam } = workspaceRoute.useParams();
+  const search = workspaceRoute.useSearch();
+  const navigate = workspaceRoute.useNavigate();
   const [store] = useState(createConversationStore);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
-  const query = useQuery(conversationsQueryOptions(project.id));
+  const query = useQuery(conversationsQueryOptions(workspace.id));
   const conversations = query.data ?? [];
   const selected =
     conversations.find((conversation) => conversation.id === search.conversation) ??
     conversations[0];
 
-  useConversationLive(project.id, store, selected?.id);
+  useConversationLive(workspace.id, store, selected?.id);
 
   const select = useCallback(
     (id: string) => {
@@ -57,7 +57,7 @@ export function ConversationPanel({ project }: ConversationPanelProps) {
 
   const create = useMutation({
     mutationFn: () =>
-      api.request("conversations.create", { params: { projectId: project.id }, body: {} }),
+      api.request("conversations.create", { params: { workspaceId: workspace.id }, body: {} }),
     onSuccess: (conversation) => {
       addConversation(queryClient, conversation);
       select(conversation.id);
@@ -68,7 +68,7 @@ export function ConversationPanel({ project }: ConversationPanelProps) {
   });
 
   const listProps = {
-    projectParam,
+    workspaceParam,
     conversations,
     selectedId: selected?.id,
     onSelect: select,
@@ -79,7 +79,7 @@ export function ConversationPanel({ project }: ConversationPanelProps) {
 
   return (
     <section
-      aria-label={`Conversations in ${project.name}`}
+      aria-label={`Conversations in ${workspace.name}`}
       className="flex min-h-[440px] flex-1 overflow-hidden rounded-lg bg-card shadow-card max-md:min-h-[calc(100svh-7rem)]"
     >
       {query.isError ? (
@@ -109,7 +109,7 @@ export function ConversationPanel({ project }: ConversationPanelProps) {
             ) : (
               <Suspense fallback={<MessagesSkeleton />}>
                 <ConversationThread
-                  project={project}
+                  workspace={workspace}
                   conversation={selected}
                   store={store}
                   onConversationCreated={onCreated}

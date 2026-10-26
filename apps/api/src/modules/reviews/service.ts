@@ -29,8 +29,8 @@ import {
   inTransaction,
   invalidTransition,
   missingArtifact,
-  projectExists,
   staleVersion,
+  workspaceExists,
 } from "../content/support";
 import { transitionItem } from "../content/transitions";
 
@@ -64,7 +64,7 @@ export interface ReviewsService {
   list(itemId: string): Promise<Review[] | null>;
   /**
    * Items in `review`, by `targetAt` (soonest first, unscheduled last), then the longest waiting.
-   * Null when `projectId` names no project.
+   * Null when `workspaceId` names no workspace.
    */
   queue(query?: ReviewQueueQuery): Promise<CursorPage<ContentItem> | null>;
 }
@@ -181,9 +181,9 @@ export function createReviewsService(deps: ReviewsServiceDeps): ReviewsService {
           },
         });
         const review = toReview(row);
-        const projectId = item.projectId;
+        const workspaceId = item.workspaceId;
         afterCommit(tx, () =>
-          bus.publish({ type: "review.created", payload: { projectId, review } }),
+          bus.publish({ type: "review.created", payload: { workspaceId, review } }),
         );
         return { review, item: updated };
       });
@@ -203,13 +203,15 @@ export function createReviewsService(deps: ReviewsServiceDeps): ReviewsService {
     },
 
     async queue(query = {}) {
-      if (query.projectId !== undefined && !(await projectExists(db, query.projectId))) {
+      if (query.workspaceId !== undefined && !(await workspaceExists(db, query.workspaceId))) {
         return null;
       }
       const limit = query.limit ?? DEFAULT_PAGE_LIMIT;
       const conditions: (SQL | undefined)[] = [
         eq(contentItems.state, "review"),
-        query.projectId === undefined ? undefined : eq(contentItems.projectId, query.projectId),
+        query.workspaceId === undefined
+          ? undefined
+          : eq(contentItems.workspaceId, query.workspaceId),
       ];
       if (query.cursor !== undefined) {
         conditions.push(afterCursor(decodeCursor(query.cursor, ["t", "u", "id"], ["t"])));

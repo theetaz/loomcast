@@ -1,12 +1,12 @@
 # API clients
 
-An API client lets another backend you run, such as a website or a newsletter tool, schedule posts on your Facebook Pages and Instagram accounts through Loomcast's REST API. You decide which channels each client may use and how far it may go on each; Loomcast does the publishing. Only the workspace owner sees **Settings → API clients**.
+An API client lets another backend you run, such as a website or a newsletter tool, schedule posts on a workspace's Facebook Pages and Instagram accounts through Loomcast's REST API. You decide which channels each client may use and how far it may go on each; Loomcast does the publishing. API clients are managed per workspace in **Workspace settings → API clients**, which only the owner sees.
 
 Use an API client for a server that posts on its own. To work with Loomcast from an assistant or an editor, create an access token instead (see [Settings](settings.md)).
 
 ## What a client can do
 
-Each client belongs to one project: the posts it creates appear there as content items, next to your studio's videos, with "From an API client" in their version history. For each channel you pick one level:
+Each client belongs to the workspace it was created in, and can only be given that workspace's channels. The posts it creates appear in that workspace as content items, next to your studio's videos, with "From an API client" in their version history. For each channel you pick one level:
 
 | Level | The client may |
 |---|---|
@@ -19,20 +19,19 @@ A post on several channels needs at least **Write** on all of them, and it is ap
 
 ## Create a client
 
-1. Open **Settings → API clients** and select **New client**.
-2. In **Name**, name it after the backend that will use it, for example "Blog backend". Create one client per backend, so you can revoke one without breaking the others.
-3. In **Project**, pick the project its posts go into.
-4. In **Key expires**, keep **Never expires** or pick 30 days, 90 days or 1 year. An expired key stops working; create a new client then.
-5. Under **Channels**, every channel starts with **No access**. Set **Read**, **Write** or **Publish** on the channels the backend should use. Give **Publish** only to a backend you trust to post without your review.
-6. Select **Create client**.
-7. Select **Copy key** and store it in the backend's secret settings. This is the only time the key is shown; Loomcast keeps just enough to recognise it. If you lose it, revoke the client and create a new one.
-8. Select **Done**.
+1. Open the workspace the backend should post for, then **Workspace settings → API clients**, and select **New client**.
+2. In **Name**, name it after the backend that will use it, for example "Blog backend". Create one client per backend, so you can revoke one without breaking the others. A backend that posts for several brands needs a client in each of their workspaces.
+3. In **Key expires**, keep **Never expires** or pick 30 days, 90 days or 1 year. An expired key stops working; create a new client then.
+4. Under **Channels**, every channel of the workspace starts with **No access**. Set **Read**, **Write** or **Publish** on the channels the backend should use. Give **Publish** only to a backend you trust to post without your review.
+5. Select **Create client**.
+6. Select **Copy key** and store it in the backend's secret settings. This is the only time the key is shown; Loomcast keeps just enough to recognise it. If you lose it, revoke the client and create a new one.
+7. Select **Done**.
 
 The person who connects the backend needs the key and the API's address, `https://<your Loomcast address>/api/v1`. The full reference for developers is in the [machine API documentation](../api.md) and, for language models, at `/llms.txt` on your Loomcast address. **Connect a backend** on the same page shows a first request to try.
 
 ## The clients table
 
-Each row shows the client's **Name** with the start of its key, its **Project**, its **Channels** with their levels, when it was **Last used**, and its **Status**: **Active**, **Expired** or **Revoked**, with the expiry date of an active key that has one. Revoked clients stay listed for reference, without actions.
+The table lists the open workspace's clients. Each row shows the client's **Name** with the start of its key, its **Channels** with their levels, when it was **Last used**, and its **Status**: **Active**, **Expired** or **Revoked**, with the expiry date of an active key that has one. Revoked clients stay listed for reference, without actions.
 
 ## Change a client's channels
 

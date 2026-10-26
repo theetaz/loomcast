@@ -1,7 +1,7 @@
 import type { Cadence, ContentItem, ContentVersion, Series } from "@loomcast/contracts";
 import { mockChannel, mockPost } from "@/mocks/calendar";
 import { mockContentItem, mockSeries } from "@/mocks/content";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { mockFormat, mockRules } from "@/mocks/formats";
 import { onlineStudio } from "./kb";
 
@@ -20,12 +20,16 @@ const CREATED = "2026-10-01T08:00:00.000Z";
  * - `result` approved without posts; its series has an open Instagram slot Thursday 18:00.
  */
 export function calendarSetup() {
-  const project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
-  const ownership = mockSeries({ projectId: project.id, name: "Ownership basics" });
-  const errors = mockSeries({ projectId: project.id, name: "Error handling" });
+  const workspace = mockWorkspace({
+    name: "Rust in 60 seconds",
+    slug: "rust-in-60-seconds",
+    timeZone: CALENDAR_ZONE,
+  });
+  const ownership = mockSeries({ workspaceId: workspace.id, name: "Ownership basics" });
+  const errors = mockSeries({ workspaceId: workspace.id, name: "Error handling" });
   const cadenced = (series: Series, cadence: Pick<Cadence, "days" | "slots">) =>
     mockFormat(
-      { id: series.formatId, projectId: project.id, name: `${series.name} format` },
+      { id: series.formatId, workspaceId: workspace.id, name: `${series.name} format` },
       [
         mockRules((rules) => {
           rules.cadence = { ...rules.cadence, ...cadence, tz: CALENDAR_ZONE };
@@ -38,11 +42,13 @@ export function calendarSetup() {
     cadenced(errors, { days: ["tue", "thu"], slots: ["18:00"] }),
   ];
   const instagram = mockChannel({
+    workspaceId: workspace.id,
     platform: "instagram",
     displayName: "@rustin60",
     createdAt: CREATED,
   });
   const threads = mockChannel({
+    workspaceId: workspace.id,
     platform: "threads",
     displayName: "Rust threads",
     createdAt: CREATED,
@@ -51,7 +57,7 @@ export function calendarSetup() {
   const versions: ContentVersion[] = [];
   const item = (title: string, extra: Partial<ContentItem>): ContentItem => {
     const created = mockContentItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       title,
       versionNo: 5,
       createdBy: MOCK_USER.id,
@@ -93,7 +99,7 @@ export function calendarSetup() {
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     series: [ownership, errors],
     formats: formats.map((entry) => entry.format),
@@ -115,7 +121,7 @@ export function calendarSetup() {
   });
   return {
     db,
-    project,
+    workspace,
     series: { ownership, errors },
     channels: { instagram, threads },
     items: { moves, logging, result },

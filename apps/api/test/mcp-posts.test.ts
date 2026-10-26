@@ -15,9 +15,9 @@ import {
   auditLog,
   channels,
   contentItems,
-  projects,
   reviews,
   scheduledPosts,
+  workspaces,
 } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -55,7 +55,7 @@ let ownerId: string;
 let ownerTokenId: string;
 let owner: Client;
 let writer: Client;
-let projectId: string;
+let workspaceId: string;
 let facebookId: string;
 let instagramId: string;
 const clients: Client[] = [];
@@ -81,14 +81,14 @@ beforeAll(async () => {
     server.url,
     (await issueToken(server.deps, ownerId, ["mcp:read", "mcp:write"])).secret,
   );
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `posts-${randomUUID().slice(0, 8)}`, name: "Posts", createdBy: ownerId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  projectId = project.id;
+  workspaceId = workspace.id;
   facebookId = await newChannel("facebook");
   instagramId = await newChannel("instagram");
 });
@@ -120,10 +120,12 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
 async function newChannel(
   platform: Platform,
   status: "disconnected" | "disabled" = "disconnected",
+  workspace = workspaceId,
 ) {
   const [row] = await testDb.db
     .insert(channels)
     .values({
+      workspaceId: workspace,
       platform,
       displayName: `${platform} ${randomUUID().slice(0, 6)}`,
       status,
@@ -167,7 +169,7 @@ async function storedToken(userId: string, scopes: TokenScope[]): Promise<string
 }
 
 async function createPost(args: Record<string, unknown>) {
-  const result = await call(owner, "post.create", { projectId, title: "A post", ...args });
+  const result = await call(owner, "post.create", { workspaceId, title: "A post", ...args });
   expectOk(result);
   return PostComposedOutputSchema.parse(result.structuredContent);
 }
@@ -279,7 +281,7 @@ describe("composed posts over MCP", () => {
       expect.objectContaining({
         data: {
           outcome: "ok",
-          projectId,
+          workspaceId,
           itemId,
           reviewId: scheduled.reviewId,
           postIds: scheduled.posts.map((post) => post.id),
@@ -290,7 +292,7 @@ describe("composed posts over MCP", () => {
     const calendar = await call(owner, "calendar.list_posts", {
       from: ahead(0),
       to: ahead(48),
-      projectId,
+      workspaceId,
     });
     expectOk(calendar);
     const listed = CalendarListPostsOutputSchema.parse(calendar.structuredContent).posts.filter(
@@ -415,7 +417,7 @@ describe("composed posts over MCP", () => {
     });
     expect(refused.isError).toBe(true);
     expect(textOf(refused)).toMatch(
-      /^validation_failed: No post was scheduled: some channels were refused\. \(channelIds\.1: No channel has that id; channelIds\.2: .*: the channel is disabled\)$/,
+      /^validation_failed: No post was scheduled: some channels were refused\. \(channelIds\.1: No channel of this workspace has that id; channelIds\.2: .*: the channel is disabled\)$/,
     );
 
     // The time is checked by the calendar after the approval: the approval is rolled back too.
@@ -445,6 +447,29 @@ describe("composed posts over MCP", () => {
     expect(textOf(again)).toMatch(/^validation_failed: .*the item already has a post here/);
   });
 
+  it("refuses a channel of another workspace", async () => {
+    const created = await createPost({ format: "text", caption: "Only here." });
+    const itemId = created.item.id;
+    const [other] = await testDb.db
+      .insert(workspaces)
+      .values({ slug: `other-${randomUUID().slice(0, 8)}`, name: "Other", createdBy: ownerId })
+      .returning();
+    if (other === undefined) throw new Error("workspace was not inserted");
+    const foreign = await newChannel("facebook", "disconnected", other.id);
+
+    const refused = await call(owner, "post.schedule", {
+      itemId,
+      channelIds: [facebookId, foreign],
+      scheduledAt: ahead(24),
+    });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe(
+      "validation_failed: No post was scheduled: some channels were refused. (channelIds.1: No channel of this workspace has that id)",
+    );
+    expect(await stateOf(itemId)).toBe("render");
+    expect(await postsOf(itemId)).toEqual([]);
+  });
+
   it("checks the media and the versions it is given", async () => {
     const created = await createPost({ format: "image" });
     const itemId = created.item.id;
@@ -461,13 +486,13 @@ describe("composed posts over MCP", () => {
     expect(nothing.isError).toBe(true);
     const missing = await call(owner, "post.compose", { itemId: randomUUID(), caption: "x" });
     expect(textOf(missing)).toBe("not_found: No content item has that id.");
-    const noProject = await call(owner, "post.create", {
-      projectId: randomUUID(),
+    const noWorkspace = await call(owner, "post.create", {
+      workspaceId: randomUUID(),
       title: "Nowhere",
       format: "image",
     });
-    expect(noProject.isError).toBe(true);
-    expect(textOf(noProject)).toMatch(/^not_found: /);
+    expect(noWorkspace.isError).toBe(true);
+    expect(textOf(noWorkspace)).toMatch(/^not_found: /);
   });
 });
 
@@ -475,7 +500,7 @@ describe("post tool access", () => {
   it("refuses tokens without mcp:admin", async () => {
     const created = await createPost({ format: "text", caption: "Scoped." });
     for (const [name, args] of [
-      ["post.create", { projectId, title: "No", format: "image" }],
+      ["post.create", { workspaceId, title: "No", format: "image" }],
       ["post.compose", { itemId: created.item.id, caption: "No" }],
       [
         "post.schedule",
@@ -498,7 +523,7 @@ describe("post tool access", () => {
     clients.push(client);
     const created = await createPost({ format: "text", caption: "Owner's." });
     for (const [name, args] of [
-      ["post.create", { projectId, title: "No", format: "image" }],
+      ["post.create", { workspaceId, title: "No", format: "image" }],
       ["post.compose", { itemId: created.item.id, caption: "No" }],
       [
         "post.schedule",
@@ -515,14 +540,14 @@ describe("post tool access", () => {
   it("refuses job tokens, even the owner's, but lets them read the formats", async () => {
     const { secret } = await issueJobToken(testDb.db, {
       userId: ownerId,
-      projectId,
+      workspaceId,
       scopes: ["mcp:read", "mcp:write", "mcp:admin"],
     });
     const client = await connectClient(server.url, secret);
     clients.push(client);
     const created = await createPost({ format: "text", caption: "Not for jobs." });
     for (const [name, args] of [
-      ["post.create", { projectId, title: "No", format: "image" }],
+      ["post.create", { workspaceId, title: "No", format: "image" }],
       ["post.compose", { itemId: created.item.id, caption: "No" }],
       [
         "post.schedule",

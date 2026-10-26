@@ -11,9 +11,9 @@ Zod schemas and TypeScript types shared by the API, the web app, the studio agen
 Each shape has a schema with a `Schema` suffix and a type of the same base name:
 
 ```ts
-import { CreateProjectSchema, type CreateProject } from "@loomcast/contracts";
+import { CreateWorkspaceSchema, type CreateWorkspace } from "@loomcast/contracts";
 
-const input: CreateProject = CreateProjectSchema.parse(body);
+const input: CreateWorkspace = CreateWorkspaceSchema.parse(body);
 ```
 
 Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) and a union type (`JobType`). `@loomcast/db` builds its pg enums from the arrays.
@@ -22,17 +22,17 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 
 | Module | Contents |
 |---|---|
-| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, project status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
+| `src/enums.ts` | The enumerations from the data model: user roles, token kinds and scopes, workspace status, job types and statuses, message roles, actor kinds, knowledge-base entry kinds and sources, reference platforms and analysis statuses, password-token purposes, pipeline states, content actions, how versions and items were created, series statuses, publish modes, asset kinds and statuses, review decisions, skill kinds, platforms, channel, post and task statuses, publishing modes |
 | `src/common.ts` | Ids (UUID), ISO timestamps, chat text limits |
-| `src/api/*` | REST DTOs for auth, analytics (`analytics.ts`), projects, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), connecting channels through a platform sign-in (`oauth.ts`), server features (`system.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
+| `src/api/*` | REST DTOs for auth, analytics (`analytics.ts`), workspaces, conversations and messages, jobs, devices and pairing, access tokens, the knowledge base (`kb.ts`), users and set-password links (`users.ts`), formats, series, content items and versions (`content.ts`), reviews, assets and skills, channels (`channels.ts`), connecting channels through a platform sign-in (`oauth.ts`), server features (`system.ts`), scheduled posts, the calendar and approvals (`calendar.ts`), publish attempts and the publisher status (`publisher.ts`) and scheduled tasks (`scheduler.ts`); `ApiError`; list and cursor-page shapes |
 | `src/api/routes.ts` | `routes`: method, path, auth mode, and the params, query, body and response schemas of every REST route |
 | `src/events.ts` | `LiveEvent`, the union of server-sent events on `/api/stream`, and `parseLiveEvent` |
 | `src/bridge/*` | Bridge protocol: `PROTOCOL_VERSION`, close codes, limits and timings, the envelope, the `AgentToServer` and `ServerToAgent` unions, `encode`, `parseAgentMessage` and `parseServerMessage` |
 | `src/jobs/concurrency.ts` | Concurrency classes and the credits shape |
 | `src/jobs/durable-events.ts` | Durable job event kinds and the `data` schema of each |
 | `src/jobs/registry.ts` | `jobRegistry`, the job allow-list, with payload and result schemas, timeouts and retry policy per type, and `FormatSnapshotSchema` |
-| `src/mcp/contract.ts` | `McpToolContract`, `MCP_PATH`, the job-token policies and project bindings |
-| `src/mcp/project-tools.ts` | `projectTools`: `project.create`, `project.get` and `project.list` |
+| `src/mcp/contract.ts` | `McpToolContract`, `MCP_PATH`, the job-token policies and workspace bindings |
+| `src/mcp/workspace-tools.ts` | `workspaceTools`: `workspace.create`, `workspace.get` and `workspace.list` |
 | `src/mcp/kb-tools.ts` | `kbTools`: the `kb.*` tools |
 | `src/mcp/admin-tools.ts` | `adminTools`: `admin.create_user` |
 | `src/mcp/pipeline-tools.ts` | `pipelineTools`: format, content, asset and skill tools |
@@ -75,17 +75,36 @@ type Reply = RouteResponse<"messages.post">; // { message, job }
 - Error responses always have the body `ApiError`: `{error: {code, message, details?}}`.
 - Small collections return `{items}`. Messages, knowledge-base entries, content items and the review queue are cursor-paginated: `?cursor=&limit=` returns `{items, nextCursor}`, where `nextCursor` is `null` on the last page.
 
-## Knowledge base
+## Workspaces
 
-Entries belong to a project and have a `kind`: `brainstorm`, `reference`, `decision`, `note` or `session_summary`.
+A workspace is one brand: it owns its channels, series and formats, content, knowledge base, conversations, competitors and API clients. Every signed-in user sees every workspace. Workspaces were called projects before migration `0017`.
 
 | Route | Request | Response |
 |---|---|---|
-| `kb.list` `GET /api/projects/:projectId/kb` | `?kinds=a,b&tag=&cursor=&limit=` | `{items: KbEntry[], nextCursor}` |
-| `kb.create` `POST /api/projects/:projectId/kb` | `CreateKbEntry` (by `kind`) | `KbEntryDetail` |
-| `kb.capture` `POST /api/projects/:projectId/kb/capture` | `{conversationId, messageIds[1..200], title, kind: brainstorm\|note, tags?}` | `KbEntryDetail` |
-| `kb.tags` `GET /api/projects/:projectId/kb/tags` | | `{items: [{tag, count}]}` |
-| `kb.search` `GET /api/kb/search` | `?q=&projectId=&kinds=&limit=` (`q` 1 to 200 characters, `limit` at most 50) | `{items: KbSearchHit[]}` |
+| `workspaces.list` `GET /api/workspaces` | `?status=` | `{items: Workspace[]}` |
+| `workspaces.create` `POST /api/workspaces` | `{name, slug?, description?, color?, timeZone?}` | `Workspace` (201) |
+| `workspaces.get` `GET /api/workspaces/:idOrSlug` | | `Workspace` |
+| `workspaces.update` `PATCH /api/workspaces/:idOrSlug` | `{name?, description?, color?, timeZone?}` (at least one; the slug never changes) | `Workspace` |
+| `workspaces.archive` `POST /api/workspaces/:id/archive` | | `Workspace`, `archived` |
+| `workspaces.icon` `GET /api/workspaces/:id/icon` | | The image; `404 not_found` without one |
+| `workspaces.setIcon` `PUT /api/workspaces/:id/icon` | `{mime, data}` (base64, at most `WORKSPACE_ICON_MAX_BYTES`) or `{fromChannelId}` | `Workspace`; `422` for a large or unsupported image, or another workspace's channel |
+| `workspaces.clearIcon` `DELETE /api/workspaces/:id/icon` | | `Workspace` |
+
+- `Workspace` is `{id, slug, name, description, status, color, iconUrl, timeZone, createdAt, updatedAt, archivedAt}`. `color` is one of `WORKSPACE_COLORS` (`thread`, `ember`, `moss`, `ocean`, `plum`, `amber`, `rose`, `slate`; `thread` by default). `timeZone` is an IANA zone (`UTC` by default), the calendar's default clock.
+- `iconUrl` is a same-origin path that changes with the image (`/api/workspaces/<id>/icon?v=<n>`), or null. `WORKSPACE_ICON_MIMES` is PNG, JPEG and WebP; SVG is refused because it can carry script.
+- Channels, series, formats, content items, conversations, knowledge-base entries and competitors are created under `/api/workspaces/:workspaceId/...`; lists that span workspaces (`content.list`, `reviews.queue`, `approvals.inbox`, `calendar.get`) take an optional `workspaceId` instead.
+
+## Knowledge base
+
+Entries belong to a workspace and have a `kind`: `brainstorm`, `reference`, `decision`, `note` or `session_summary`.
+
+| Route | Request | Response |
+|---|---|---|
+| `kb.list` `GET /api/workspaces/:workspaceId/kb` | `?kinds=a,b&tag=&cursor=&limit=` | `{items: KbEntry[], nextCursor}` |
+| `kb.create` `POST /api/workspaces/:workspaceId/kb` | `CreateKbEntry` (by `kind`) | `KbEntryDetail` |
+| `kb.capture` `POST /api/workspaces/:workspaceId/kb/capture` | `{conversationId, messageIds[1..200], title, kind: brainstorm\|note, tags?}` | `KbEntryDetail` |
+| `kb.tags` `GET /api/workspaces/:workspaceId/kb/tags` | | `{items: [{tag, count}]}` |
+| `kb.search` `GET /api/kb/search` | `?q=&workspaceId=&kinds=&limit=` (`q` 1 to 200 characters, `limit` at most 50) | `{items: KbSearchHit[]}` |
 | `kb.get` `GET /api/kb/:id` | | `KbEntryDetail` |
 | `kb.update` `PATCH /api/kb/:id` | `UpdateKbEntry`, with `expectedUpdatedAt` | `KbEntryDetail`, or `409 conflict` |
 | `kb.delete` `DELETE /api/kb/:id` | | `204` |
@@ -145,16 +164,16 @@ All of them use the cookie session. Lists of formats, series, versions, reviews,
 
 | Route | Request | Response |
 |---|---|---|
-| `formats.list` `GET /api/projects/:projectId/formats` | | `{items: Format[]}` |
-| `formats.create` `POST /api/projects/:projectId/formats` | `{name, slug?, rules?}` (rules default to `DEFAULT_FORMAT_RULES`) | `Format` (201) |
+| `formats.list` `GET /api/workspaces/:workspaceId/formats` | | `{items: Format[]}` |
+| `formats.create` `POST /api/workspaces/:workspaceId/formats` | `{name, slug?, rules?}` (rules default to `DEFAULT_FORMAT_RULES`) | `Format` (201) |
 | `formats.get` `GET /api/formats/:id` | | `Format`, with `currentVersion` |
 | `formats.update` `PATCH /api/formats/:id` | `{baseVersionId, name?, rules?}` | `Format`; every update stores a new version; `409 conflict` when `baseVersionId` is stale |
 | `formats.versions` `GET /api/formats/:id/versions` | | `{items: FormatVersion[]}`, newest first |
-| `series.list`, `series.create` `/api/projects/:projectId/series` | `?status=`; `{name, slug?, formatId}` | `{items: Series[]}`; `Series` (201) |
+| `series.list`, `series.create` `/api/workspaces/:workspaceId/series` | `?status=`; `{name, slug?, formatId}` | `{items: Series[]}`; `Series` (201) |
 | `series.get`, `series.update` `/api/series/:id` | `{name?, formatId?}` | `Series` |
 | `series.pause`, `series.resume`, `series.archive` `POST /api/series/:id/<action>` | | `Series` |
-| `content.list` `GET /api/content` | `?projectId=&states=a,b&seriesId=&q=&targetFrom=&targetTo=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`; archived items only when `states` asks for them |
-| `content.create` `POST /api/projects/:projectId/content` | `{title, format?, pitch?, topic?, seriesId?, targetAt?}` | `ContentItemDetail` (201) |
+| `content.list` `GET /api/content` | `?workspaceId=&states=a,b&seriesId=&q=&targetFrom=&targetTo=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`; archived items only when `states` asks for them |
+| `content.create` `POST /api/workspaces/:workspaceId/content` | `{title, format?, pitch?, topic?, seriesId?, targetAt?}` | `ContentItemDetail` (201) |
 | `content.get` `GET /api/content/:id` | | `ContentItemDetail`: `{item, currentVersion, versions, activeJob}` |
 | `content.update` `PATCH /api/content/:id` | `{title?, pitch?}` | `ContentItem` (no new version) |
 | `content.versions.list` `GET /api/content/:id/versions` | | `{items: ContentVersionSummary[]}` |
@@ -167,8 +186,8 @@ All of them use the cookie session. Lists of formats, series, versions, reviews,
 | `content.assets` `GET /api/content/:id/assets` | `?kind=` | `{items: Asset[]}`, such as every voice take |
 | `reviews.create` `POST /api/content/:id/reviews` | `{versionId, decision, comment?, enqueueRevision?}` | `{review, item}` (201) |
 | `reviews.list` `GET /api/content/:id/reviews` | | `{items: Review[]}` |
-| `reviews.queue` `GET /api/reviews/queue` | `?projectId=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`: items in `review` by `targetAt` (nulls last), then `updatedAt` |
-| `assets.createUpload` `POST /api/assets/uploads` | `{projectId, itemId?, kind, filename, mime, bytes, sha256}` | `{asset, upload: {url, method: "PUT", headers, expiresAt} \| null}` (201) |
+| `reviews.queue` `GET /api/reviews/queue` | `?workspaceId=&cursor=&limit=` | `{items: ContentItem[], nextCursor}`: items in `review` by `targetAt` (nulls last), then `updatedAt` |
+| `assets.createUpload` `POST /api/assets/uploads` | `{workspaceId, itemId?, kind, filename, mime, bytes, sha256}` | `{asset, upload: {url, method: "PUT", headers, expiresAt} \| null}` (201) |
 | `assets.finalize` `POST /api/assets/:id/finalize` | `{probe?, alignment?}` | `Asset` |
 | `assets.get` `GET /api/assets/:id` | | `AssetDetail` (adds a voice take's `alignment`) |
 | `assets.url` `GET /api/assets/:id/url` | `?disposition=inline\|attachment` | `{url, expiresAt}` |
@@ -180,7 +199,7 @@ All of them use the cookie session. Lists of formats, series, versions, reviews,
 - Versions never change. `content.versions.edit` copies the base forward with the changes: a new script clears the voice, render and poster; a new storyboard clears the render and poster; a new `voiceAssetId` (a ready voice take of the same item) clears the render. The new state follows from `PIPELINE_TRANSITIONS`.
 - `content.actions` answers `409 job_in_progress` while the item has an active production job, `422 missing_artifact` when the step's input is missing, and `422 voice_not_configured` for a voice without a format voice. A refused state change is `409 invalid_transition`.
 - `reviews.create` decides the current version of an item in `review`. Requesting changes needs a comment and queues a `content.revise` job unless `enqueueRevision` is `false`; `enqueueRevision` is refused for other decisions.
-- Uploads never pass through the API. `assets.createUpload` checks the MIME type against the kind (`ASSET_KIND_MIME_TYPES`) and the size against its cap (`ASSET_KIND_MAX_BYTES`: renders and reference media 1 GiB, voice 100 MiB, images and other files 20 MiB). The client PUTs the bytes with exactly the returned `headers`, then finalizes; the server checks the size and SHA-256 and marks the asset `ready`, or `failed` and deletes the object. A ready asset with the same owner (the item named by `itemId`, or the project for project-level media such as reference media), kind and SHA-256 comes back with `upload: null`; another item's copy never does. `alignment` is accepted for voice takes only.
+- Uploads never pass through the API. `assets.createUpload` checks the MIME type against the kind (`ASSET_KIND_MIME_TYPES`) and the size against its cap (`ASSET_KIND_MAX_BYTES`: renders and reference media 1 GiB, voice 100 MiB, images and other files 20 MiB). The client PUTs the bytes with exactly the returned `headers`, then finalizes; the server checks the size and SHA-256 and marks the asset `ready`, or `failed` and deletes the object. A ready asset with the same owner (the item named by `itemId`, or the workspace for its own media such as reference media), kind and SHA-256 comes back with `upload: null`; another item's copy never does. `alignment` is accepted for voice takes only.
 - `ConversationSchema.contentItemId` and the reference's `mediaAssetId` (`KbReferenceDetail`, `CreateKbEntry`, `UpdateKbEntry`) link conversations and references to the pipeline; they are optional until every server sends them.
 
 ### Skill files
@@ -234,16 +253,16 @@ Times are whole milliseconds from 0 to 10 minutes (`MAX_TIMELINE_MS`). Text fiel
 | `job.updated` | `{job}` (a `JobSummary`) |
 | `job.activity` | `{jobId, kind, summary, progress?}` (`progress` from 0 to 1) |
 | `device.status` | `{deviceId, online, lastSeenAt}` |
-| `project.created`, `project.updated` | `{project}` |
+| `workspace.created`, `workspace.updated` | `{workspace}` |
 | `kb.entry.created`, `kb.entry.updated` | `{entry}` (a `KbEntry`, without transcript or analysis) |
-| `kb.entry.deleted` | `{entryId, projectId}` |
+| `kb.entry.deleted` | `{entryId, workspaceId}` |
 | `content.item.created`, `content.item.updated` | `{item}` (a `ContentItem`; updates cover state, title, target, autopilot and `lastError`) |
-| `content.version.created` | `{projectId, version}` (a `ContentVersionSummary`) |
+| `content.version.created` | `{workspaceId, version}` (a `ContentVersionSummary`) |
 | `asset.updated` | `{asset}` (created, finalized or failed) |
-| `review.created` | `{projectId, review}` |
+| `review.created` | `{workspaceId, review}` |
 | `skill.published` | `{skill}` (a `SkillVersionSummary`; skills are global) |
 | `post.updated` | `{post}` (a `ScheduledPost`: created, moved, cancelled, publishing, published, failed or missed) |
-| `post.metrics.updated` | `{postId, itemId, projectId, channelId, platform, metrics}` (a new `PostMetrics` capture) |
+| `post.metrics.updated` | `{postId, itemId, workspaceId, channelId, platform, metrics}` (a new `PostMetrics` capture) |
 | `channel.updated` | `{channel}` (a `Channel`, never with credentials) |
 | `task.dead` | `{task}` (a `ScheduledTask` that used up its attempts) |
 | `resync` | `{}`: the client missed events and should refetch |
@@ -277,8 +296,8 @@ else if (parsed.message.type === "job.assign") run(parsed.message.payload.job);
 | Type | Payload | Result | Timeout | Attempts | On lease expiry | Class | MCP access |
 |---|---|---|---|---|---|---|---|
 | `system.ping` | `{}` | `{agentVersion, runtime: {node, platform}, producerAvailable}` | 30 s | 3 | `requeue` | `producer` | `none` |
-| `producer.chat` | `{conversationId, projectId, messageId, text, producerSessionId?, contentItemId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` | `read_write` |
-| `kb.analyze_reference` | `{projectId, entryId, url, platform, transcript?, mediaAssetId?, likedReason?}` (a transcript or media) | `{analysis: ReferenceAnalysis, summaryMd, transcript?}` (summary at most 4,000 characters) | 15 min | 2 | `requeue` | `producer` | `read` |
+| `producer.chat` | `{conversationId, workspaceId, messageId, text, producerSessionId?, contentItemId?}` | `{sdkSessionId, finalText, numTurns, durationMs}` | 30 min | 1 | `fail` | `producer` | `read_write` |
+| `kb.analyze_reference` | `{workspaceId, entryId, url, platform, transcript?, mediaAssetId?, likedReason?}` (a transcript or media) | `{analysis: ReferenceAnalysis, summaryMd, transcript?}` (summary at most 4,000 characters) | 15 min | 2 | `requeue` | `producer` | `read` |
 | `content.write_script` | content fields | `{script, notes?}` | 20 min | 2 | `requeue` | `producer` | `read_write` |
 | `content.storyboard` | content fields | `{storyboard}` | 20 min | 2 | `requeue` | `producer` | `read_write` |
 | `content.revise` | content fields, `reviewId?`, `instructions?` | `{script?, storyboard?, summary}` (at least one artifact) | 20 min | 1 | `fail` | `producer` | `read_write` |
@@ -286,11 +305,11 @@ else if (parsed.message.type === "job.assign") run(parsed.message.payload.job);
 | `content.render` | content fields, `voiceAssetId` | `{renderAssetId, posterAssetId, durationMs, width, height}` | 45 min | 2 | `requeue` | `render` | `read_write` |
 | `skills.sync` | `{names?}` (all skills when left out) | `{synced: [{name, version}]}` | 5 min | 3 | `requeue` | `render` | `read` |
 
-`mcpAccess` says whether a job's producer session may call the MCP server. For `read` and `read_write` the server mints a job token with the scopes in `MCP_ACCESS_SCOPES` (`mcp:read`, plus `mcp:write` for `read_write`), bound to the job's project, and sends it in `job.assign`. For `none` it sends no credentials.
+`mcpAccess` says whether a job's producer session may call the MCP server. For `read` and `read_write` the server mints a job token with the scopes in `MCP_ACCESS_SCOPES` (`mcp:read`, plus `mcp:write` for `read_write`), bound to the job's workspace, and sends it in `job.assign`. For `none` it sends no credentials.
 
 `kb.analyze_reference` works from the transcript the user supplied, or from media the user uploaded (`mediaAssetId`, a `reference_media` asset), which the agent fetches through `asset.get_url`, transcribes and returns as `transcript`. The reference URL is never fetched, and transcripts are untrusted text.
 
-The content fields of every production job are `{projectId, itemId, versionId, format: {formatVersionId, rules}}`: the item, the version the job starts from, and a snapshot of the format rules (`FormatSnapshotSchema`; `formatVersionId` is null for an item without a series). Artifacts are never in the payload; the job reads them with `content.get` and uploads media with `content.upload_asset`. `content.revise` carries the owner's request as `instructions` (a review comment, with `reviewId`), which the producer may treat as trusted. Producer steps may emit `status`, `session`, `tool.activity`, `usage` and `log` events; voice, render and sync emit `status` and `log`. A `status` event may carry `progress` from 0 to 1 (renders report every 10%), which the server forwards as `job.activity.progress`.
+The content fields of every production job are `{workspaceId, itemId, versionId, format: {formatVersionId, rules}}`: the item, the version the job starts from, and a snapshot of the format rules (`FormatSnapshotSchema`; `formatVersionId` is null for an item without a series). Artifacts are never in the payload; the job reads them with `content.get` and uploads media with `content.upload_asset`. `content.revise` carries the owner's request as `instructions` (a review comment, with `reviewId`), which the producer may treat as trusted. Producer steps may emit `status`, `session`, `tool.activity`, `usage` and `log` events; voice, render and sync emit `status` and `log`. A `status` event may carry `progress` from 0 to 1 (renders report every 10%), which the server forwards as `job.activity.progress`.
 
 Use `isJobType`, `parseJobPayload(type, payload)`, `parseJobResult(type, result)` and `allowsEventKind(type, kind)` rather than reading schemas by hand; they keep the payload and result types tied to the job type.
 
@@ -298,26 +317,26 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`mcpTools` (the union of `projectTools`, `kbTools`, `adminTools`, `pipelineTools`, `calendarTools` and `ownerTools`) describes each tool's name, required token scope, job-token policy, project binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `workspaceTools`, `kbTools`, `adminTools`, `pipelineTools`, `calendarTools` and `ownerTools`) describes each tool's name, required token scope, job-token policy, workspace binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
 - `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
-- `projectBinding: "input"`: the input names one project, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any project other than its job's, and binds an omitted optional `projectId` to the job's project.
-- `projectBinding: "none"`: the input names no project. With a job token, results cover only the job's project.
+- `workspaceBinding: "input"`: the input names one workspace, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any workspace other than its job's, and binds an omitted optional `workspaceId` to the job's workspace.
+- `workspaceBinding: "none"`: the input names no workspace. With a job token, results cover only the job's workspace.
 
-| Tool | Scope | Job tokens | Project | Input | Output |
+| Tool | Scope | Job tokens | Workspace | Input | Output |
 |---|---|---|---|---|---|
-| `project.create` | `mcp:write` | deny | none | `{name, slug?, description?}` | `{project: {id, slug, name, description, url}}` |
-| `project.get` | `mcp:read` | allow | input | `{idOrSlug}` | `{project, stats: {conversations, kbEntries, items}}` |
-| `project.list` | `mcp:read` | allow | none | `{status?}` | `{projects}` |
-| `kb.save_brainstorm` | `mcp:write` | allow | input | `{projectId, title, bodyMd, tags?, sessionRef?}` | `{entryId, url}` |
-| `kb.add_reference` | `mcp:write` | allow | input | `{projectId, url, platform?, title?, author?, likedReason?, transcript?, analysis?, tags?}` | `{entryId}` |
-| `kb.add_decision` | `mcp:write` | allow | input | `{projectId, title, decision, rationale?, supersedes?, tags?}` | `{entryId}` |
-| `kb.search` | `mcp:read` | allow | input | `{query, projectId?, kinds?, limit?}` (`limit` at most 50) | `{hits: KbSearchHit[]}` |
+| `workspace.create` | `mcp:write` | deny | none | `{name, slug?, description?}` | `{workspace: {id, slug, name, description, url}}` |
+| `workspace.get` | `mcp:read` | allow | input | `{idOrSlug}` | `{workspace, stats: {conversations, kbEntries, items}}` |
+| `workspace.list` | `mcp:read` | allow | none | `{status?}` | `{workspaces}` |
+| `kb.save_brainstorm` | `mcp:write` | allow | input | `{workspaceId, title, bodyMd, tags?, sessionRef?}` | `{entryId, url}` |
+| `kb.add_reference` | `mcp:write` | allow | input | `{workspaceId, url, platform?, title?, author?, likedReason?, transcript?, analysis?, tags?}` | `{entryId}` |
+| `kb.add_decision` | `mcp:write` | allow | input | `{workspaceId, title, decision, rationale?, supersedes?, tags?}` | `{entryId}` |
+| `kb.search` | `mcp:read` | allow | input | `{query, workspaceId?, kinds?, limit?}` (`limit` at most 50) | `{hits: KbSearchHit[]}` |
 | `kb.get` | `mcp:read` | allow | input | `{entryId}` | `{entry: KbEntryDetail}` |
-| `kb.save_session_summary` | `mcp:write` | deny | input | `{projectId?, sessionId, summaryMd, cwd?}` | `{entryId}` |
+| `kb.save_session_summary` | `mcp:write` | deny | input | `{workspaceId?, sessionId, summaryMd, cwd?}` | `{entryId}` |
 | `admin.create_user` | `mcp:admin` | deny | none | `{email, name, role}` | `{userId, setPasswordUrl, expiresAt}` (never a password) |
 | `format.get_rules` | `mcp:read` | allow | input | `{seriesId}` | `{formatId, name, formatVersionId, version, rules}` |
-| `content.create_idea` | `mcp:write` | allow | input | `{projectId, seriesId?, title, pitch, topic?}` | `{itemId}` |
+| `content.create_idea` | `mcp:write` | allow | input | `{workspaceId, seriesId?, title, pitch, topic?}` | `{itemId}` |
 | `content.get` | `mcp:read` | allow | input | `{itemId, versionId?}` | `{item, version, format: {formatVersionId, rules} \| null}` |
 | `content.submit_for_review` | `mcp:write` | allow | input | `{itemId, baseVersionId?, script?, storyboard?, caption?, notes?}` (a script or storyboard) | `{versionId, versionNo, state}` |
 | `content.upload_asset` | `mcp:write` | allow | input | `{itemId, kind, filename, mime, bytes, sha256}` | `{asset, upload: {url, method, headers, expiresAt} \| null}` |
@@ -325,10 +344,10 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 | `asset.get_url` | `mcp:read` | allow | input | `{assetId, disposition?}` | `{url, expiresAt, asset: AssetDetail}` |
 | `skill.pull` | `mcp:read` | allow | none | `{name?, version?}` | `{skills: [{name, kind, version, checksum, files}]}` |
 | `skill.publish` | `mcp:write` | deny | none | `{name, kind, files, changelog?}` | `{name, version, checksum, created}` |
-| `calendar.get_slots` | `mcp:read` | allow | input | `{projectId?, seriesId?, channelId?, from, to}` (at most 62 days) | `{slots: [{at, seriesId, channelId, postId?}]}` |
+| `calendar.get_slots` | `mcp:read` | allow | input | `{workspaceId?, seriesId?, channelId?, from, to}` (at most 62 days) | `{slots: [{at, seriesId, channelId, postId?}]}` |
 | `content.review` | `mcp:admin` | deny | input | `{itemId, versionId, decision, comment?, enqueueRevision?}` | `{reviewId, itemId, decision, state}` |
-| `channel.list` | `mcp:admin` | deny | none | `{}` | `{channels: Channel[]}` |
-| `calendar.list_posts` | `mcp:admin` | deny | input | `{from, to, projectId?, channelIds?}` (at most 62 days) | `{posts, slots}` |
+| `channel.list` | `mcp:admin` | deny | input | `{workspaceId?}` | `{channels: Channel[]}`, every workspace's or one workspace's |
+| `calendar.list_posts` | `mcp:admin` | deny | input | `{from, to, workspaceId?, channelIds?}` (at most 62 days) | `{posts, slots}` |
 | `calendar.schedule_post` | `mcp:admin` | deny | input | `{itemId, channelId, scheduledAt}` | `{post}` |
 | `calendar.reschedule_post` | `mcp:admin` | deny | none | `{postId, scheduledAt, expectedUpdatedAt}` | `{post}` |
 | `calendar.cancel_post` | `mcp:admin` | deny | none | `{postId}` | `{post}` |
@@ -337,6 +356,7 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 - The `ownerTools` act for the owner: the server checks that the token's user is the owner and records the move as that user's, so the transition table never lets a token approve or schedule.
 - `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
 - `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
+- The API also serves `project.create`, `project.get` and `project.list`, deprecated aliases of the `workspace.*` tools for clients built before projects were renamed workspaces. They are not part of `mcpTools`.
 
 ## Calendar and publishing
 
@@ -379,18 +399,18 @@ The scheduler runs server-side tasks at a set time. Tasks never reach the studio
 
 | Route | Request | Response |
 |---|---|---|
-| `channels.list` `GET /api/channels` | | `{items: Channel[]}` |
-| `channels.create` `POST /api/channels` | `{platform, displayName, requiresApproval?}` | `Channel` (201): a planning channel, `disconnected`, dry-run on |
+| `channels.list` `GET /api/workspaces/:workspaceId/channels` | | `{items: Channel[]}`: the workspace's channels |
+| `channels.create` `POST /api/workspaces/:workspaceId/channels` | `{platform, displayName, requiresApproval?}` | `Channel` (201): a planning channel of the workspace, `disconnected`, dry-run on |
 | `channels.update` `PATCH /api/channels/:id` | `{displayName?, dryRun?, requiresApproval?}` | `Channel`, or `409 dry_run_locked` |
 | `channels.disconnect` `DELETE /api/channels/:id/connection` | | `Channel`, `disconnected` with dry-run on and its credentials wiped |
 | `series.channels` `GET /api/series/:id/channels` | | `SeriesChannels` `{seriesId, channels: [{channelId, enabled}]}` |
 | `series.setChannels` `PUT /api/series/:id/channels` | `{channels: [{channelId, enabled}]}` (replaces the set, at most 50) | `SeriesChannels` |
-| `calendar.get` `GET /api/calendar` | `?from=&to=&projectId=&seriesIds=a,b&channelIds=a,b` (at most 62 days) | `{posts: ScheduledPost[], slots: [{at, seriesId, channelId, postId?}]}` |
+| `calendar.get` `GET /api/calendar` | `?from=&to=&workspaceId=&seriesIds=a,b&channelIds=a,b` (at most 62 days) | `{posts: ScheduledPost[], slots: [{at, seriesId, channelId, postId?}]}` |
 | `scheduledPosts.create` `POST /api/scheduled-posts` | `{itemId, channelId, scheduledAt, options?}` | `ScheduledPost` (201), `queued`; `422 format_not_supported` when the platform does not publish the format |
 | `scheduledPosts.reschedule` `PATCH /api/scheduled-posts/:id` | `{scheduledAt, expectedUpdatedAt}` | `ScheduledPost`; `409 conflict` when stale, `409 post_not_editable` |
 | `scheduledPosts.cancel` `POST /api/scheduled-posts/:id/cancel` | | `ScheduledPost` |
 | `scheduledPosts.attempts` `GET /api/scheduled-posts/:id/attempts` | | `{items: PublishAttempt[]}`, newest first |
-| `approvals.inbox` `GET /api/approvals` | `?projectId=` | `{items: [{item, deadlineAt, posts}], missed: ScheduledPost[]}` |
+| `approvals.inbox` `GET /api/approvals` | `?workspaceId=` | `{items: [{item, deadlineAt, posts}], missed: ScheduledPost[]}` |
 | `publisher.status` `GET /api/publisher/status` | | `{mode: dry-run\|live, enabled, lastTickAt}` |
 | `scheduler.tasks` `GET /api/scheduler/tasks` | `?status=&kind=&cursor=&limit=` | `{items: ScheduledTask[], nextCursor}` (owner and admins) |
 | `scheduler.retryTask` `POST /api/scheduler/tasks/:id/retry` | | `ScheduledTask`; only `failed` and `dead` tasks (owner and admins) |
@@ -408,15 +428,15 @@ A sign-in with a provider connects real accounts. Tokens never leave the server:
 | Route | Request | Response |
 |---|---|---|
 | `oauth.start` `GET /api/oauth/:provider/start` | `?redirectTo=` (an app path) | `302` to the platform's consent dialog |
-| `oauth.callback` `GET /api/oauth/:provider/callback` | `?code=&state=` or `?error=&error_reason=&error_description=` from the platform | `302` to `/settings/channels/connect?connection=<id>`, or `?error=<OAuthConnectError>&provider=` |
+| `oauth.callback` `GET /api/oauth/:provider/callback` | `?code=&state=` or `?error=&error_reason=&error_description=` from the platform | `302` to `/channels/connect?connection=<id>` (`OAUTH_CONNECT_PAGE_PATH`), or `?error=<OAuthConnectError>&provider=` |
 | `oauth.connection` `GET /api/oauth/connections/:id` | | `ConnectionCandidates`; `410 connection_expired` once expired or used |
-| `oauth.accept` `POST /api/oauth/connections/:id/accept` | `{accountIds}` (1 to 100, no repeats) | `{channels: Channel[]}`; `410 connection_expired` |
+| `oauth.accept` `POST /api/oauth/connections/:id/accept` | `{workspaceId, accountIds}` (an active workspace; 1 to 100 accounts, no repeats) | `{channels: Channel[]}`; `410 connection_expired`; `409 channel_in_other_workspace` with the other workspace's id and name in `details` |
 | `system.features` `GET /api/system/features` | | `SystemFeatures` `{xPublishing}` |
 
 - Open the sign-in with `location.assign(oauthStartPath(provider, {redirectTo}))`. Both sign-in routes are session routes: the session cookie is `SameSite=Lax`, so the platform's redirect back carries it, and the callback checks that the sign-in belongs to the same user. A sign-in lasts `OAUTH_STATE_TTL_MS` (10 minutes) and is used once.
 - `OAUTH_PROVIDER_PLATFORMS` lists what each provider connects (`meta`: `facebook`, `instagram`); `oauthProviderForPlatform(platform)` picks the provider for a Reconnect button.
 - `ConnectionCandidates` is `{id, provider, expiresAt, accounts}`. Each account is `{id, platform, externalId, name, username?, parentId, alreadyConnected}`; `id` is `candidateAccountId(platform, externalId)`, and `parentId` names the Facebook Page an Instagram account publishes through. A pending connection lasts `OAUTH_CONNECTION_TTL_MS` (30 minutes).
-- Accepting creates `active` channels with dry-run on, or refreshes the credentials of channels that are `alreadyConnected`. Accepting an Instagram account connects its Page too.
+- Accepting creates `active` channels with dry-run on in the chosen workspace, or refreshes the credentials of channels that are `alreadyConnected` there. Accepting an Instagram account connects its Page too, into the same workspace. A channel belongs to one workspace: an account that is already a channel of another workspace fails the whole accept with `409 channel_in_other_workspace`, and nothing is connected.
 - `OAUTH_CONNECT_ERRORS`: `access_denied`, `invalid_state`, `provider_error`, `no_accounts`, `not_configured` (no app credentials, or `x` while `xPublishing` is off). `OAuthConnectSearchSchema` parses the connect page's search params.
 - `Channel.lastVerifiedAt` (the last daily check that found the credentials valid) and `Channel.lastError` (a `PublishError`, such as the `auth` error that set `needs_reauth`) are optional until the server sends them.
 
@@ -452,9 +472,9 @@ Insights of live posts (`published`, not dry-run) are captured as `PostMetrics` 
 | `analytics.post` `GET /api/analytics/posts/:id` | | `PostAnalytics` `{post, history, nextCaptureAt}` (`history` oldest first) |
 | `analytics.item` `GET /api/analytics/items/:id` | | `ItemAnalytics` `{itemId, totals, posts: PostAnalytics[]}` |
 | `analytics.series` `GET /api/analytics/series/:id` | `?from=&to=` (both optional) | `SeriesAnalytics` `{seriesId, totals, posts}` (oldest `publishedAt` first) |
-| `analytics.overview` `GET /api/analytics/overview` | `?from=&to=&projectId=` (at most 366 days) | `AnalyticsOverview` `{from, to, totals, platforms, daily, topPosts}` |
+| `analytics.overview` `GET /api/analytics/overview` | `?from=&to=&workspaceId=` (at most 366 days) | `AnalyticsOverview` `{from, to, totals, platforms, daily, topPosts}` |
 
-- `PostPerformance` is a live post with its latest capture: `{postId, itemId, projectId, seriesId, channelId, platform, title, permalink, publishedAt, metrics}`, where `metrics` is null before the first capture.
+- `PostPerformance` is a live post with its latest capture: `{postId, itemId, workspaceId, seriesId, channelId, platform, title, permalink, publishedAt, metrics}`, where `metrics` is null before the first capture.
 - `insightsSchedule(publishedAt)` gives the capture times: 1 h, 6 h, 24 h, 72 h, 7 days, 14 days and 30 days after `publishedAt` (`INSIGHTS_SCHEDULE_OFFSETS_MS`).
 - `aggregatePosts(latest)` takes each post's latest capture (`null` for a post without one) and returns an `AnalyticsAggregate`: `posts`, `measuredPosts`, the sums of `views`, `likes`, `comments`, `shares`, `saves` and `reach` (a missing metric counts as 0), `medianViews` (over the posts that report views), `engagementRate` (`(likes + comments + shares + saves) / views`, null while views are 0) and `avgWatchMs` (weighted by views).
 - The overview's `daily` rows are `{date, platform, posts, views}` per UTC publish day, oldest first, and `topPosts` holds the 10 posts with the most views (`ANALYTICS_TOP_POSTS`).

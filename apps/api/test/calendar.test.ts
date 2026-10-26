@@ -18,7 +18,7 @@ import {
   postsOf,
   rulesWith,
 } from "./calendar-support";
-import { call, eventsOf, insertItem, insertProject } from "./pipeline-support";
+import { call, eventsOf, insertItem, insertWorkspace } from "./pipeline-support";
 import { errorCode } from "./support";
 
 let h: CalendarHarness;
@@ -53,26 +53,26 @@ async function stateOf(itemId: string) {
 
 /** An approved, rendered item and a channel to schedule it on. */
 async function approvedItem(state: "approved" | "scheduled" | "review" | "idea" = "approved") {
-  const projectId = await insertProject(h);
-  const channel = await insertChannel(h);
+  const workspaceId = await insertWorkspace(h);
+  const channel = await insertChannel(h, workspaceId);
   const item = await insertItem(h, {
-    projectId,
+    workspaceId,
     state,
     level: state === "idea" ? "none" : "render",
   });
-  return { projectId, channel, ...item };
+  return { workspaceId, channel, ...item };
 }
 
 describe("GET /api/calendar", () => {
   it("lists posts and cadence slots, held or open, from now on", async () => {
-    const projectId = await insertProject(h);
+    const workspaceId = await insertWorkspace(h);
     const { seriesId } = await createSeries(
       h,
-      projectId,
+      workspaceId,
       rulesWith({ days: ["mon", "wed", "fri"], slots: ["09:00"], tz: "UTC", leadTimeHours: 1 }),
     );
-    const one = await insertChannel(h);
-    const two = await insertChannel(h, { platform: "threads" });
+    const one = await insertChannel(h, workspaceId);
+    const two = await insertChannel(h, workspaceId, { platform: "threads" });
     await linkChannel(h, seriesId, one);
     await linkChannel(h, seriesId, two);
     await cadenceServiceFor(h.deps).plan(seriesId);
@@ -85,7 +85,7 @@ describe("GET /api/calendar", () => {
       [...week.posts.map((post) => post.scheduledAt)].sort(),
     );
     expect(week.posts[0]).toMatchObject({
-      projectId,
+      workspaceId,
       seriesId,
       status: "planned",
       publishMode: "approval",
@@ -115,8 +115,8 @@ describe("GET /api/calendar", () => {
     expect(onlyTwo.slots.map((slot) => slot.channelId)).toEqual([two]);
     const bySeries = await getCalendar({ ...WEEK, seriesIds: `${seriesId},${one}` });
     expect(bySeries.posts).toHaveLength(6);
-    const otherProject = await getCalendar({ ...WEEK, projectId: await insertProject(h) });
-    expect(otherProject).toEqual({ posts: [], slots: [] });
+    const otherWorkspace = await getCalendar({ ...WEEK, workspaceId: await insertWorkspace(h) });
+    expect(otherWorkspace).toEqual({ posts: [], slots: [] });
   });
 
   it("refuses ranges over 62 days and malformed filters", async () => {
@@ -137,7 +137,7 @@ describe("GET /api/calendar", () => {
 
 describe("POST /api/scheduled-posts", () => {
   it("schedules an approved item as a queued post with its publish task", async () => {
-    const { itemId, versionId, channel } = await approvedItem();
+    const { itemId, versionId, channel, workspaceId } = await approvedItem();
     const at = new Date(MONDAY.getTime() + 2 * DAY_MS).toISOString();
     const response = await call(h, "POST", "/api/scheduled-posts", {
       itemId,
@@ -170,7 +170,7 @@ describe("POST /api/scheduled-posts", () => {
     expect(again.status).toBe(409);
     expect(await errorCode(again)).toBe("conflict");
     // A scheduled item may go out on another channel too.
-    const other = await insertChannel(h, { platform: "threads" });
+    const other = await insertChannel(h, workspaceId, { platform: "threads" });
     const second = await call(h, "POST", "/api/scheduled-posts", {
       itemId,
       channelId: other,
@@ -180,7 +180,7 @@ describe("POST /api/scheduled-posts", () => {
   });
 
   it("refuses times too soon, unapproved items and unusable channels", async () => {
-    const { itemId, channel } = await approvedItem();
+    const { itemId, channel, workspaceId } = await approvedItem();
     const soon = await call(h, "POST", "/api/scheduled-posts", {
       itemId,
       channelId: channel,
@@ -199,7 +199,7 @@ describe("POST /api/scheduled-posts", () => {
     expect(unapproved.status).toBe(409);
     expect(await errorCode(unapproved)).toBe("invalid_transition");
 
-    const disabled = await insertChannel(h, { status: "disabled" });
+    const disabled = await insertChannel(h, workspaceId, { status: "disabled" });
     const off = await call(h, "POST", "/api/scheduled-posts", {
       itemId,
       channelId: disabled,
@@ -216,11 +216,27 @@ describe("POST /api/scheduled-posts", () => {
     expect(missing.status).toBe(404);
     expect(await stateOf(itemId)).toBe("approved");
   });
+
+  it("refuses a channel of another workspace", async () => {
+    const { itemId } = await approvedItem();
+    const foreign = await insertChannel(h, await insertWorkspace(h));
+    const refused = await call(h, "POST", "/api/scheduled-posts", {
+      itemId,
+      channelId: foreign,
+      scheduledAt: new Date(MONDAY.getTime() + DAY_MS).toISOString(),
+    });
+    expect(refused.status).toBe(404);
+    expect(await refused.json()).toMatchObject({
+      error: { code: "not_found", message: "No channel of this workspace has that id." },
+    });
+    expect(await postsOf(h, itemId)).toEqual([]);
+    expect(await stateOf(itemId)).toBe("approved");
+  });
 });
 
 describe("PATCH /api/scheduled-posts/:id", () => {
   async function queuedPost() {
-    const { itemId, versionId, channel, projectId } = await approvedItem("scheduled");
+    const { itemId, versionId, channel, workspaceId } = await approvedItem("scheduled");
     const post = await insertPost(h, {
       itemId,
       channelId: channel,
@@ -233,7 +249,7 @@ describe("PATCH /api/scheduled-posts/:id", () => {
       { postId: post.id },
       { runAt: post.scheduledAt, dedupeKey: `publish:${post.id}` },
     );
-    return { itemId, versionId, channel, projectId, post };
+    return { itemId, versionId, channel, workspaceId, post };
   }
 
   it("moves a post and its publish task", async () => {
@@ -261,7 +277,7 @@ describe("PATCH /api/scheduled-posts/:id", () => {
   });
 
   it("refuses times too soon and posts that can no longer move", async () => {
-    const { post, itemId, versionId } = await queuedPost();
+    const { post, itemId, versionId, workspaceId } = await queuedPost();
     const soon = await call(h, "PATCH", `/api/scheduled-posts/${post.id}`, {
       scheduledAt: new Date(MONDAY.getTime() + 60_000).toISOString(),
       expectedUpdatedAt: post.updatedAt.toISOString(),
@@ -270,7 +286,7 @@ describe("PATCH /api/scheduled-posts/:id", () => {
     expect(await errorCode(soon)).toBe("validation_failed");
 
     await call(h, "POST", `/api/scheduled-posts/${post.id}/cancel`);
-    const other = await insertChannel(h);
+    const other = await insertChannel(h, workspaceId);
     const published = await insertPost(h, {
       itemId,
       channelId: other,
@@ -326,13 +342,13 @@ describe("PATCH /api/scheduled-posts/:id", () => {
   });
 
   it("moves an idea's pending production with its post", async () => {
-    const projectId = await insertProject(h);
+    const workspaceId = await insertWorkspace(h);
     const { seriesId } = await createSeries(
       h,
-      projectId,
+      workspaceId,
       rulesWith({ days: ["fri"], slots: ["09:00"], tz: "UTC", leadTimeHours: 2 }),
     );
-    const channel = await insertChannel(h);
+    const channel = await insertChannel(h, workspaceId);
     await linkChannel(h, seriesId, channel);
     await cadenceServiceFor(h.deps).plan(seriesId);
     const [item] = await h.db
@@ -355,8 +371,8 @@ describe("PATCH /api/scheduled-posts/:id", () => {
 
 describe("POST /api/scheduled-posts/:id/cancel", () => {
   it("cancels a post and unschedules an item left without queued posts", async () => {
-    const { itemId, versionId, channel } = await approvedItem("scheduled");
-    const other = await insertChannel(h);
+    const { itemId, versionId, channel, workspaceId } = await approvedItem("scheduled");
+    const other = await insertChannel(h, workspaceId);
     const first = await insertPost(h, {
       itemId,
       channelId: channel,

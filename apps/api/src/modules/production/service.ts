@@ -36,7 +36,7 @@ import {
   type Database,
   type JobRow,
   jobs,
-  projects,
+  workspaces,
 } from "@loomcast/db";
 import { and, asc, count, eq, or, sql } from "drizzle-orm";
 import type { EventBus } from "../../lib/bus";
@@ -179,7 +179,7 @@ export interface ProductionService {
   requestRevision(review: Review): Promise<JobRow | null>;
   /**
    * The item's own conversation, created on first use with the item's title. 404 for an unknown
-   * item; 409 when its project is archived and no conversation exists yet.
+   * item; 409 when its workspace is archived and no conversation exists yet.
    */
   conversation(itemId: string, userId: string): Promise<ConversationRow>;
 }
@@ -249,13 +249,13 @@ export function createProductionService(deps: ProductionServiceDeps): Production
   /** The account production jobs of an item run for when no user asked: its creator or owner. */
   async function ownerOf(tx: Transaction, item: ContentItemRow): Promise<string> {
     if (item.createdBy !== null) return item.createdBy;
-    const [project] = await tx
-      .select({ createdBy: projects.createdBy })
-      .from(projects)
-      .where(eq(projects.id, item.projectId))
+    const [workspace] = await tx
+      .select({ createdBy: workspaces.createdBy })
+      .from(workspaces)
+      .where(eq(workspaces.id, item.workspaceId))
       .limit(1);
-    if (project === undefined) throw new Error("content item without its project");
-    return project.createdBy;
+    if (workspace === undefined) throw new Error("content item without its workspace");
+    return workspace.createdBy;
   }
 
   async function currentVersion(tx: Transaction, item: ContentItemRow) {
@@ -289,7 +289,7 @@ export function createProductionService(deps: ProductionServiceDeps): Production
       }
     }
     const format = await formatOf(tx, item.id);
-    const base = { projectId: item.projectId, itemId: item.id, versionId: version.id, format };
+    const base = { workspaceId: item.workspaceId, itemId: item.id, versionId: version.id, format };
     switch (step) {
       case "voice": {
         const { voiceId, voiceSpeed } = format.rules;
@@ -330,7 +330,7 @@ export function createProductionService(deps: ProductionServiceDeps): Production
     const payload = await payloadFor(tx, step, item, version, extras);
     const type = STEP_JOB_TYPES[step];
     const key = stepKey(step, item.id, version.id);
-    const input = { type, payload, projectId: item.projectId, createdBy };
+    const input = { type, payload, workspaceId: item.workspaceId, createdBy };
     const first = await jobsService.enqueue(tx, { ...input, idempotencyKey: key });
     if (first.created || ACTIVE_JOB_STATUSES.includes(first.job.status)) {
       return first.job;
@@ -715,20 +715,20 @@ export function createProductionService(deps: ProductionServiceDeps): Production
           .orderBy(asc(conversations.createdAt), asc(conversations.id))
           .limit(1);
         if (existing !== undefined) return existing;
-        const [project] = await tx
-          .select({ status: projects.status })
-          .from(projects)
-          .where(eq(projects.id, item.projectId))
+        const [workspace] = await tx
+          .select({ status: workspaces.status })
+          .from(workspaces)
+          .where(eq(workspaces.id, item.workspaceId))
           .limit(1);
-        if (project?.status === "archived") {
-          throw conflict("The project is archived. Restore it before adding to it.", {
+        if (workspace?.status === "archived") {
+          throw conflict("The workspace is archived. Restore it before adding to it.", {
             reason: "archived",
           });
         }
         const [row] = await tx
           .insert(conversations)
           .values({
-            projectId: item.projectId,
+            workspaceId: item.workspaceId,
             title: item.title,
             createdBy: userId,
             contentItemId: item.id,

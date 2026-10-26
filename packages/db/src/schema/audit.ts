@@ -4,7 +4,7 @@ import { createdAt } from "./columns";
 import { actorKind } from "./enums";
 
 /**
- * Append-only record of security-relevant actions: sign-ins, token, device, user and project
+ * Append-only record of security-relevant actions: sign-ins, token, device, user and workspace
  * lifecycle. Ids are stored as text without foreign keys, so entries outlive what they describe.
  */
 export const auditLog = pgTable(

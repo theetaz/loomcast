@@ -20,7 +20,7 @@ function pulled(detail: SkillVersionDetail) {
 }
 
 /**
- * `skill.pull` and `skill.publish`. Skills are global, so neither tool is tied to a project; job
+ * `skill.pull` and `skill.publish`. Skills are global, so neither tool is tied to a workspace; job
  * tokens may pull (studio agents sync with them) but never publish.
  */
 export function createSkillTools(deps: SkillToolsDeps): ToolDefinition[] {

@@ -19,14 +19,14 @@ export function sampleAnalysis(
 /** An uploaded asset row, `ready` `reference_media` unless told otherwise. */
 export async function insertAsset(
   db: Database,
-  projectId: string,
+  workspaceId: string,
   values: { kind?: "reference_media" | "poster"; status?: "pending" | "ready" } = {},
 ): Promise<string> {
   const name = randomUUID();
   const [asset] = await db
     .insert(assets)
     .values({
-      projectId,
+      workspaceId,
       kind: values.kind ?? "reference_media",
       status: values.status ?? "ready",
       bucket: "loomcast-media",

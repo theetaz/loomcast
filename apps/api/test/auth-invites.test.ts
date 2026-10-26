@@ -6,7 +6,15 @@ import {
   PasswordTokenInfoSchema,
   UserSummarySchema,
 } from "@loomcast/contracts";
-import { apiTokens, auditLog, jobs, passwordTokens, projects, sessions, users } from "@loomcast/db";
+import {
+  apiTokens,
+  auditLog,
+  jobs,
+  passwordTokens,
+  sessions,
+  users,
+  workspaces,
+} from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -46,7 +54,7 @@ function nextIp(): string {
 /** The owner of a fresh app, signed in. Each test gets its own owner-less database state. */
 async function ownerApp(): Promise<{ test: TestApp; ownerId: string; cookie: string }> {
   await testDb.db.delete(jobs);
-  await testDb.db.delete(projects);
+  await testDb.db.delete(workspaces);
   await testDb.db.delete(apiTokens);
   await testDb.db.delete(users);
   const test = createTestApp(testDb.db);
@@ -342,8 +350,8 @@ describe("disable", () => {
     });
     expect(mcp.status).toBe(201);
     const { secret } = (await mcp.json()) as { secret: string };
-    const [project] = await testDb.db
-      .insert(projects)
+    const [workspace] = await testDb.db
+      .insert(workspaces)
       .values({ slug: `p-${randomUUID()}`, name: "P", createdBy: member.id })
       .returning();
     const [job] = await testDb.db
@@ -351,14 +359,14 @@ describe("disable", () => {
       .values({
         type: "system.ping",
         payload: {},
-        projectId: project?.id ?? "",
+        workspaceId: workspace?.id ?? "",
         createdBy: member.id,
       })
       .returning();
     const deps = { db: testDb.db, clock: test.clock };
     const minted = await createTokensService(deps).mintJobToken({
       jobId: job?.id ?? "",
-      projectId: project?.id ?? "",
+      workspaceId: workspace?.id ?? "",
       userId: member.id,
       access: "read",
       ttlMs: 60_000,

@@ -4,7 +4,7 @@ import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seriesCards } from "@/features/series/cards/registry";
 import { mockChannel } from "@/mocks/calendar";
-import { CHANNELS_NOW, channelsSetup } from "./support/channels";
+import { CHANNELS_NOW, CHANNELS_WORKSPACE_SLUG, channelsSetup } from "./support/channels";
 import { recordRequests } from "./support/kb";
 import { renderApp } from "./support/render";
 import { seriesSetup } from "./support/series";
@@ -30,11 +30,12 @@ const PAGE = "Rust in 60 seconds (Facebook)";
 const PLANNING = "@rustin60 (Instagram)";
 const THREADS = "Rust threads (Threads)";
 const X = "Rust on X (X)";
+const CHANNELS_PATH = `/w/${CHANNELS_WORKSPACE_SLUG}/settings/channels`;
 
 describe("channel settings", () => {
   it("lists every channel with its status, the dry-run banner and the Connect menu", async () => {
     const { db } = channelsSetup();
-    renderApp("/settings/channels", db);
+    renderApp(CHANNELS_PATH, db);
 
     const list = await screen.findByRole("list", { name: "Channel settings" });
     expect(
@@ -56,7 +57,7 @@ describe("channel settings", () => {
 
   it("locks the dry-run switch with the server's reason for each channel", async () => {
     const { db } = channelsSetup();
-    renderApp("/settings/channels", db);
+    renderApp(CHANNELS_PATH, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     const reasons: Record<string, RegExp> = {
@@ -76,7 +77,7 @@ describe("channel settings", () => {
   it("ignores clicks on a locked switch and never asks the server", async () => {
     const { db } = channelsSetup();
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(CHANNELS_PATH, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     await user.click(dryRunSwitch(X));
@@ -88,7 +89,7 @@ describe("channel settings", () => {
   it("lets a channel go live after a typed confirmation once the server allows it", async () => {
     const { db, channels } = channelsSetup({ mode: "live" });
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(CHANNELS_PATH, db);
     await screen.findByRole("list", { name: "Channel settings" });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
@@ -123,7 +124,7 @@ describe("channel settings", () => {
 
   it("puts the switch back and gives the server's reason when it refuses", async () => {
     const { db, channels } = channelsSetup({ mode: "live" });
-    const { user } = renderApp("/settings/channels", db, [
+    const { user } = renderApp(CHANNELS_PATH, db, [
       http.patch(`*${routes["channels.update"].path}`, () =>
         HttpResponse.json(
           {
@@ -162,7 +163,7 @@ describe("channel settings", () => {
   it("switches approval on any channel, even one locked to dry-run", async () => {
     const { db, channels } = channelsSetup();
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(CHANNELS_PATH, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     const approval = screen.getByRole("switch", { name: `Requires approval for ${X}` });
@@ -180,7 +181,7 @@ describe("channel settings", () => {
 
   it("warns about refused and expiring access", async () => {
     const { db } = channelsSetup();
-    renderApp("/settings/channels", db);
+    renderApp(CHANNELS_PATH, db);
     const threads = await screen.findByRole("listitem", { name: THREADS });
     expect(
       within(threads).getByText("The platform refused the stored access: The access was revoked."),
@@ -196,7 +197,7 @@ describe("channel settings", () => {
   it("adds a planning channel in dry-run", async () => {
     const { db } = channelsSetup();
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(CHANNELS_PATH, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     await user.click(screen.getByRole("button", { name: "Add planning channel" }));
@@ -225,7 +226,7 @@ describe("channel settings", () => {
 
   it("says when publishing is paused", async () => {
     const { db } = channelsSetup({ mode: "live", enabled: false });
-    renderApp("/settings/channels", db);
+    renderApp(CHANNELS_PATH, db);
     expect(await screen.findByRole("status")).toHaveTextContent(/^Publishing is paused\./);
   });
 
@@ -234,7 +235,7 @@ describe("channel settings", () => {
     const { user, router } = renderApp("/", db);
     const nav = await screen.findByRole("navigation", { name: "Workspace" });
     await user.click(within(nav).getByRole("link", { name: "Manage channels" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/channels"));
+    await waitFor(() => expect(router.state.location.pathname).toBe(CHANNELS_PATH));
     expect(await screen.findByRole("tab", { name: "Channels" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -247,16 +248,19 @@ describe("series channels card", () => {
     const setup = seriesSetup();
     const at = "2026-10-01T08:00:00.000Z";
     const instagram = mockChannel({
+      workspaceId: setup.rust.id,
       platform: "instagram",
       displayName: "@rustin60",
       createdAt: at,
     });
     const threads = mockChannel({
+      workspaceId: setup.rust.id,
       platform: "threads",
       displayName: "Rust threads",
       createdAt: at,
     });
     const old = mockChannel({
+      workspaceId: setup.rust.id,
       platform: "facebook",
       displayName: "Old page",
       status: "disabled",
@@ -287,7 +291,7 @@ describe("series channels card", () => {
     const setup = linkedSetup();
     const requests = recordRequests();
     const { user } = renderApp(
-      `/projects/${setup.rust.slug}/series/${setup.series.ownership.id}`,
+      `/w/${setup.rust.slug}/series/${setup.series.ownership.id}`,
       setup.db,
     );
     const card = await screen.findByRole("region", { name: "Channels" }, { timeout: 5000 });
@@ -328,7 +332,7 @@ describe("series channels card", () => {
 
   it("locks the switches of an archived series", async () => {
     const setup = linkedSetup("archived");
-    renderApp(`/projects/${setup.rust.slug}/series/${setup.series.ownership.id}`, setup.db);
+    renderApp(`/w/${setup.rust.slug}/series/${setup.series.ownership.id}`, setup.db);
     const card = await screen.findByRole("region", { name: "Channels" }, { timeout: 5000 });
     await within(card).findByRole("list", { name: "Channels of Ownership basics" });
     for (const name of ["@rustin60 (Instagram)", "Rust threads (Threads)"]) {

@@ -133,7 +133,7 @@ describe("default deny", () => {
 
   it("answers 404 with an ApiError body outside the API", async () => {
     const { app } = createTestApp(testDb.db);
-    for (const path of ["/", "/bridge/v1", "/projects/abc"]) {
+    for (const path of ["/", "/bridge/v1", "/w/abc"]) {
       const response = await app.request(path);
       expect(response.status, path).toBe(404);
       expect(await response.json()).toEqual({
@@ -277,7 +277,7 @@ describe("web app in production", () => {
 
   it("falls back to index.html for client routes", async () => {
     const app = productionApp();
-    for (const path of ["/", "/projects/sample-project", "/settings/tokens"]) {
+    for (const path of ["/", "/w/sample-workspace", "/settings/tokens"]) {
       const response = await app.request(path);
       expect(response.status, path).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
@@ -306,7 +306,7 @@ describe("web app in production", () => {
 
   it("leaves server paths and missing files alone", async () => {
     const app = productionApp();
-    expect((await app.request("/api/projects")).status).toBe(401);
+    expect((await app.request("/api/workspaces")).status).toBe(401);
     expect((await app.request("/healthz")).status).toBe(200);
     expect((await app.request("/assets/missing.js")).status).toBe(404);
     expect((await app.request("/mcp")).status).toBe(401);

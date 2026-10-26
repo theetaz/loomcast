@@ -5,7 +5,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { MessagesSkeleton } from "@/features/conversation/MessagesSkeleton";
 import { createConversationStore } from "@/features/conversation/store";
 import { useConversationLive } from "@/features/conversation/use-conversation-live";
-import { useProject } from "@/features/project/queries";
+import { useWorkspace } from "@/features/workspace/queries";
 import { itemConversationQueryOptions } from "./queries";
 
 // The thread brings the markdown renderer; it loads with the chat, not with the page.
@@ -19,16 +19,16 @@ const noop = () => {};
 
 /**
  * The item's own conversation with the producer (`content.conversation`), in the same thread,
- * streaming and composer as the project chat.
+ * streaming and composer as the workspace chat.
  */
 export function ItemChat({ item }: { item: ContentItem }) {
   const conversation = useQuery(itemConversationQueryOptions(item.id));
-  const project = useProject(item.projectId);
+  const workspace = useWorkspace(item.workspaceId);
   const [store] = useState(createConversationStore);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  useConversationLive(item.projectId, store, conversation.data?.id);
+  useConversationLive(item.workspaceId, store, conversation.data?.id);
 
-  const failed = conversation.isError ? conversation : project.isError ? project : null;
+  const failed = conversation.isError ? conversation : workspace.isError ? workspace : null;
 
   return (
     <section
@@ -52,10 +52,10 @@ export function ItemChat({ item }: { item: ContentItem }) {
           onRetry={() => void failed.refetch()}
           retrying={failed.isFetching}
         />
-      ) : conversation.data && project.data ? (
+      ) : conversation.data && workspace.data ? (
         <Suspense fallback={<MessagesSkeleton />}>
           <ConversationThread
-            project={project.data}
+            workspace={workspace.data}
             conversation={conversation.data}
             store={store}
             onConversationCreated={noop}

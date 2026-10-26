@@ -175,7 +175,7 @@ describe("platform MCP tool names", () => {
   it("qualifies tool names the way the producer runtime does", () => {
     expect(qualifiedToolName("kb.search")).toBe("mcp__loomcast__kb_search");
     expect(qualifiedToolName("kb.save_brainstorm")).toBe("mcp__loomcast__kb_save_brainstorm");
-    expect(qualifiedToolName("project.get")).toBe("mcp__loomcast__project_get");
+    expect(qualifiedToolName("workspace.get")).toBe("mcp__loomcast__workspace_get");
     expect(normalizeMcpName("a.b c/d-e_f")).toBe("a_b_c_d-e_f");
   });
 
@@ -216,10 +216,10 @@ describe("permission matrix per job type", () => {
     "kb.save_brainstorm",
     "kb.add_decision",
     "kb.add_reference",
-    "project.get",
+    "workspace.get",
   ];
-  const analysisMcp = ["kb.search", "kb.get", "project.get"];
-  const productionMcp = ["content.get", "format.get_rules", "kb.search", "kb.get", "project.get"];
+  const analysisMcp = ["kb.search", "kb.get", "workspace.get"];
+  const productionMcp = ["content.get", "format.get_rules", "kb.search", "kb.get", "workspace.get"];
 
   it("allows exactly the allow-listed platform tools for each job type", async () => {
     const matrix: Record<ProducerJobType, readonly string[]> = {

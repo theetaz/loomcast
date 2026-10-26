@@ -4,7 +4,7 @@ import {
   KB_TITLE_MAX_LENGTH,
   type KbEntry,
   type KbEntryDetail,
-  type Project,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
@@ -46,8 +46,8 @@ function fieldsOf(entry: KbEntry): DecisionFields {
 }
 
 export interface DecisionFormProps {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
   /** The decision being edited; omitted when recording a new one. */
   entry?: KbEntryDetail;
   /** The decision a new one replaces. */
@@ -61,8 +61,8 @@ export interface DecisionFormProps {
  * edit that finds the decision changed elsewhere (409) offers to reload or overwrite.
  */
 export function DecisionForm({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
   entry,
   supersedes,
   onDone,
@@ -81,7 +81,7 @@ export function DecisionForm({
   const [conflict, setConflict] = useState(false);
   const [resolving, setResolving] = useState(false);
 
-  const create = useCreateKbEntry(project.id);
+  const create = useCreateKbEntry(workspace.id);
   const update = useUpdateKbEntry(entry?.id ?? "");
   const fetchLatest = useFetchLatestEntry();
   const pending = create.isPending || update.isPending || resolving;
@@ -130,8 +130,8 @@ export function DecisionForm({
               description: created.title,
             });
             void navigate({
-              to: "/projects/$projectId/kb/$entryId",
-              params: { projectId: projectParam, entryId: created.id },
+              to: "/w/$workspace/kb/$entryId",
+              params: { workspace: workspaceParam, entryId: created.id },
               replace: true,
             });
           },
@@ -195,7 +195,7 @@ export function DecisionForm({
       className="flex flex-col gap-4"
       aria-label={entry ? "Edit decision" : "Record a decision"}
     >
-      <EntryToolbar projectParam={projectParam}>
+      <EntryToolbar workspaceParam={workspaceParam}>
         {onDone ? (
           <Button type="button" variant="ghost" onClick={onDone} disabled={pending}>
             Cancel

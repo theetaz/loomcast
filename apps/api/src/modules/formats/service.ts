@@ -24,14 +24,14 @@ import type { EventBus } from "../../lib/bus";
 import { afterCommit, type Executor, isUniqueViolation, type Transaction } from "../../lib/db";
 import { conflict } from "../../lib/errors";
 import { auditActor, type PipelineActor } from "../content/actor";
-import { inTransaction, projectExists } from "../content/support";
-import { requireActiveProject } from "../kb/service";
-import { freeProjectSlug, nameSlug } from "./slugs";
+import { inTransaction, workspaceExists } from "../content/support";
+import { requireActiveWorkspace } from "../kb/service";
+import { freeWorkspaceSlug, nameSlug } from "./slugs";
 
 /** Slug used when a name leaves nothing usable. */
 export const FALLBACK_FORMAT_SLUG = "format";
 
-const SLUG_UNIQUE_CONSTRAINT = "formats_project_id_slug_uq";
+const SLUG_UNIQUE_CONSTRAINT = "formats_workspace_id_slug_uq";
 
 /** Attempts at a derived slug when parallel creates of other names keep taking it. */
 const SLUG_ATTEMPTS = 5;
@@ -44,13 +44,13 @@ export interface WriteOptions {
 export interface FormatsService {
   /**
    * Creates a format with version 1 (`DEFAULT_FORMAT_RULES` unless `rules` is given). 404 for an
-   * unknown project, 409 for an archived one or a taken explicit slug.
+   * unknown workspace, 409 for an archived one or a taken explicit slug.
    */
-  create(projectId: string, input: CreateFormatRequest, actor: PipelineActor): Promise<Format>;
+  create(workspaceId: string, input: CreateFormatRequest, actor: PipelineActor): Promise<Format>;
   /** A format with its current version, or null. */
   get(id: string, executor?: Executor): Promise<Format | null>;
-  /** The formats of a project by name. Null when the project is unknown. */
-  list(projectId: string): Promise<Format[] | null>;
+  /** The formats of a workspace by name. Null when the workspace is unknown. */
+  list(workspaceId: string): Promise<Format[] | null>;
   /**
    * Stores a new version (even for a rename) and moves `currentVersionId`, then publishes the
    * internal `format.updated` event. 409 `conflict` when `baseVersionId` is not the current
@@ -94,7 +94,7 @@ export function toFormatVersion(row: FormatVersionRow): FormatVersion {
 export function toFormat(row: FormatRow, version: FormatVersionRow): Format {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     name: row.name,
     slug: row.slug,
     currentVersion: toFormatVersion(version),
@@ -150,15 +150,15 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
     return row === undefined ? null : toFormat(row.format, row.version);
   }
 
-  async function insert(projectId: string, input: CreateFormatRequest, actor: PipelineActor) {
+  async function insert(workspaceId: string, input: CreateFormatRequest, actor: PipelineActor) {
     return inTransaction(db, undefined, async (tx) => {
-      await requireActiveProject(tx, projectId);
+      await requireActiveWorkspace(tx, workspaceId);
       const slug =
         input.slug ??
-        (await freeProjectSlug(
+        (await freeWorkspaceSlug(
           tx,
           "format",
-          projectId,
+          workspaceId,
           nameSlug(input.name, FALLBACK_FORMAT_SLUG),
         ));
       const formatId = randomUUID();
@@ -168,7 +168,7 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
         .insert(formats)
         .values({
           id: formatId,
-          projectId,
+          workspaceId,
           name: input.name,
           slug,
           currentVersionId: versionId,
@@ -194,23 +194,23 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
         action: "format.created",
         targetType: "format",
         targetId: formatId,
-        data: { projectId, slug, versionId },
+        data: { workspaceId, slug, versionId },
       });
       return toFormat(format, version);
     });
   }
 
   return {
-    async create(projectId, input, actor) {
+    async create(workspaceId, input, actor) {
       for (let attempt = 1; ; attempt += 1) {
         try {
-          return await insert(projectId, input, actor);
+          return await insert(workspaceId, input, actor);
         } catch (error) {
           if (!isUniqueViolation(error, SLUG_UNIQUE_CONSTRAINT)) {
             throw error;
           }
           if (input.slug !== undefined) {
-            throw conflict("A format of this project already uses that slug.", { field: "slug" });
+            throw conflict("A format of this workspace already uses that slug.", { field: "slug" });
           }
           if (attempt >= SLUG_ATTEMPTS) {
             throw error;
@@ -221,12 +221,12 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
 
     get,
 
-    async list(projectId) {
-      if (!(await projectExists(db, projectId))) {
+    async list(workspaceId) {
+      if (!(await workspaceExists(db, workspaceId))) {
         return null;
       }
       const rows = await selectFormats(db)
-        .where(eq(formats.projectId, projectId))
+        .where(eq(formats.workspaceId, workspaceId))
         .orderBy(asc(formats.name), asc(formats.id));
       return rows.map((row) => toFormat(row.format, row.version));
     },
@@ -292,7 +292,7 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
         });
         const payload = {
           formatId: id,
-          projectId: format.projectId,
+          workspaceId: format.workspaceId,
           versionId: version.id,
           previousVersionId: current.version.id,
         };
@@ -346,16 +346,16 @@ export function createFormatsService(deps: FormatsServiceDeps): FormatsService {
   };
 }
 
-/** A format of the project, or null when it belongs elsewhere or does not exist. */
-export async function formatOfProject(
+/** A format of the workspace, or null when it belongs elsewhere or does not exist. */
+export async function formatOfWorkspace(
   executor: Executor,
-  projectId: string,
+  workspaceId: string,
   formatId: string,
 ): Promise<FormatRow | null> {
   const [row] = await executor
     .select()
     .from(formats)
-    .where(and(eq(formats.id, formatId), eq(formats.projectId, projectId)))
+    .where(and(eq(formats.id, formatId), eq(formats.workspaceId, workspaceId)))
     .limit(1);
   return row ?? null;
 }

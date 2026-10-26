@@ -131,7 +131,7 @@ export class FakeBridge {
     this.send({
       type: "job.assign",
       payload: {
-        job: { attempt: 1, payload: {}, projectId: ids.project, ...job },
+        job: { attempt: 1, payload: {}, workspaceId: ids.workspace, ...job },
         leaseMs,
       },
     });

@@ -21,7 +21,7 @@ import {
   eventsOf,
   insertAsset,
   insertItem,
-  insertProject,
+  insertWorkspace,
   internalOf,
   script,
   storyboard,
@@ -43,17 +43,17 @@ async function plannedSeries(
   publishMode: FormatRules["publishMode"],
   secondRequiresApproval = false,
 ) {
-  const projectId = await insertProject(h);
+  const workspaceId = await insertWorkspace(h);
   const setup = await createSeries(
     h,
-    projectId,
+    workspaceId,
     rulesWith(
       { days: ["mon", "wed", "fri"], slots: ["09:00"], tz: "UTC", leadTimeHours: 1 },
       { publishMode },
     ),
   );
-  const first = await insertChannel(h, { platform: "instagram" });
-  const second = await insertChannel(h, {
+  const first = await insertChannel(h, workspaceId, { platform: "instagram" });
+  const second = await insertChannel(h, workspaceId, {
     platform: "facebook",
     requiresApproval: secondRequiresApproval,
   });
@@ -66,24 +66,24 @@ async function plannedSeries(
     .where(eq(contentItems.seriesId, setup.seriesId))
     .orderBy(asc(contentItems.targetAt));
   if (item === undefined) throw new Error("nothing was planned");
-  return { projectId, ...setup, first, second, item };
+  return { workspaceId, ...setup, first, second, item };
 }
 
 /** Production finishing: a rendered version that goes straight to review. */
-async function renderToReview(projectId: string, itemId: string): Promise<string> {
+async function renderToReview(workspaceId: string, itemId: string): Promise<string> {
   const voiceAssetId = await insertAsset(h.db, {
-    projectId,
+    workspaceId,
     itemId,
     kind: "voice",
     durationMs: 31_000,
   });
   const renderAssetId = await insertAsset(h.db, {
-    projectId,
+    workspaceId,
     itemId,
     kind: "render",
     durationMs: 31_000,
   });
-  const posterAssetId = await insertAsset(h.db, { projectId, itemId, kind: "poster" });
+  const posterAssetId = await insertAsset(h.db, { workspaceId, itemId, kind: "poster" });
   const result = await transaction(h.db, (tx) =>
     contentServiceFor(h.deps).createVersion(
       tx,
@@ -104,8 +104,8 @@ async function stateOf(itemId: string) {
 
 describe("approval rules", () => {
   it("approves an item whose posts are all auto, and queues its posts with that version", async () => {
-    const { projectId, item } = await plannedSeries("auto");
-    const versionId = await renderToReview(projectId, item.id);
+    const { workspaceId, item } = await plannedSeries("auto");
+    const versionId = await renderToReview(workspaceId, item.id);
 
     const [review] = await h.db.select().from(reviews).where(eq(reviews.itemId, item.id));
     expect(review).toMatchObject({ decision: "approve", actorKind: "system", versionId });
@@ -134,8 +134,8 @@ describe("approval rules", () => {
   });
 
   it("publishes the approved version in dry-run at the slot", async () => {
-    const { projectId, item } = await plannedSeries("auto");
-    const versionId = await renderToReview(projectId, item.id);
+    const { workspaceId, item } = await plannedSeries("auto");
+    const versionId = await renderToReview(workspaceId, item.id);
     h.clock.set(item.targetAt ?? new Date());
     await h.deps.scheduler.tick();
     await h.deps.scheduler.idle();
@@ -150,12 +150,12 @@ describe("approval rules", () => {
   });
 
   it("waits for a person when any post needs approval, then queues on approval", async () => {
-    const { projectId, item, second } = await plannedSeries("auto", true);
-    const versionId = await renderToReview(projectId, item.id);
+    const { workspaceId, item, second } = await plannedSeries("auto", true);
+    const versionId = await renderToReview(workspaceId, item.id);
     expect(await stateOf(item.id)).toBe("review");
     expect((await postsOf(h, item.id)).every((post) => post.status === "planned")).toBe(true);
 
-    const inbox = await call(h, "GET", `/api/approvals?projectId=${projectId}`);
+    const inbox = await call(h, "GET", `/api/approvals?workspaceId=${workspaceId}`);
     expect(inbox.status).toBe(200);
     const body = (await inbox.json()) as ApprovalsInbox;
     expect(body.items).toHaveLength(1);
@@ -184,29 +184,29 @@ describe("approval rules", () => {
   });
 
   it("keeps an approval-mode item in review", async () => {
-    const { projectId, item } = await plannedSeries("approval");
-    await renderToReview(projectId, item.id);
+    const { workspaceId, item } = await plannedSeries("approval");
+    await renderToReview(workspaceId, item.id);
     expect(await stateOf(item.id)).toBe("review");
     const [review] = await h.db.select().from(reviews).where(eq(reviews.itemId, item.id));
     expect(review).toBeUndefined();
   });
 
   it("does not approve an item without planned posts, even in auto mode", async () => {
-    const projectId = await insertProject(h);
-    const { seriesId } = await createSeries(h, projectId, rulesWith({}, { publishMode: "auto" }));
+    const workspaceId = await insertWorkspace(h);
+    const { seriesId } = await createSeries(h, workspaceId, rulesWith({}, { publishMode: "auto" }));
     const created = await contentServiceFor(h.deps).create(
-      projectId,
+      workspaceId,
       { title: "Loose idea", seriesId },
       userOf(h),
     );
-    await renderToReview(projectId, created.item.id);
+    await renderToReview(workspaceId, created.item.id);
     expect(await stateOf(created.item.id)).toBe("review");
   });
 
   it("takes queued posts back to planned when the item leaves approval", async () => {
-    const projectId = await insertProject(h);
-    const channel = await insertChannel(h);
-    const item = await insertItem(h, { projectId, state: "approved", level: "render" });
+    const workspaceId = await insertWorkspace(h);
+    const channel = await insertChannel(h, workspaceId);
+    const item = await insertItem(h, { workspaceId, state: "approved", level: "render" });
     const post = await insertPost(h, {
       itemId: item.itemId,
       channelId: channel,
@@ -224,9 +224,9 @@ describe("approval rules", () => {
   });
 
   it("moves queued posts to a new approved version and schedules the item", async () => {
-    const projectId = await insertProject(h);
-    const channel = await insertChannel(h);
-    const item = await insertItem(h, { projectId, state: "approved", level: "render" });
+    const workspaceId = await insertWorkspace(h);
+    const channel = await insertChannel(h, workspaceId);
+    const item = await insertItem(h, { workspaceId, state: "approved", level: "render" });
     await insertPost(h, {
       itemId: item.itemId,
       channelId: channel,
@@ -247,9 +247,9 @@ describe("approval rules", () => {
   });
 
   it("returns posts to planned when a person unschedules the item", async () => {
-    const projectId = await insertProject(h);
-    const channel = await insertChannel(h);
-    const item = await insertItem(h, { projectId, state: "scheduled", level: "render" });
+    const workspaceId = await insertWorkspace(h);
+    const channel = await insertChannel(h, workspaceId);
+    const item = await insertItem(h, { workspaceId, state: "scheduled", level: "render" });
     await insertPost(h, {
       itemId: item.itemId,
       channelId: channel,
@@ -281,14 +281,14 @@ describe("approval rules", () => {
 
 describe("approvals inbox", () => {
   it("orders items by deadline and lists missed posts, most recent first", async () => {
-    const projectId = await insertProject(h);
-    const otherProject = await insertProject(h);
-    const channel = await insertChannel(h);
-    const late = await insertItem(h, { projectId, state: "review", level: "render" });
-    const soon = await insertItem(h, { projectId, state: "review", level: "render" });
-    const none = await insertItem(h, { projectId, state: "review", level: "render" });
+    const workspaceId = await insertWorkspace(h);
+    const otherWorkspace = await insertWorkspace(h);
+    const channel = await insertChannel(h, workspaceId);
+    const late = await insertItem(h, { workspaceId, state: "review", level: "render" });
+    const soon = await insertItem(h, { workspaceId, state: "review", level: "render" });
+    const none = await insertItem(h, { workspaceId, state: "review", level: "render" });
     const elsewhere = await insertItem(h, {
-      projectId: otherProject,
+      workspaceId: otherWorkspace,
       state: "review",
       level: "render",
     });
@@ -302,8 +302,8 @@ describe("approvals inbox", () => {
       channelId: channel,
       scheduledAt: new Date("2026-10-13T09:00:00.000Z"),
     });
-    const idea = await insertItem(h, { projectId, state: "idea" });
-    const ideaTwo = await insertItem(h, { projectId, state: "idea" });
+    const idea = await insertItem(h, { workspaceId, state: "idea" });
+    const ideaTwo = await insertItem(h, { workspaceId, state: "idea" });
     const older = await insertPost(h, {
       itemId: idea.itemId,
       channelId: channel,
@@ -317,7 +317,7 @@ describe("approvals inbox", () => {
       status: "missed",
     });
 
-    const response = await call(h, "GET", `/api/approvals?projectId=${projectId}`);
+    const response = await call(h, "GET", `/api/approvals?workspaceId=${workspaceId}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const inbox = (await response.json()) as ApprovalsInbox;
@@ -335,6 +335,6 @@ describe("approvals inbox", () => {
 
     const everything = (await (await call(h, "GET", "/api/approvals")).json()) as ApprovalsInbox;
     expect(everything.items.map((entry) => entry.item.id)).toContain(elsewhere.itemId);
-    expect((await call(h, "GET", "/api/approvals?projectId=nope")).status).toBe(400);
+    expect((await call(h, "GET", "/api/approvals?workspaceId=nope")).status).toBe(400);
   });
 });

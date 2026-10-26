@@ -34,7 +34,7 @@ describe("initials", () => {
 
 describe("safeNextPath", () => {
   it("keeps same-origin paths and refuses everything else", () => {
-    expect(safeNextPath("/projects?status=archived")).toBe("/projects?status=archived");
+    expect(safeNextPath("/workspaces?status=archived")).toBe("/workspaces?status=archived");
     expect(safeNextPath(undefined)).toBe("/");
     expect(safeNextPath("https://evil.example")).toBe("/");
     expect(safeNextPath("//evil.example")).toBe("/");

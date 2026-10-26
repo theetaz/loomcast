@@ -1,7 +1,7 @@
 import type { ContentItem, Platform, PostMetrics } from "@loomcast/contracts";
 import { type MockLivePost, mockLivePost } from "@/mocks/analytics";
 import { mockContentItem, mockSeries } from "@/mocks/content";
-import { createMockDb, MOCK_USER, type MockDb, mockProject } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockWorkspace } from "@/mocks/db";
 import { onlineStudio } from "./kb";
 
 const HOUR_MS = 60 * 60_000;
@@ -35,20 +35,20 @@ export function daysAgo(days: number, now = Date.now()): string {
 }
 
 /**
- * A signed-in db with one project and series and two published videos:
+ * A signed-in db with one workspace and series and two published videos:
  * - `borrowing`, 10 days ago, on Instagram (four captures, 4,000 views, 12.5 s watch time) and
  *   Threads (two captures, 1,200 views, no watch time);
  * - `moves`, 3 days ago, on Instagram (2,500 views, 10 s) and Facebook (900 views, 8 s).
  * Totals: 4 posts, 8,600 views, median 1,850.
  */
 export function analyticsSetup() {
-  const project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
-  const series = mockSeries({ projectId: project.id, name: "Ownership basics" });
+  const workspace = mockWorkspace({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
+  const series = mockSeries({ workspaceId: workspace.id, name: "Ownership basics" });
   const items: ContentItem[] = [];
   const versions: ReturnType<typeof mockContentItem>["versions"] = [];
   const published = (title: string, publishedAt: string) => {
     const created = mockContentItem({
-      projectId: project.id,
+      workspaceId: workspace.id,
       seriesId: series.id,
       title,
       state: "published",
@@ -97,7 +97,7 @@ export function analyticsSetup() {
   };
 
   const draft = mockContentItem({
-    projectId: project.id,
+    workspaceId: workspace.id,
     seriesId: series.id,
     title: "Lifetimes are scopes",
     state: "review",
@@ -106,12 +106,12 @@ export function analyticsSetup() {
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     series: [series],
     contentItems: [...items, draft.item],
     contentVersions: [...versions, ...draft.versions],
     livePosts: Object.values(posts),
   });
-  return { db, project, series, items: { borrowing, moves, draft: draft.item }, posts };
+  return { db, workspace, series, items: { borrowing, moves, draft: draft.item }, posts };
 }

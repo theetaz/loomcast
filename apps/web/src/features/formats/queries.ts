@@ -2,18 +2,18 @@ import type { Format, FormatRules, List, SkillSummary } from "@loomcast/contract
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
-/** Format query keys. A saved version updates the detail, the project list and the history. */
+/** Format query keys. A saved version updates the detail, the workspace list and the history. */
 export const formatKeys = {
   all: ["formats"] as const,
-  list: (projectId: string) => ["formats", "list", projectId] as const,
+  list: (workspaceId: string) => ["formats", "list", workspaceId] as const,
   detail: (id: string) => ["formats", "detail", id] as const,
   versions: (id: string) => ["formats", "versions", id] as const,
 };
 
-export function formatsListQueryOptions(projectId: string) {
+export function formatsListQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: formatKeys.list(projectId),
-    queryFn: ({ signal }) => api.request("formats.list", { params: { projectId }, signal }),
+    queryKey: formatKeys.list(workspaceId),
+    queryFn: ({ signal }) => api.request("formats.list", { params: { workspaceId }, signal }),
     staleTime: 60_000,
   });
 }
@@ -43,10 +43,10 @@ export function recipesQueryOptions() {
   });
 }
 
-/** Puts a format into its detail cache and the project's list. */
+/** Puts a format into its detail cache and the workspace's list. */
 export function cacheFormat(queryClient: QueryClient, format: Format) {
   queryClient.setQueryData(formatKeys.detail(format.id), format);
-  queryClient.setQueryData<List<Format>>(formatKeys.list(format.projectId), (list) => {
+  queryClient.setQueryData<List<Format>>(formatKeys.list(format.workspaceId), (list) => {
     if (!list) return list;
     const exists = list.items.some((entry) => entry.id === format.id);
     return {
@@ -89,8 +89,8 @@ export function useUpdateFormat() {
 export function useCreateFormat() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
-      api.request("formats.create", { params: { projectId }, body: { name } }),
+    mutationFn: ({ workspaceId, name }: { workspaceId: string; name: string }) =>
+      api.request("formats.create", { params: { workspaceId }, body: { name } }),
     onSuccess: (format) => cacheFormat(queryClient, format),
   });
 }

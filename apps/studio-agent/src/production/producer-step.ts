@@ -13,7 +13,7 @@ export const MAX_REPAIR_TURNS = 2;
 export interface ProducerStepInput<T> {
   readonly ctx: JobContext<ProducerStepType>;
   readonly runtime: ProducerRuntime;
-  /** The project workspace; a new session starts there for every job. */
+  /** The workspace folder; a new session starts there for every job. */
   readonly cwd: string;
   readonly brief: string;
   readonly skills: readonly SkillPackEntry[];

@@ -52,132 +52,100 @@ async function openNamed(page: Page, name: RegExp) {
   await settle(page);
 }
 
-/** Opens one of a project's tabs. */
-async function openTab(page: Page, name: string) {
-  await page.getByRole("tab", { name }).click();
-  await settle(page);
-}
-
 async function clickButton(page: Page, name: string | RegExp) {
   await page.getByRole("button", { name }).first().click();
   await page.getByRole("dialog").waitFor();
   await settle(page);
 }
 
-const PROJECT = /^\/projects\/[^/]+$/;
+/** Opens a dropdown menu from the button `name`. */
+async function openMenu(page: Page, name: string | RegExp) {
+  await page.getByRole("button", { name }).first().click();
+  await page.getByRole("menu").waitFor();
+  await settle(page);
+}
+
+/** The first demo workspace. Slugs, unlike ids, stay the same when a page load reseeds the data. */
+const WORKSPACE = "/w/rust-in-60-seconds";
 
 const SHOTS: readonly Shot[] = [
   { name: "login", path: "/login" },
+  // `/` opens the remembered workspace, else the most recently updated one.
   { name: "home", path: "/" },
-  { name: "projects", path: "/projects" },
-  { name: "project-overview", path: "/projects", steps: (page) => openFirst(page, PROJECT) },
+  { name: "workspaces", path: "/workspaces" },
   {
-    name: "project-chat",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Chat");
-    },
+    name: "workspace-switcher",
+    path: WORKSPACE,
+    steps: (page) => openMenu(page, /Switch workspace/),
   },
+  { name: "workspace-overview", path: WORKSPACE },
+  { name: "workspace-chat", path: `${WORKSPACE}/chat` },
+  { name: "calendar", path: `${WORKSPACE}/calendar` },
+  { name: "library", path: `${WORKSPACE}/library` },
+  { name: "review", path: `${WORKSPACE}/review` },
   {
-    name: "project-content",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Content");
-    },
+    name: "content-item",
+    path: `${WORKSPACE}/review`,
+    steps: (page) => openFirst(page, /^\/w\/[^/]+\/content\/[^/]+$/),
   },
-  {
-    name: "series",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Series");
-    },
-  },
+  { name: "approvals", path: `${WORKSPACE}/approvals` },
+  { name: "analytics", path: `${WORKSPACE}/analytics` },
+  { name: "series", path: `${WORKSPACE}/series` },
   {
     name: "series-detail",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Series");
-      await openFirst(page, /\/series\/[^/]+$/);
-    },
+    path: `${WORKSPACE}/series`,
+    steps: (page) => openFirst(page, /\/series\/[^/]+$/),
   },
   {
     name: "series-format",
-    path: "/projects",
+    path: `${WORKSPACE}/series`,
     steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Series");
       await openFirst(page, /\/series\/[^/]+$/);
       await openFirst(page, /\/format$/);
     },
   },
-  {
-    name: "knowledge-base",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Knowledge");
-    },
-  },
+  { name: "knowledge-base", path: `${WORKSPACE}/kb` },
   {
     name: "knowledge-base-entry",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Knowledge");
-      await openFirst(page, /\/kb\/(?!new)[^/]+$/);
-    },
+    path: `${WORKSPACE}/kb`,
+    steps: (page) => openFirst(page, /\/kb\/(?!new)[^/]+$/),
   },
-  {
-    name: "competitors",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Competitors");
-    },
-  },
+  { name: "competitors", path: `${WORKSPACE}/competitors` },
   {
     name: "competitor",
-    path: "/projects",
-    steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Competitors");
-      await openNamed(page, /fastrust/);
-    },
+    path: `${WORKSPACE}/competitors`,
+    steps: (page) => openNamed(page, /fastrust/),
   },
   {
     name: "competitor-scan-dialog",
-    path: "/projects",
+    path: `${WORKSPACE}/competitors`,
     steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Competitors");
       await openNamed(page, /fastrust/);
       await clickButton(page, /scan/i);
     },
   },
   {
     name: "competitor-scan",
-    path: "/projects",
+    path: `${WORKSPACE}/competitors`,
     steps: async (page) => {
-      await openFirst(page, PROJECT);
-      await openTab(page, "Competitors");
       await openNamed(page, /fastrust/);
       await openFirst(page, /\/scans\/[^/]+$/);
     },
   },
+  { name: "workspace-settings-general", path: `${WORKSPACE}/settings` },
+  { name: "workspace-settings-channels", path: `${WORKSPACE}/settings/channels` },
+  { name: "workspace-settings-api-clients", path: `${WORKSPACE}/settings/api-clients` },
   {
-    name: "content-item",
-    path: "/review",
-    steps: (page) => openFirst(page, /^\/content\/[^/]+/),
+    // In mock mode a sign-in returns at once, with demo accounts to choose from.
+    name: "channels-connect",
+    path: `${WORKSPACE}/settings/channels`,
+    steps: async (page) => {
+      await openMenu(page, /^Connect/);
+      await page.getByRole("menuitem", { name: /Threads/ }).click();
+      await page.waitForURL(/\/channels\/connect/);
+      await settle(page);
+    },
   },
-  { name: "review", path: "/review" },
-  { name: "approvals", path: "/approvals" },
-  { name: "calendar", path: "/calendar" },
-  { name: "library", path: "/library" },
-  { name: "analytics", path: "/analytics" },
   { name: "guide", path: "/guide/studio-agent" },
   { name: "settings-devices", path: "/settings/devices" },
   {
@@ -197,17 +165,12 @@ const SHOTS: readonly Shot[] = [
     path: "/settings/members",
     steps: (page) => clickButton(page, /invite/i),
   },
+  { name: "settings-scheduler", path: "/settings/scheduler" },
   {
     name: "user-menu",
-    path: "/",
-    steps: async (page) => {
-      await page.getByRole("button", { name: /owner@loomcast\.test/ }).click();
-      await page.getByRole("menu").waitFor();
-      await settle(page);
-    },
+    path: WORKSPACE,
+    steps: (page) => openMenu(page, /owner@loomcast\.test/),
   },
-  { name: "settings-channels", path: "/settings/channels" },
-  { name: "settings-scheduler", path: "/settings/scheduler" },
 ];
 
 /** Waits for the network to go quiet and for animations to end. */

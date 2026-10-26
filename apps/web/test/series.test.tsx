@@ -20,7 +20,7 @@ function rowOf(table: HTMLElement, name: string) {
 describe("series list", () => {
   it("shows each series with its format, status, cadence and next video", async () => {
     const setup = seriesSetup();
-    renderApp(`/projects/${setup.rust.slug}/series`, setup.db);
+    renderApp(`/w/${setup.rust.slug}/series`, setup.db);
     const table = await seriesTable();
 
     const names = within(table)
@@ -38,7 +38,7 @@ describe("series list", () => {
     expect(ownership.getByText(/^Next slot /)).toBeInTheDocument();
     expect(await ownership.findByRole("link", { name: setup.items.moves.title })).toHaveAttribute(
       "href",
-      `/content/${setup.items.moves.id}`,
+      `/w/${setup.rust.slug}/content/${setup.items.moves.id}`,
     );
     expect(ownership.getByText(/2 more/)).toBeInTheDocument();
 
@@ -51,13 +51,13 @@ describe("series list", () => {
     const setup = seriesSetup();
     setup.db.series.push(
       mockSeries({
-        projectId: setup.rust.id,
+        workspaceId: setup.rust.id,
         name: "Macros, gently",
         status: "archived",
         formatId: setup.formats.errors.id,
       }),
     );
-    const { user } = renderApp(`/projects/${setup.rust.slug}/series`, setup.db);
+    const { user } = renderApp(`/w/${setup.rust.slug}/series`, setup.db);
     const table = await seriesTable();
     expect(within(table).queryByRole("link", { name: "Macros, gently" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Show archived (1)" }));
@@ -70,7 +70,7 @@ describe("series list", () => {
   it("creates a series with a new format and opens its rules", async () => {
     const setup = seriesSetup();
     const requests = recordRequests();
-    const { user, router } = renderApp(`/projects/${setup.rust.slug}/series`, setup.db);
+    const { user, router } = renderApp(`/w/${setup.rust.slug}/series`, setup.db);
     await seriesTable();
     await user.click(screen.getByRole("button", { name: "New series" }));
     const dialog = await screen.findByRole("dialog", { name: "New series" });
@@ -84,18 +84,18 @@ describe("series list", () => {
     const created = setup.db.series.find((series) => series.name === "Traits in practice");
     expect(created).toBeDefined();
     expect(router.state.location.pathname).toBe(
-      `/projects/${setup.rust.slug}/series/${created?.id}/format`,
+      `/w/${setup.rust.slug}/series/${created?.id}/format`,
     );
     const format = setup.db.formats.find((entry) => entry.id === created?.formatId);
     expect(format?.name).toBe("Traits in practice");
     expect(requests.map((request) => `${request.method} ${request.path}`)).toContain(
-      `POST /api/projects/${setup.rust.id}/formats`,
+      `POST /api/workspaces/${setup.rust.id}/formats`,
     );
   });
 
   it("orders active, then paused, then archived series by name", () => {
     const series = (name: string, status: Series["status"]) =>
-      mockSeries({ projectId: "p", name, status });
+      mockSeries({ workspaceId: "p", name, status });
     expect(
       sortSeries([
         series("b", "archived"),
@@ -110,9 +110,9 @@ describe("series list", () => {
 describe("series detail", () => {
   it("lists upcoming videos beside the cadence and format cards", async () => {
     const setup = seriesSetup();
-    renderApp(`/projects/${setup.rust.slug}/series/${setup.series.ownership.id}`, setup.db);
+    renderApp(`/w/${setup.rust.slug}/series/${setup.series.ownership.id}`, setup.db);
     expect(
-      await screen.findByRole("heading", { name: "Ownership basics", level: 2 }, { timeout: 5000 }),
+      await screen.findByRole("heading", { name: "Ownership basics", level: 1 }, { timeout: 5000 }),
     ).toBeInTheDocument();
 
     const upcoming = screen.getByRole("region", { name: "Upcoming videos" });
@@ -139,17 +139,17 @@ describe("series detail", () => {
     expect(within(format).getByText("voice-ava")).toBeInTheDocument();
     expect(within(format).getByRole("link", { name: "Edit rules" })).toHaveAttribute(
       "href",
-      `/projects/${setup.rust.slug}/series/${setup.series.ownership.id}/format`,
+      `/w/${setup.rust.slug}/series/${setup.series.ownership.id}/format`,
     );
   });
 
   it("pauses after a confirmation, resumes, then archives", async () => {
     const setup = seriesSetup();
     const { user } = renderApp(
-      `/projects/${setup.rust.slug}/series/${setup.series.ownership.id}`,
+      `/w/${setup.rust.slug}/series/${setup.series.ownership.id}`,
       setup.db,
     );
-    await screen.findByRole("heading", { name: "Ownership basics", level: 2 }, { timeout: 5000 });
+    await screen.findByRole("heading", { name: "Ownership basics", level: 1 }, { timeout: 5000 });
 
     await user.click(screen.getByRole("button", { name: "Pause" }));
     const pause = await screen.findByRole("alertdialog", { name: "Pause Ownership basics?" });
@@ -176,9 +176,9 @@ describe("series detail", () => {
     expect(screen.queryByRole("button", { name: "New idea" })).toBeNull();
   });
 
-  it("says when a series is not in this project", async () => {
+  it("says when a series is not in this workspace", async () => {
     const setup = seriesSetup();
-    renderApp(`/projects/${setup.rust.slug}/series/${setup.series.patterns.id}`, setup.db);
+    renderApp(`/w/${setup.rust.slug}/series/${setup.series.patterns.id}`, setup.db);
     expect(await screen.findByText("Series not found", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 

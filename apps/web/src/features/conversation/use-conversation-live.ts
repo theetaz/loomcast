@@ -12,7 +12,7 @@ import type { ConversationStore } from "./store";
  * client before this runs.
  */
 export function useConversationLive(
-  projectId: string,
+  workspaceId: string,
   store: ConversationStore,
   activeConversationId: string | undefined,
 ) {
@@ -20,7 +20,7 @@ export function useConversationLive(
 
   useLiveEvent("conversation.message.created", ({ payload: { message } }) => {
     cacheMessage(queryClient, message);
-    touchConversation(queryClient, projectId, message.conversationId, message.createdAt);
+    touchConversation(queryClient, workspaceId, message.conversationId, message.createdAt);
     if (message.clientMessageId) store.removePending(message.clientMessageId);
     store.settleDraft(message);
   });
@@ -34,7 +34,7 @@ export function useConversationLive(
   });
 
   useLiveEvent("job.updated", ({ payload: { job } }) => {
-    if (job.projectId !== projectId || !job.conversationId) return;
+    if (job.workspaceId !== workspaceId || !job.conversationId) return;
     store.trackJob(job);
     if (!isTerminal(job.status)) return;
     store.clearActivity(job.id);
@@ -56,7 +56,7 @@ export function useConversationLive(
 
   // Events sent while the stream was down are gone: read the open conversation again.
   useLiveReconnect(() => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.list(projectId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.conversations.list(workspaceId) });
     if (activeConversationId) {
       void queryClient.refetchQueries({
         queryKey: queryKeys.conversations.messages(activeConversationId),

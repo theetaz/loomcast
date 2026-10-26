@@ -3,8 +3,8 @@ import { type AnyPgColumn, index, pgTable, text, uuid } from "drizzle-orm/pg-cor
 import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { contentItems } from "./content";
 import { devices } from "./devices";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /**
  * A chat thread with the producer. `producerSessionId` and `deviceId` give session affinity: the
@@ -15,9 +15,9 @@ export const conversations = pgTable(
   "conversations",
   {
     id: uuidPrimaryKey(),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => workspaces.id),
     title: text("title"),
     producerSessionId: text("producer_session_id"),
     deviceId: uuid("device_id").references(() => devices.id, { onDelete: "set null" }),
@@ -33,7 +33,10 @@ export const conversations = pgTable(
   },
   (t) => [
     // Drizzle emits `DESC NULLS LAST`; list queries must order the same way to use the index.
-    index("conversations_project_id_last_message_at_idx").on(t.projectId, t.lastMessageAt.desc()),
+    index("conversations_workspace_id_last_message_at_idx").on(
+      t.workspaceId,
+      t.lastMessageAt.desc(),
+    ),
     index("conversations_content_item_id_idx")
       .on(t.contentItemId)
       .where(sql`${t.contentItemId} is not null`),

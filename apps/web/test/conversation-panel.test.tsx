@@ -1,4 +1,4 @@
-import type { Device, Project } from "@loomcast/contracts";
+import type { Device, Workspace } from "@loomcast/contracts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import {
   storeMessage,
   updateJob,
 } from "@/mocks/conversations";
-import { createMockDb, MOCK_USER, type MockDb, mockId, mockProject, publish } from "@/mocks/db";
+import { createMockDb, MOCK_USER, type MockDb, mockId, mockWorkspace, publish } from "@/mocks/db";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 import { server } from "./support/server";
@@ -28,10 +28,13 @@ function studio(online: boolean): Device {
 }
 
 function setup({ online = true, conversations = true } = {}) {
-  const project: Project = mockProject({ name: "Rust in 60 seconds", slug: "rust-in-60-seconds" });
-  const db = createMockDb({ signedIn: true, projects: [project], devices: [studio(online)] });
+  const workspace: Workspace = mockWorkspace({
+    name: "Rust in 60 seconds",
+    slug: "rust-in-60-seconds",
+  });
+  const db = createMockDb({ signedIn: true, workspaces: [workspace], devices: [studio(online)] });
   const conversation = mockConversation({
-    projectId: project.id,
+    workspaceId: workspace.id,
     createdBy: MOCK_USER.id,
     title: "Ownership in one minute",
     createdAt: "2026-10-13T09:00:00.000Z",
@@ -39,7 +42,7 @@ function setup({ online = true, conversations = true } = {}) {
   });
   if (conversations) {
     const older = mockConversation({
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdBy: MOCK_USER.id,
       title: "Series ideas",
       createdAt: "2026-10-10T09:00:00.000Z",
@@ -67,7 +70,7 @@ function setup({ online = true, conversations = true } = {}) {
       }),
     );
   }
-  return { db, project, conversation };
+  return { db, workspace, conversation };
 }
 
 /** Records the bodies of `POST` requests to `pathname`, as sent. */
@@ -102,8 +105,8 @@ const composer = () => screen.getByRole("textbox", { name: "Message the studio a
 
 describe("conversation panel", () => {
   it("lists conversations, opens the latest and renders its messages", async () => {
-    const { db, project } = setup();
-    const { user, router } = renderPanel(db, `/projects/${project.slug}/chat`);
+    const { db, workspace } = setup();
+    const { user, router } = renderPanel(db, `/w/${workspace.slug}/chat`);
 
     const nav = await screen.findByRole("navigation", { name: "Conversations" });
     const links = await within(nav).findAllByRole("link");
@@ -124,8 +127,8 @@ describe("conversation panel", () => {
   });
 
   it("shows an empty state, and the first message starts a conversation", async () => {
-    const { db, project } = setup({ conversations: false });
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
+    const { db, workspace } = setup({ conversations: false });
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`);
 
     expect(await screen.findByText("Start a conversation")).toBeInTheDocument();
     await user.type(composer(), "Plan the first short");
@@ -138,10 +141,10 @@ describe("conversation panel", () => {
   });
 
   it("shows the error and retries", async () => {
-    const { db, project } = setup();
+    const { db, workspace } = setup();
     let fail = true;
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
-      http.get("*/api/projects/:projectId/conversations", () =>
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`, [
+      http.get("*/api/workspaces/:workspaceId/conversations", () =>
         fail
           ? HttpResponse.json({ error: { code: "internal", message: "Boom" } }, { status: 500 })
           : undefined,
@@ -155,13 +158,13 @@ describe("conversation panel", () => {
   });
 
   it("sends from the keyboard with an optimistic message the stored one replaces", async () => {
-    const { db, project, conversation } = setup({ online: false });
+    const { db, workspace, conversation } = setup({ online: false });
     let release: () => void = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`, [
       http.post("*/api/conversations/:id/messages", async () => {
         await held;
         return undefined;
@@ -205,8 +208,8 @@ describe("conversation panel", () => {
   });
 
   it("animates a message sent with the pointer", async () => {
-    const { db, project } = setup();
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
+    const { db, workspace } = setup();
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`);
     await ready();
 
     await user.type(composer(), "Clicked");
@@ -217,11 +220,11 @@ describe("conversation panel", () => {
   });
 
   it("streams the reply and follows the job to the end", async () => {
-    const { db, project, conversation } = setup();
-    renderPanel(db, `/projects/${project.id}/chat`);
+    const { db, workspace, conversation } = setup();
+    renderPanel(db, `/w/${workspace.id}/chat`);
     await ready();
 
-    const job = mockJob({ projectId: project.id, conversationId: conversation.id });
+    const job = mockJob({ workspaceId: workspace.id, conversationId: conversation.id });
     db.jobs.push(job);
     act(() => {
       storeMessage(
@@ -283,9 +286,9 @@ describe("conversation panel", () => {
   });
 
   it("cancels a queued reply", async () => {
-    const { db, project } = setup();
+    const { db, workspace } = setup();
     const posted = recordPosts(/\/cancel$/);
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`);
     await ready();
 
     await user.type(composer(), "Never mind");
@@ -299,9 +302,9 @@ describe("conversation panel", () => {
   });
 
   it("retries a failed reply with the same text and a new client message id", async () => {
-    const { db, project } = setup();
+    const { db, workspace } = setup();
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`);
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`);
     await ready();
 
     await user.type(composer(), "Draft the captions");
@@ -332,10 +335,10 @@ describe("conversation panel", () => {
   });
 
   it("keeps an unsent message with a retry that reuses its id", async () => {
-    const { db, project } = setup();
+    const { db, workspace } = setup();
     let fail = true;
     const posted = recordPosts(/\/messages$/);
-    const { user } = renderPanel(db, `/projects/${project.id}/chat`, [
+    const { user } = renderPanel(db, `/w/${workspace.id}/chat`, [
       http.post("*/api/conversations/:id/messages", () =>
         fail ? HttpResponse.error() : undefined,
       ),
@@ -356,8 +359,8 @@ describe("conversation panel", () => {
   });
 
   it("reads the messages again after the live stream reconnects", async () => {
-    const { db, project, conversation } = setup();
-    const { stream } = renderPanel(db, `/projects/${project.id}/chat`);
+    const { db, workspace, conversation } = setup();
+    const { stream } = renderPanel(db, `/w/${workspace.id}/chat`);
     await ready();
 
     // Stored while the stream was down: no event arrives for it.
@@ -380,8 +383,8 @@ describe("conversation panel address", () => {
     ["a malformed id", "not-an-id"],
     ["an unknown id", "3f2a7c1e-9b4d-4e8f-a1c2-5d6e7f8a9b0c"],
   ])("opens the latest conversation for %s", async (_label, id) => {
-    const { db, project } = setup();
-    renderPanel(db, `/projects/${project.id}?conversation=${id}`);
+    const { db, workspace } = setup();
+    renderPanel(db, `/w/${workspace.id}?conversation=${id}`);
 
     expect(await ready()).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Conversations" });

@@ -11,7 +11,7 @@ export type UserRole = (typeof USER_ROLES)[number];
 /**
  * `mcp`: a user's MCP token. `device`: a studio agent's bridge token. `job`: a short-lived MCP
  * token minted for one job and handed to its producer session in `job.assign`. `api`: an API
- * client's key for the machine API (`/api/v1`), bound to one project and granted channels.
+ * client's key for the machine API (`/api/v1`), bound to one workspace and granted channels.
  */
 export const TOKEN_KINDS = ["mcp", "device", "job", "api"] as const;
 export const TokenKindSchema = z.enum(TOKEN_KINDS);
@@ -45,9 +45,26 @@ export function accessIncludes(granted: ApiChannelAccess, required: ApiChannelAc
   return API_CHANNEL_ACCESS.indexOf(granted) >= API_CHANNEL_ACCESS.indexOf(required);
 }
 
-export const PROJECT_STATUSES = ["active", "archived"] as const;
-export const ProjectStatusSchema = z.enum(PROJECT_STATUSES);
-export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const WORKSPACE_STATUSES = ["active", "archived"] as const;
+export const WorkspaceStatusSchema = z.enum(WORKSPACE_STATUSES);
+export type WorkspaceStatus = (typeof WORKSPACE_STATUSES)[number];
+
+/**
+ * A workspace's accent: its icon's background when it has no image, and the mark beside its name.
+ * `thread` and `ember` are the brand colours; the web app maps each name to its theme tokens.
+ */
+export const WORKSPACE_COLORS = [
+  "thread",
+  "ember",
+  "moss",
+  "ocean",
+  "plum",
+  "amber",
+  "rose",
+  "slate",
+] as const;
+export const WorkspaceColorSchema = z.enum(WORKSPACE_COLORS);
+export type WorkspaceColor = (typeof WORKSPACE_COLORS)[number];
 
 /**
  * Fixed allow-list of job types. A value is added only together with a migration and an entry in

@@ -27,9 +27,9 @@ import {
   insertItemWith,
   insertJob,
   insertKbEntry,
-  insertProject,
   insertSkill,
   insertUser,
+  insertWorkspace,
   PG,
   pgError,
   randomHash,
@@ -49,8 +49,8 @@ afterAll(async () => {
 
 async function setup() {
   const user = await insertUser(testDb.db);
-  const project = await insertProject(testDb.db, user.id);
-  return { user, project };
+  const workspace = await insertWorkspace(testDb.db, user.id);
+  return { user, workspace };
 }
 
 /** Appends a version on top of the item's current one, as a job result or an edit would. */
@@ -93,19 +93,19 @@ async function lockWaiters(count: number): Promise<void> {
 
 describe("formats and series", () => {
   it("insert a format and its first version in one transaction", async () => {
-    const { user, project } = await setup();
-    const { format, version } = await insertFormat(testDb.db, project.id, user.id);
+    const { user, workspace } = await setup();
+    const { format, version } = await insertFormat(testDb.db, workspace.id, user.id);
     expect(format.currentVersionId).toBe(version.id);
     expect(version.versionNo).toBe(1);
     expect(version.rules).toEqual(DEFAULT_FORMAT_RULES);
   });
 
   it("refuse, at commit, a format whose current version does not exist", async () => {
-    const { project } = await setup();
+    const { workspace } = await setup();
     const error = await pgError(
       testDb.db.transaction(async (tx) => {
         await tx.insert(formats).values({
-          projectId: project.id,
+          workspaceId: workspace.id,
           name: "Orphan",
           slug: `orphan-${randomUUID()}`,
           currentVersionId: randomUUID(),
@@ -119,9 +119,9 @@ describe("formats and series", () => {
   });
 
   it("refuse a current version that belongs to another format", async () => {
-    const { project } = await setup();
-    const first = await insertFormat(testDb.db, project.id);
-    const second = await insertFormat(testDb.db, project.id);
+    const { workspace } = await setup();
+    const first = await insertFormat(testDb.db, workspace.id);
+    const second = await insertFormat(testDb.db, workspace.id);
     const error = await pgError(
       testDb.db
         .update(formats)
@@ -135,8 +135,8 @@ describe("formats and series", () => {
   });
 
   it("number format versions per format", async () => {
-    const { project } = await setup();
-    const { format } = await insertFormat(testDb.db, project.id);
+    const { workspace } = await setup();
+    const { format } = await insertFormat(testDb.db, workspace.id);
     const next = await testDb.db.transaction((tx) => nextFormatVersionNo(tx, format.id));
     expect(next).toBe(2);
     expect(await nextFormatVersionNo(testDb.db, randomUUID())).toBeNull();
@@ -154,11 +154,11 @@ describe("formats and series", () => {
     });
   });
 
-  it("keep format and series slugs unique per project", async () => {
-    const { user, project } = await setup();
-    const other = await insertProject(testDb.db, user.id);
-    const first = await insertFormat(testDb.db, project.id);
-    const second = await insertFormat(testDb.db, project.id);
+  it("keep format and series slugs unique per workspace", async () => {
+    const { user, workspace } = await setup();
+    const other = await insertWorkspace(testDb.db, user.id);
+    const first = await insertFormat(testDb.db, workspace.id);
+    const second = await insertFormat(testDb.db, workspace.id);
     const elsewhere = await insertFormat(testDb.db, other.id);
 
     const formatError = await pgError(
@@ -169,7 +169,7 @@ describe("formats and series", () => {
     );
     expect(formatError).toEqual({
       code: PG.uniqueViolation,
-      constraint: "formats_project_id_slug_uq",
+      constraint: "formats_workspace_id_slug_uq",
     });
     await testDb.db
       .update(formats)
@@ -179,31 +179,31 @@ describe("formats and series", () => {
     const values = { name: "Weekly", slug: "weekly" };
     const [created] = await testDb.db
       .insert(series)
-      .values({ ...values, projectId: project.id, formatId: first.format.id })
+      .values({ ...values, workspaceId: workspace.id, formatId: first.format.id })
       .returning();
     expect(created?.status).toBe("active");
     await testDb.db
       .insert(series)
-      .values({ ...values, projectId: other.id, formatId: elsewhere.format.id });
+      .values({ ...values, workspaceId: other.id, formatId: elsewhere.format.id });
     const seriesError = await pgError(
       testDb.db
         .insert(series)
-        .values({ ...values, projectId: project.id, formatId: second.format.id }),
+        .values({ ...values, workspaceId: workspace.id, formatId: second.format.id }),
     );
     expect(seriesError).toEqual({
       code: PG.uniqueViolation,
-      constraint: "series_project_id_slug_uq",
+      constraint: "series_workspace_id_slug_uq",
     });
   });
 
-  it("refuse a series whose format belongs to another project", async () => {
-    const { user, project } = await setup();
-    const other = await insertProject(testDb.db, user.id);
+  it("refuse a series whose format belongs to another workspace", async () => {
+    const { user, workspace } = await setup();
+    const other = await insertWorkspace(testDb.db, user.id);
     const { format } = await insertFormat(testDb.db, other.id);
     const error = await pgError(
       testDb.db
         .insert(series)
-        .values({ projectId: project.id, name: "Mixed", slug: "mixed", formatId: format.id }),
+        .values({ workspaceId: workspace.id, name: "Mixed", slug: "mixed", formatId: format.id }),
     );
     expect(error).toEqual({ code: PG.foreignKeyViolation, constraint: "series_format_fk" });
   });
@@ -211,20 +211,20 @@ describe("formats and series", () => {
 
 describe("content items and versions", () => {
   it("insert an item and its first version in one transaction", async () => {
-    const { project } = await setup();
-    const { item, version } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item, version } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     expect(item.state).toBe("idea");
     expect(item.currentVersionId).toBe(version.id);
     expect(version).toMatchObject({ itemId: item.id, versionNo: 1, stage: "idea" });
   });
 
   it("refuse, at commit, an item whose current version was never inserted", async () => {
-    const { project } = await setup();
+    const { workspace } = await setup();
     let insertedBeforeCommit = false;
     const error = await pgError(
       testDb.db.transaction(async (tx) => {
         await tx.insert(contentItems).values({
-          projectId: project.id,
+          workspaceId: workspace.id,
           title: "No version",
           createdVia: "ui",
           currentVersionId: randomUUID(),
@@ -241,9 +241,9 @@ describe("content items and versions", () => {
   });
 
   it("refuse a current version that belongs to another item", async () => {
-    const { project } = await setup();
-    const first = await insertContentItem(testDb.db, { projectId: project.id });
-    const second = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const first = await insertContentItem(testDb.db, { workspaceId: workspace.id });
+    const second = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const error = await pgError(
       testDb.db
         .update(contentItems)
@@ -257,9 +257,9 @@ describe("content items and versions", () => {
   });
 
   it("refuse a parent version from another item", async () => {
-    const { project } = await setup();
-    const first = await insertContentItem(testDb.db, { projectId: project.id });
-    const second = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const first = await insertContentItem(testDb.db, { workspaceId: workspace.id });
+    const second = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const error = await pgError(
       testDb.db.insert(contentVersions).values({
         itemId: first.item.id,
@@ -276,8 +276,8 @@ describe("content items and versions", () => {
   });
 
   it("number versions without gaps under concurrent writers", async () => {
-    const { project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
 
     const writers = 8;
     const created = await Promise.all(
@@ -304,8 +304,8 @@ describe("content items and versions", () => {
   });
 
   it("make a waiting writer see the version committed while it waited", async () => {
-    const { project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
 
     let release: () => void = () => undefined;
     const held = new Promise<void>((resolve) => {
@@ -340,10 +340,10 @@ describe("content items and versions", () => {
   });
 
   it("refuse a second version for the same job, so job results are idempotent", async () => {
-    const { user, project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { user, workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const job = await insertJob(testDb.db, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       createdBy: user.id,
       type: "content.write_script",
     });
@@ -382,9 +382,9 @@ describe("content items and versions", () => {
   });
 
   it("links an item's conversation and clears it when the item is deleted", async () => {
-    const { user, project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
-    const conversation = await insertConversation(testDb.db, project.id, user.id);
+    const { user, workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
+    const conversation = await insertConversation(testDb.db, workspace.id, user.id);
     await testDb.db
       .update(conversations)
       .set({ contentItemId: item.id })
@@ -403,15 +403,15 @@ describe("content items and versions", () => {
   });
 
   it("insert an item inside a caller's transaction with the shared helper", async () => {
-    const { project } = await setup();
-    const { format } = await insertFormat(testDb.db, project.id);
+    const { workspace } = await setup();
+    const { format } = await insertFormat(testDb.db, workspace.id);
     const [created] = await testDb.db
       .insert(series)
-      .values({ projectId: project.id, name: "Shorts", slug: "shorts", formatId: format.id })
+      .values({ workspaceId: workspace.id, name: "Shorts", slug: "shorts", formatId: format.id })
       .returning();
     const { item } = await testDb.db.transaction((tx) =>
       insertItemWith(tx, {
-        projectId: project.id,
+        workspaceId: workspace.id,
         seriesId: created?.id,
         autopilotTarget: "voice",
       }),
@@ -423,8 +423,8 @@ describe("content items and versions", () => {
 
 describe("reviews", () => {
   it("require a comment for a request for changes", async () => {
-    const { user, project } = await setup();
-    const { item, version } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { user, workspace } = await setup();
+    const { item, version } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const base = {
       itemId: item.id,
       versionId: version.id,
@@ -450,8 +450,8 @@ describe("reviews", () => {
   });
 
   it("queue a revision only for a request for changes", async () => {
-    const { user, project } = await setup();
-    const { item, version } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { user, workspace } = await setup();
+    const { item, version } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const error = await pgError(
       testDb.db.insert(reviews).values({
         itemId: item.id,
@@ -466,9 +466,9 @@ describe("reviews", () => {
   });
 
   it("refuse a review of another item's version", async () => {
-    const { user, project } = await setup();
-    const first = await insertContentItem(testDb.db, { projectId: project.id });
-    const second = await insertContentItem(testDb.db, { projectId: project.id });
+    const { user, workspace } = await setup();
+    const first = await insertContentItem(testDb.db, { workspaceId: workspace.id });
+    const second = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const error = await pgError(
       testDb.db.insert(reviews).values({
         itemId: first.item.id,
@@ -483,12 +483,12 @@ describe("reviews", () => {
 });
 
 describe("assets", () => {
-  it("keep one live project-level asset per project, kind and sha256", async () => {
-    const { user, project } = await setup();
-    const other = await insertProject(testDb.db, user.id);
+  it("keep one live workspace-level asset per workspace, kind and sha256", async () => {
+    const { user, workspace } = await setup();
+    const other = await insertWorkspace(testDb.db, user.id);
     const sha256 = randomHash();
     const reference = {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "reference_media",
       mime: "video/mp4",
     } as const;
@@ -506,7 +506,7 @@ describe("assets", () => {
     );
     expect(error).toEqual({
       code: PG.uniqueViolation,
-      constraint: "assets_project_id_kind_sha256_uq",
+      constraint: "assets_workspace_id_kind_sha256_uq",
     });
 
     // Insert-or-return-existing, as the upload route does.
@@ -514,19 +514,19 @@ describe("assets", () => {
       .insert(assets)
       .values(assetValues({ ...reference, sha256 }))
       .onConflictDoNothing({
-        target: [assets.projectId, assets.kind, assets.sha256],
+        target: [assets.workspaceId, assets.kind, assets.sha256],
         where: sql`item_id is null and status <> 'failed'`,
       })
       .returning();
     expect(skipped).toEqual([]);
 
-    // Another kind, another project or an item may hold the same bytes.
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    // Another kind, another workspace or an item may hold the same bytes.
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     await testDb.db
       .insert(assets)
       .values([
-        assetValues({ projectId: project.id, sha256 }),
-        assetValues({ ...reference, projectId: other.id, sha256 }),
+        assetValues({ workspaceId: workspace.id, sha256 }),
+        assetValues({ ...reference, workspaceId: other.id, sha256 }),
         assetValues({ ...reference, itemId: item.id, sha256 }),
       ]);
 
@@ -543,14 +543,14 @@ describe("assets", () => {
   });
 
   it("keep one live asset per item, kind and sha256, so items never share one", async () => {
-    const { project } = await setup();
-    const { item: first } = await insertContentItem(testDb.db, { projectId: project.id });
-    const { item: second } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item: first } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
+    const { item: second } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const sha256 = randomHash();
 
     for (const kind of ["voice", "render"] as const) {
       const mime = kind === "voice" ? "audio/mpeg" : "video/mp4";
-      const values = { projectId: project.id, kind, mime, sha256 };
+      const values = { workspaceId: workspace.id, kind, mime, sha256 };
       const [own] = await testDb.db
         .insert(assets)
         .values(assetValues({ ...values, itemId: first.id }))
@@ -561,13 +561,13 @@ describe("assets", () => {
       );
       expect(error).toEqual({
         code: PG.uniqueViolation,
-        constraint: "assets_project_id_item_id_kind_sha256_uq",
+        constraint: "assets_workspace_id_item_id_kind_sha256_uq",
       });
       const skipped = await testDb.db
         .insert(assets)
         .values(assetValues({ ...values, itemId: first.id }))
         .onConflictDoNothing({
-          target: [assets.projectId, assets.itemId, assets.kind, assets.sha256],
+          target: [assets.workspaceId, assets.itemId, assets.kind, assets.sha256],
           where: sql`item_id is not null and status <> 'failed'`,
         })
         .returning();
@@ -589,32 +589,32 @@ describe("assets", () => {
       .where(and(eq(assets.itemId, first.id), eq(assets.kind, "voice")));
     const [retry] = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, itemId: first.id, kind: "voice", sha256 }))
+      .values(assetValues({ workspaceId: workspace.id, itemId: first.id, kind: "voice", sha256 }))
       .returning();
     expect(retry?.status).toBe("pending");
   });
 
   it("keep storage keys unique and digests lowercase hex", async () => {
-    const { project } = await setup();
+    const { workspace } = await setup();
     const storageKey = `test/${randomUUID()}`;
-    await testDb.db.insert(assets).values(assetValues({ projectId: project.id, storageKey }));
+    await testDb.db.insert(assets).values(assetValues({ workspaceId: workspace.id, storageKey }));
 
     const duplicate = await pgError(
-      testDb.db.insert(assets).values(assetValues({ projectId: project.id, storageKey })),
+      testDb.db.insert(assets).values(assetValues({ workspaceId: workspace.id, storageKey })),
     );
     expect(duplicate).toEqual({ code: PG.uniqueViolation, constraint: "assets_storage_key_uq" });
 
     const upper = await pgError(
       testDb.db
         .insert(assets)
-        .values(assetValues({ projectId: project.id, sha256: randomHash().toUpperCase() })),
+        .values(assetValues({ workspaceId: workspace.id, sha256: randomHash().toUpperCase() })),
     );
     expect(upper).toEqual({ code: PG.checkViolation, constraint: "assets_sha256_ck" });
   });
 
   it("store the probe and a voice take's alignment in meta, and big sizes", async () => {
-    const { project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const meta: AssetMeta = {
       probe: { durationMs: 1_200, sampleRate: 44_100, channels: 1 },
       alignment: { words: [{ text: "hello", startMs: 0, endMs: 400 }] },
@@ -623,7 +623,7 @@ describe("assets", () => {
       .insert(assets)
       .values(
         assetValues({
-          projectId: project.id,
+          workspaceId: workspace.id,
           itemId: item.id,
           bytes: 3 * 1024 ** 3,
           meta,
@@ -635,11 +635,11 @@ describe("assets", () => {
   });
 
   it("cannot be deleted while a version uses it", async () => {
-    const { project } = await setup();
-    const { item } = await insertContentItem(testDb.db, { projectId: project.id });
+    const { workspace } = await setup();
+    const { item } = await insertContentItem(testDb.db, { workspaceId: workspace.id });
     const [voice] = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, itemId: item.id, status: "ready" }))
+      .values(assetValues({ workspaceId: workspace.id, itemId: item.id, status: "ready" }))
       .returning();
     await testDb.db.insert(contentVersions).values({
       itemId: item.id,
@@ -661,11 +661,13 @@ describe("assets", () => {
   });
 
   it("link reference media to a reference and unlink it when the asset goes", async () => {
-    const { project } = await setup();
-    const entry = await insertKbEntry(testDb.db, { projectId: project.id, kind: "reference" });
+    const { workspace } = await setup();
+    const entry = await insertKbEntry(testDb.db, { workspaceId: workspace.id, kind: "reference" });
     const [media] = await testDb.db
       .insert(assets)
-      .values(assetValues({ projectId: project.id, kind: "reference_media", mime: "video/mp4" }))
+      .values(
+        assetValues({ workspaceId: workspace.id, kind: "reference_media", mime: "video/mp4" }),
+      )
       .returning();
     await testDb.db.insert(kbReferences).values({
       entryId: entry.id,
@@ -770,7 +772,7 @@ describe("skills", () => {
 
 describe("pipeline job types", () => {
   it("are accepted by jobs", async () => {
-    const { user, project } = await setup();
+    const { user, workspace } = await setup();
     for (const type of [
       "content.write_script",
       "content.storyboard",
@@ -779,7 +781,11 @@ describe("pipeline job types", () => {
       "content.render",
       "skills.sync",
     ] as const) {
-      const job = await insertJob(testDb.db, { projectId: project.id, createdBy: user.id, type });
+      const job = await insertJob(testDb.db, {
+        workspaceId: workspace.id,
+        createdBy: user.id,
+        type,
+      });
       expect(job.type).toBe(type);
     }
   });

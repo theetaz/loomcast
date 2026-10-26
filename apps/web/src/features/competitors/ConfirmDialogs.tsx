@@ -59,7 +59,7 @@ export function DeleteCompetitorDialog({
         <AlertDialogHeader>
           <AlertDialogTitle className="min-w-0 break-words">Remove {name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            The project stops following {name} and its scan history goes. The analysed videos and
+            The workspace stops following {name} and its scan history goes. The analysed videos and
             reports stay in the knowledge base, so the studio agent can still use them.
           </AlertDialogDescription>
         </AlertDialogHeader>

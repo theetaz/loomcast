@@ -49,7 +49,7 @@ export interface SdkProducerRuntimeOptions {
   readonly log?: Logger;
 }
 
-/** The default brief: the chat brief without a project. */
+/** The default brief: the chat brief without a workspace. */
 export const PRODUCER_BRIEF = chatBrief();
 
 /**
@@ -63,7 +63,7 @@ const REMOVED_TOOLS = ["NotebookEdit", "Agent", "Task", "Skill"];
  *
  * - The session uses the Mac's logged-in subscription: API-key variables are stripped from its
  *   environment, and no code path reads or sets a key.
- * - It loads no user or project settings (`settingSources: []`) and no MCP configuration from
+ * - It loads no user or workspace settings (`settingSources: []`) and no MCP configuration from
  *   disk (`strictMcpConfig`). The only MCP server is the platform's, attached with the job token
  *   when the job has MCP access.
  * - Its tools are limited to the job type's built-in tools; the other producer tools, Bash

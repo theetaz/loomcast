@@ -3,10 +3,14 @@
 The guide explains how to use Loomcast, keep the studio agent running and fix things when they
 break. The web app shows the same pages under **Guide** in the sidebar, after you sign in.
 
+Loomcast is organised by workspace: one workspace per brand, each with its own channels, calendar,
+library, review queue, analytics, chat, knowledge base, series and research. Start with
+[Getting started](getting-started.md), then [Workspaces and the producer chat](workspaces.md).
+
 ## Using Loomcast
 
 - [Getting started](getting-started.md)
-- [Projects and the producer chat](projects.md)
+- [Workspaces and the producer chat](workspaces.md)
 - [Series and formats](series-and-formats.md)
 - [Videos, review and approvals](videos-and-review.md)
 - [Knowledge base](knowledge-base.md)

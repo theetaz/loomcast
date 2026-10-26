@@ -32,8 +32,8 @@ function readProfile(value: string): CompetitorProfile | string {
 function createError(error: unknown, profile: CompetitorProfile | null): string {
   if (isApiError(error, 409)) {
     return profile
-      ? `This project already follows ${competitorName(profile)} on ${platformLabel(profile.platform)}.`
-      : "This project already follows that profile.";
+      ? `This workspace already follows ${competitorName(profile)} on ${platformLabel(profile.platform)}.`
+      : "This workspace already follows that profile.";
   }
   return errorMessage(error, "Couldn't add the competitor. Try again.");
 }
@@ -42,10 +42,10 @@ function createError(error: unknown, profile: CompetitorProfile | null): string 
  * Follows a competitor from a profile link or an Instagram `@handle`. The link is only read for
  * its platform and handle; nothing is fetched until a scan starts.
  */
-export function AddCompetitorForm({ projectId }: { projectId: string }) {
+export function AddCompetitorForm({ workspaceId }: { workspaceId: string }) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const create = useCreateCompetitor(projectId);
+  const create = useCreateCompetitor(workspaceId);
   const [value, setValue] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<CompetitorProfile | null>(null);

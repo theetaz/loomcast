@@ -26,7 +26,7 @@ import {
   createPipelineHarness,
   insertAsset,
   insertItem,
-  insertProject,
+  insertWorkspace,
   type PipelineHarness,
   script,
   storyboard,
@@ -34,7 +34,7 @@ import {
 import { errorCode } from "./support";
 
 let h: PipelineHarness;
-let projectId: string;
+let workspaceId: string;
 let seriesId: string;
 let device: TestDevice;
 let lifecycle: JobLifecycle;
@@ -44,14 +44,14 @@ const VOICE_ID = "narrator-test";
 
 beforeAll(async () => {
   h = await createPipelineHarness();
-  projectId = await insertProject(h);
-  const format = await call(h, "POST", `/api/projects/${projectId}/formats`, {
+  workspaceId = await insertWorkspace(h);
+  const format = await call(h, "POST", `/api/workspaces/${workspaceId}/formats`, {
     name: "Voiced",
     rules: { ...structuredClone(DEFAULT_FORMAT_RULES), voiceId: VOICE_ID, voiceSpeed: 1.1 },
   });
   expect(format.status).toBe(201);
   const formatId = FormatSchema.parse(await format.json()).id;
-  const created = await call(h, "POST", `/api/projects/${projectId}/series`, {
+  const created = await call(h, "POST", `/api/workspaces/${workspaceId}/series`, {
     name: "Voiced series",
     formatId,
   });
@@ -137,7 +137,7 @@ async function resultFor(type: string, itemId: string): Promise<JsonObject> {
     case "content.voice":
       return {
         voiceAssetId: await insertAsset(h.db, {
-          projectId,
+          workspaceId,
           itemId,
           kind: "voice",
           durationMs: VOICE_MS,
@@ -148,12 +148,12 @@ async function resultFor(type: string, itemId: string): Promise<JsonObject> {
     case "content.render":
       return {
         renderAssetId: await insertAsset(h.db, {
-          projectId,
+          workspaceId,
           itemId,
           kind: "render",
           durationMs: 45_000,
         }),
-        posterAssetId: await insertAsset(h.db, { projectId, itemId, kind: "poster" }),
+        posterAssetId: await insertAsset(h.db, { workspaceId, itemId, kind: "poster" }),
         durationMs: 45_000,
         width: 1080,
         height: 1920,
@@ -179,10 +179,10 @@ async function runActive(itemId: string): Promise<string> {
 describe("content actions", () => {
   it("queues the job each action needs, with the version and the format snapshot", async () => {
     const [idea, scripted, boarded, voiced] = await Promise.all([
-      insertItem(h, { projectId, seriesId, state: "idea" }),
-      insertItem(h, { projectId, seriesId, state: "script", level: "script" }),
-      insertItem(h, { projectId, seriesId, state: "storyboard", level: "storyboard" }),
-      insertItem(h, { projectId, seriesId, state: "voice", level: "voice" }),
+      insertItem(h, { workspaceId, seriesId, state: "idea" }),
+      insertItem(h, { workspaceId, seriesId, state: "script", level: "script" }),
+      insertItem(h, { workspaceId, seriesId, state: "storyboard", level: "storyboard" }),
+      insertItem(h, { workspaceId, seriesId, state: "voice", level: "voice" }),
     ]);
     const cases = [
       [idea, "write_script", "content.write_script"],
@@ -192,11 +192,11 @@ describe("content actions", () => {
     ] as const;
     for (const [item, action, type] of cases) {
       const job = await started(item.itemId, { action });
-      expect(job).toMatchObject({ type, projectId, status: "queued" });
+      expect(job).toMatchObject({ type, workspaceId, status: "queued" });
       const row = await jobRow(job.id);
       expect(row.idempotencyKey).toBe(stepKey(action, item.itemId, item.versionId));
       expect(row.payload).toMatchObject({
-        projectId,
+        workspaceId,
         itemId: item.itemId,
         versionId: item.versionId,
         format: { rules: { voiceId: VOICE_ID } },
@@ -213,8 +213,8 @@ describe("content actions", () => {
 
   it("starts revise and produce, and produce turns autopilot on", async () => {
     const [scripted, idea] = await Promise.all([
-      insertItem(h, { projectId, state: "script", level: "script" }),
-      insertItem(h, { projectId, state: "idea" }),
+      insertItem(h, { workspaceId, state: "script", level: "script" }),
+      insertItem(h, { workspaceId, state: "idea" }),
     ]);
     const revise = await started(scripted.itemId, { action: "revise" });
     expect(revise.type).toBe("content.revise");
@@ -231,10 +231,10 @@ describe("content actions", () => {
 
   it("refuses busy items, missing inputs, a missing voice and finished items", async () => {
     const [busy, scripted, noVoice, approved] = await Promise.all([
-      insertItem(h, { projectId, state: "idea" }),
-      insertItem(h, { projectId, state: "script", level: "script" }),
-      insertItem(h, { projectId, state: "storyboard", level: "storyboard" }),
-      insertItem(h, { projectId, state: "approved", level: "render" }),
+      insertItem(h, { workspaceId, state: "idea" }),
+      insertItem(h, { workspaceId, state: "script", level: "script" }),
+      insertItem(h, { workspaceId, state: "storyboard", level: "storyboard" }),
+      insertItem(h, { workspaceId, state: "approved", level: "render" }),
     ]);
     await started(busy.itemId, { action: "write_script" });
     const again = await act(busy.itemId, { action: "write_script" });
@@ -261,7 +261,7 @@ describe("content actions", () => {
   });
 
   it("runs a step again under a new key after a failed attempt", async () => {
-    const item = await insertItem(h, { projectId, state: "idea" });
+    const item = await insertItem(h, { workspaceId, state: "idea" });
     const first = await started(item.itemId, { action: "write_script" });
     await claim(first.id);
     await lifecycle.fail(device.deviceId, first.id, {
@@ -279,7 +279,7 @@ describe("content actions", () => {
 
 describe("job results", () => {
   it("turn into one version per job, however often the completion is replayed", async () => {
-    const item = await insertItem(h, { projectId, state: "idea" });
+    const item = await insertItem(h, { workspaceId, state: "idea" });
     const job = await started(item.itemId, { action: "write_script" });
     const result = await resultFor("content.write_script", item.itemId);
     await complete(job.id, result);
@@ -317,7 +317,7 @@ describe("job results", () => {
 
   it("time the script and re-time the storyboard to the real voice", async () => {
     const item = await insertItem(h, {
-      projectId,
+      workspaceId,
       seriesId,
       state: "storyboard",
       level: "storyboard",
@@ -343,7 +343,7 @@ describe("job results", () => {
 
   it("re-times a storyboard made after the voice, and flags a render of the wrong length", async () => {
     const item = await insertItem(h, {
-      projectId,
+      workspaceId,
       seriesId,
       state: "storyboard",
       level: "storyboard",
@@ -370,7 +370,7 @@ describe("job results", () => {
   });
 
   it("is not used when the item changed while the job ran", async () => {
-    const item = await insertItem(h, { projectId, state: "script", level: "script" });
+    const item = await insertItem(h, { workspaceId, state: "script", level: "script" });
     const job = await started(item.itemId, { action: "storyboard" });
     const edited = await call(h, "POST", `/api/content/${item.itemId}/versions`, {
       baseVersionId: item.versionId,
@@ -386,7 +386,7 @@ describe("job results", () => {
 
 describe("autopilot", () => {
   it("walks an idea through every step to review", async () => {
-    const item = await insertItem(h, { projectId, seriesId, state: "idea" });
+    const item = await insertItem(h, { workspaceId, seriesId, state: "idea" });
     await started(item.itemId, { action: "produce" });
     expect((await detail(item.itemId)).item.autopilotTarget).toBe("review");
 
@@ -407,7 +407,7 @@ describe("autopilot", () => {
   });
 
   it("stops at the target, and the scheduler's produce joins a running job", async () => {
-    const item = await insertItem(h, { projectId, seriesId, state: "idea" });
+    const item = await insertItem(h, { workspaceId, seriesId, state: "idea" });
     const production = productionServiceFor(h.deps);
     const first = await production.produce(item.itemId, { through: "storyboard" });
     expect(first.job?.type).toBe("content.write_script");
@@ -426,7 +426,7 @@ describe("autopilot", () => {
   });
 
   it("stops when a step fails and records the error", async () => {
-    const item = await insertItem(h, { projectId, seriesId, state: "idea" });
+    const item = await insertItem(h, { workspaceId, seriesId, state: "idea" });
     const job = await started(item.itemId, { action: "produce" });
     await claim(job.id);
     await lifecycle.fail(device.deviceId, job.id, {
@@ -458,7 +458,7 @@ describe("autopilot", () => {
   });
 
   it("stops at a missing voice with voice_not_configured", async () => {
-    const item = await insertItem(h, { projectId, state: "script", level: "script" });
+    const item = await insertItem(h, { workspaceId, state: "script", level: "script" });
     await started(item.itemId, { action: "produce" });
     await runActive(item.itemId);
     const after = await detail(item.itemId);
@@ -471,7 +471,7 @@ describe("autopilot", () => {
 
 describe("reviews", () => {
   it("queue a revision on request and bring the item back to review", async () => {
-    const item = await insertItem(h, { projectId, seriesId, state: "review", level: "render" });
+    const item = await insertItem(h, { workspaceId, seriesId, state: "review", level: "render" });
     const response = await call(h, "POST", `/api/content/${item.itemId}/reviews`, {
       versionId: item.versionId,
       decision: "request_changes",
@@ -508,7 +508,7 @@ describe("reviews", () => {
   });
 
   it("queue nothing when the reviewer asks for no revision", async () => {
-    const item = await insertItem(h, { projectId, state: "review", level: "render" });
+    const item = await insertItem(h, { workspaceId, state: "review", level: "render" });
     const response = await call(h, "POST", `/api/content/${item.itemId}/reviews`, {
       versionId: item.versionId,
       decision: "request_changes",
@@ -526,7 +526,7 @@ describe("reviews", () => {
 
 describe("per-item chat", () => {
   it("returns one conversation per item and tells producer.chat the item", async () => {
-    const item = await insertItem(h, { projectId, state: "idea", title: "Ownership" });
+    const item = await insertItem(h, { workspaceId, state: "idea", title: "Ownership" });
     const [first, second] = await Promise.all([
       call(h, "POST", `/api/content/${item.itemId}/conversation`),
       call(h, "POST", `/api/content/${item.itemId}/conversation`),
@@ -535,7 +535,7 @@ describe("per-item chat", () => {
     const conversation = ConversationSchema.parse(await first.json());
     expect(ConversationSchema.parse(await second.json()).id).toBe(conversation.id);
     expect(conversation).toMatchObject({
-      projectId,
+      workspaceId,
       title: "Ownership",
       contentItemId: item.itemId,
     });
@@ -560,9 +560,9 @@ describe("job credentials", () => {
   it("are minted for every production job type and skills.sync", async () => {
     // Only the jobs of this test may be claimed.
     await h.db.update(jobs).set({ status: "cancelled" }).where(eq(jobs.status, "queued"));
-    const item = await insertItem(h, { projectId, state: "voice", level: "voice" });
+    const item = await insertItem(h, { workspaceId, state: "voice", level: "voice" });
     const base = {
-      projectId,
+      workspaceId,
       itemId: item.itemId,
       versionId: item.versionId,
       format: { formatVersionId: null, rules: DEFAULT_FORMAT_RULES },
@@ -581,7 +581,7 @@ describe("job credentials", () => {
         const { job } = await h.deps.jobs.enqueue(tx, {
           type,
           payload,
-          projectId,
+          workspaceId,
           createdBy: h.userId,
         });
         created.push(job.id);

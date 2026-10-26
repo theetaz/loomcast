@@ -1,14 +1,14 @@
 /** Every query key in one place, so live events and mutations patch the same caches. */
 export const queryKeys = {
   me: ["auth", "me"] as const,
-  projects: {
-    all: ["projects"] as const,
-    list: ["projects", "list"] as const,
-    detail: (idOrSlug: string) => ["projects", "detail", idOrSlug] as const,
+  workspaces: {
+    all: ["workspaces"] as const,
+    list: ["workspaces", "list"] as const,
+    detail: (idOrSlug: string) => ["workspaces", "detail", idOrSlug] as const,
   },
   conversations: {
     all: ["conversations"] as const,
-    list: (projectId: string) => ["conversations", "list", projectId] as const,
+    list: (workspaceId: string) => ["conversations", "list", workspaceId] as const,
     messages: (conversationId: string) => ["conversations", "messages", conversationId] as const,
   },
   devices: ["devices"] as const,
@@ -19,7 +19,7 @@ export const queryKeys = {
   },
   analytics: {
     all: ["analytics"] as const,
-    overview: (query: { from: string; to: string; projectId?: string }) =>
+    overview: (query: { from: string; to: string; workspaceId?: string }) =>
       ["analytics", "overview", query] as const,
     series: (id: string, query: { from?: string; to?: string }) =>
       ["analytics", "series", id, query] as const,

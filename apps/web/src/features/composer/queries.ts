@@ -20,7 +20,7 @@ export interface SavedSoFar {
 }
 
 export interface SavePostInput {
-  projectId: string;
+  workspaceId: string;
   format: PostFormat;
   title: string;
   seriesId: string | null;
@@ -60,7 +60,7 @@ export async function savePost(
       ...(input.seriesId ? { seriesId: input.seriesId } : {}),
     };
     const detail = await api.request("content.create", {
-      params: { projectId: input.projectId },
+      params: { workspaceId: input.workspaceId },
       body,
       signal,
     });
@@ -68,7 +68,7 @@ export async function savePost(
     callbacks.onCreated?.(item);
   }
   const created: ContentItem = item;
-  const owner = { projectId: created.projectId, itemId: created.id };
+  const owner = { workspaceId: created.workspaceId, itemId: created.id };
 
   const uploaded: MediaDraft[] = [];
   for (const draft of input.media) {

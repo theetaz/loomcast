@@ -2,6 +2,7 @@ import {
   type Channel,
   LivePublishingBlockerSchema,
   oauthProviderForPlatform,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
@@ -49,19 +50,21 @@ function reportFailure(error: Error, { channel }: UpdateChannelInput) {
 }
 
 /**
- * Settings → Channels: every channel with its status and switches, the server's dry-run banner,
- * planning channels, connecting and reconnecting accounts, and disconnecting them.
+ * Workspace settings → Channels: the workspace's channels with their status and switches, the
+ * server's dry-run banner, planning channels, connecting and reconnecting accounts, and
+ * disconnecting them. New channels join this workspace.
  */
-export function ChannelsSettings() {
+export function ChannelsSettings({ workspace }: { workspace: Workspace }) {
   useChannelsLive();
   const now = useNow();
-  const query = useQuery(channelsQueryOptions());
+  const query = useQuery(channelsQueryOptions(workspace.id));
   const update = useUpdateChannel({ onFailure: reportFailure });
   const [goingLive, setGoingLive] = useState<Channel | null>(null);
   const [renaming, setRenaming] = useState<Channel | null>(null);
   const [disconnecting, setDisconnecting] = useState<Channel | null>(null);
   const providers = connectProviders(useXPublishing());
-  const reconnect = (channel: Channel) => startOAuth(oauthProviderForPlatform(channel.platform));
+  const reconnect = (channel: Channel) =>
+    startOAuth(oauthProviderForPlatform(channel.platform), workspace);
   const channels = useMemo(() => sortChannels(query.data?.items ?? []), [query.data]);
 
   const save = (channel: Channel, change: { dryRun?: boolean; requiresApproval?: boolean }) =>
@@ -81,8 +84,8 @@ export function ChannelsSettings() {
         busy={query.isPending}
         action={
           <>
-            <ConnectButton />
-            <AddChannelDialog>
+            <ConnectButton workspace={workspace} />
+            <AddChannelDialog workspaceId={workspace.id}>
               <Button size="sm" aria-label="Add planning channel">
                 <PlusIcon aria-hidden="true" />
                 Add<span className="max-sm:hidden"> planning channel</span>
@@ -106,11 +109,11 @@ export function ChannelsSettings() {
             size="compact"
             icon={RadioTowerIcon}
             title="No channels yet"
-            description="Channels are the accounts a series publishes to: Facebook Pages, Instagram and Threads. Connect an account, or add a planning channel to plan posts before connecting one."
+            description={`Channels are the accounts ${workspace.name} publishes to: Facebook Pages, Instagram and Threads. Connect an account, or add a planning channel to plan posts before connecting one.`}
             action={
               <>
-                <ConnectButton size="default" />
-                <AddChannelDialog>
+                <ConnectButton workspace={workspace} size="default" />
+                <AddChannelDialog workspaceId={workspace.id}>
                   <Button>
                     <PlusIcon aria-hidden="true" />
                     Add planning channel

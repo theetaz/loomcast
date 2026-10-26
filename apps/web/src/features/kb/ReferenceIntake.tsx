@@ -3,9 +3,9 @@ import {
   KB_LIKED_REASON_MAX_LENGTH,
   KB_TITLE_MAX_LENGTH,
   normalizeReferenceUrl,
-  type Project,
   REFERENCE_URL_MAX_LENGTH,
   TranscriptSchema,
+  type Workspace,
 } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Input } from "@loomcast/ui/components/input";
@@ -36,11 +36,11 @@ function readUrl(value: string) {
  * user pastes or loads. The link is only stored; Loomcast never opens or downloads it.
  */
 export function ReferenceIntake({
-  project,
-  projectParam,
+  workspace,
+  workspaceParam,
 }: {
-  project: Project;
-  projectParam: string;
+  workspace: Workspace;
+  workspaceParam: string;
 }) {
   const id = useId();
   const navigate = useNavigate();
@@ -54,7 +54,7 @@ export function ReferenceIntake({
   const [tags, setTags] = useState<string[]>([]);
   const [transcript, setTranscript] = useState("");
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
-  const create = useCreateKbEntry(project.id);
+  const create = useCreateKbEntry(workspace.id);
 
   const parsed = readUrl(url);
   const urlError = urlTouched && !parsed ? "Enter an http or https link to the video." : null;
@@ -91,8 +91,8 @@ export function ReferenceIntake({
         onSuccess: (created) => {
           toast.success("Reference saved", { description: created.title });
           void navigate({
-            to: "/projects/$projectId/kb/$entryId",
-            params: { projectId: projectParam, entryId: created.id },
+            to: "/w/$workspace/kb/$entryId",
+            params: { workspace: workspaceParam, entryId: created.id },
             replace: true,
           });
         },
@@ -104,7 +104,7 @@ export function ReferenceIntake({
 
   return (
     <form noValidate onSubmit={save} className="flex flex-col gap-4" aria-label="Save a reference">
-      <EntryToolbar projectParam={projectParam}>
+      <EntryToolbar workspaceParam={workspaceParam}>
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? "Saving…" : "Save reference"}
           <kbd className="font-sans text-[11px] opacity-70 max-sm:hidden">

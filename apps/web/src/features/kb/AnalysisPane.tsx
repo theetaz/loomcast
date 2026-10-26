@@ -190,7 +190,7 @@ function AnalysisBody({ analysis }: { analysis: ReferenceAnalysis }) {
         </ol>
       </Section>
 
-      <Section title="For this project">
+      <Section title="For this workspace">
         <p className="text-body text-text-2">{analysis.applicability}</p>
       </Section>
     </div>

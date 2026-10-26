@@ -16,7 +16,7 @@ tail -n 50 ~/Library/Logs/Loomcast/studio-agent.log
 - `status` says whether the Mac is paired, which server it talks to and whether the voice provider key is set.
 - The log shows what the agent did, one line per event, with the time in UTC. Lines with `error` or `warn` after the time are the interesting ones.
 
-In the web app, the pill in the top bar shows **Studio online**, **Studio offline** or **No studio**. Select it to open **Settings → Devices**.
+In the web app, the pill in the top bar shows **Studio online**, **Studio offline** or **No studio**. Select it to open **Account settings → Devices**.
 
 ## The studio agent
 
@@ -45,10 +45,10 @@ In the web app, the pill in the top bar shows **Studio online**, **Studio offlin
 
 To pair again:
 
-1. In **Settings → Devices**, select **Pair a device** and copy the command.
+1. In **Account settings → Devices**, select **Pair a device** and copy the command.
 2. On the Mac, run it: `pnpm agent pair --server https://loomcast.example.com --code <code>`.
 3. Restart the service: `pnpm agent service install`.
-4. Revoke the old entry for this Mac in **Settings → Devices** if it is still listed.
+4. Revoke the old entry for this Mac in **Account settings → Devices** if it is still listed.
 
 The full setup is in [Setting up the studio agent](studio-agent.md).
 
@@ -136,11 +136,11 @@ More in [Competitor research](competitor-research.md) and the [technical notes](
 
 ### A post failed or did not go out
 
-1. Open **Settings → Channels** and look at the channel.
+1. Open the post's workspace, then **Workspace settings → Channels**, and look at the channel.
    - **Needs reconnect**: the platform no longer accepts the stored sign-in (an expired token, a changed password, a removed Page role). Select **Reconnect** in its banner and sign in again with the account that has the Page or profile. Its posts fail with an `auth` error until you do.
    - **Dry run** switched on: the post was recorded, not sent. Dry-run posts get a link that never opens. Turn **Dry run** off when you are ready to publish for real (type `publish live` to confirm).
    - A red notice on the channel shows the platform's last error.
-2. Open **Settings → Scheduler** (owner and admins). Failed and dead tasks are listed with their last error and a **Retry** button. Fix the cause first, then select **Retry**.
+2. Open **Account settings → Scheduler** (owner and admins). Failed and dead tasks of every workspace are listed with their last error and a **Retry** button. Fix the cause first, then select **Retry**.
 3. If every post is held back and the channel switch cannot be turned off, the server itself may be in dry-run or publishing may be paused. That is a server setting: see [Deploying and running the server](operations.md).
 
 The full rules are in [Publishing](publishing.md) and the [technical notes](../scheduling-and-publishing.md).
@@ -156,14 +156,14 @@ See [Instagram account won't connect](publishing.md#instagram-account-wont-conne
 Loomcast is invite-only. There is no sign-up and no self-service "forgot password" link.
 
 - Check that you use the email address your invitation was sent to.
-- If you have forgotten your password, ask the workspace owner for a new password link.
+- If you have forgotten your password, ask the owner for a new password link.
 - If your access was disabled, only the owner can restore it.
 
 ### The set-password link has expired or was already used
 
 The page says **This link has expired or was already used**. Each link works once. Invitation links last 7 days and reset links 24 hours.
 
-Ask the owner for a new link. The owner opens **Settings → Members**, opens the member's menu and selects **New password link**, then sends you the link. See [Settings](settings.md).
+Ask the owner for a new link. The owner opens **Account settings → Members**, opens the member's menu and selects **New password link**, then sends you the link. See [Settings](settings.md).
 
 ## Server-side checks for the owner
 
@@ -184,8 +184,8 @@ Logs, restarts and rollbacks are in [Deploying and running the server](operation
 | Stop the studio agent | Mac | `pnpm agent service uninstall` |
 | Is the studio agent running? | Mac | `pnpm agent service status` |
 | Run the agent in a terminal to debug | Mac | `pnpm agent run` (uninstall the service first) |
-| Disconnect a Mac for good | Web app | **Settings → Devices**, **Revoke** |
-| Stop one channel publishing live | Web app | **Settings → Channels**, turn **Dry run** on |
+| Disconnect a Mac for good | Web app | **Account settings → Devices**, **Revoke** |
+| Stop one channel publishing live | Web app | **Workspace settings → Channels**, turn **Dry run** on |
 | Restart, roll back or pause the server | Server | See [Deploying and running the server](operations.md) |
 
 ## Collecting information for a bug report

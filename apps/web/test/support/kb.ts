@@ -1,9 +1,9 @@
-import type { Device, KbEntryDetail, Project } from "@loomcast/contracts";
-import { createMockDb, MOCK_USER, type MockDb, mockId, mockProject } from "@/mocks/db";
+import type { Device, KbEntryDetail, Workspace } from "@loomcast/contracts";
+import { createMockDb, MOCK_USER, type MockDb, mockId, mockWorkspace } from "@/mocks/db";
 import { mockKbEntry, mockReferenceDetail } from "@/mocks/kb";
 import { server } from "./server";
 
-export const PROJECT_SLUG = "rust-in-60-seconds";
+export const WORKSPACE_SLUG = "rust-in-60-seconds";
 
 export function onlineStudio(): Device {
   return {
@@ -24,13 +24,13 @@ export function at(minutes: number): string {
 }
 
 /**
- * A signed-in db with one project and a small knowledge base: a brainstorm, a note, two
+ * A signed-in db with one workspace and a small knowledge base: a brainstorm, a note, two
  * decisions and a reference with a transcript.
  */
-export function kbSetup(extra: (project: Project) => KbEntryDetail[] = () => []) {
-  const project = mockProject({
+export function kbSetup(extra: (workspace: Workspace) => KbEntryDetail[] = () => []) {
+  const workspace = mockWorkspace({
     name: "Rust in 60 seconds",
-    slug: PROJECT_SLUG,
+    slug: WORKSPACE_SLUG,
     description: "One Rust idea per short.",
   });
   const entry = (minutes: number, overrides: Parameters<typeof mockKbEntry>[0]) =>
@@ -42,21 +42,21 @@ export function kbSetup(extra: (project: Project) => KbEntryDetail[] = () => [])
     });
 
   const brainstorm = entry(50, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     kind: "brainstorm",
     title: "Hooks that open on the error",
     tags: ["hooks"],
     bodyMd: "Open on the **error**, not the fix.",
   });
   const note = entry(40, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     kind: "note",
     title: "Recording checklist",
     tags: ["production"],
     bodyMd: "- Editor font at 22 pt",
   });
   const decision = entry(30, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     kind: "decision",
     title: "Captions in the lower third",
     tags: ["captions"],
@@ -68,7 +68,7 @@ export function kbSetup(extra: (project: Project) => KbEntryDetail[] = () => [])
     },
   });
   const reference = entry(20, {
-    projectId: project.id,
+    workspaceId: workspace.id,
     kind: "reference",
     title: "Instagram video by @fastrust",
     tags: ["hooks"],
@@ -86,12 +86,12 @@ export function kbSetup(extra: (project: Project) => KbEntryDetail[] = () => [])
 
   const db: MockDb = createMockDb({
     signedIn: true,
-    projects: [project],
+    workspaces: [workspace],
     devices: [onlineStudio()],
     kbEntries: [brainstorm, note, decision, reference],
   });
-  db.kbEntries.push(...extra(project));
-  return { db, project, brainstorm, note, decision, reference };
+  db.kbEntries.push(...extra(workspace));
+  return { db, workspace, brainstorm, note, decision, reference };
 }
 
 /** Records every request to the API, as method, path and query. */

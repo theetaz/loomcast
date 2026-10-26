@@ -100,8 +100,8 @@ export type AssetProbe = z.infer<typeof AssetProbeSchema>;
 /** An asset as listed and sent in live events. The storage location is never exposed. */
 export const AssetSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
-  /** The content item it belongs to; null for project-level media such as references. */
+  workspaceId: IdSchema,
+  /** The content item it belongs to; null for workspace-level media such as references. */
   itemId: IdSchema.nullable(),
   kind: AssetKindSchema,
   status: AssetStatusSchema,
@@ -156,12 +156,12 @@ export function checkUploadFile(
 
 /**
  * Asks for an upload. The MIME type must suit the kind (`ASSET_KIND_MIME_TYPES`) and the size its
- * cap (`ASSET_KIND_MAX_BYTES`). `itemId` must belong to `projectId`; the asset belongs to that item,
- * and without it to the project (reference media).
+ * cap (`ASSET_KIND_MAX_BYTES`). `itemId` must belong to `workspaceId`; the asset belongs to that item,
+ * and without it to the workspace (reference media).
  */
 export const CreateUploadRequestSchema = z
   .object({
-    projectId: IdSchema,
+    workspaceId: IdSchema,
     itemId: IdSchema.optional(),
     ...UploadFileFields,
   })
@@ -181,8 +181,8 @@ export const UploadInstructionsSchema = z.object({
 export type UploadInstructions = z.infer<typeof UploadInstructionsSchema>;
 
 /**
- * The asset and its upload. When the item (or, for an upload without `itemId`, the project's
- * project-level media) already has a ready asset of the same kind and SHA-256, that asset is
+ * The asset and its upload. When the item (or, for an upload without `itemId`, the workspace's
+ * workspace-level media) already has a ready asset of the same kind and SHA-256, that asset is
  * returned with `upload: null` and nothing needs uploading. Another item's copy is never returned.
  */
 export const CreateUploadResponseSchema = z.object({

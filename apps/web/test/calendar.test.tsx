@@ -14,7 +14,7 @@ const previousZone = process.env.TZ;
 const previousTimeout = getConfig().asyncUtilTimeout;
 
 beforeAll(() => {
-  // The browser's time zone: the grid follows it unless the series zone is chosen.
+  // The browser's time zone, the same as the workspace's unless a test changes it.
   process.env.TZ = CALENDAR_ZONE;
   // These screens wait on several queries and a drag; shared CI runners need the extra room.
   configure({ asyncUtilTimeout: 10_000 });
@@ -34,9 +34,12 @@ afterEach(() => {
 
 type Setup = ReturnType<typeof calendarSetup>;
 
+/** The calendar of the setup's workspace, whose time zone is London. */
+const CALENDAR = "/w/rust-in-60-seconds/calendar";
+
 function renderCalendar(
   setup: Setup,
-  path = "/calendar",
+  path = CALENDAR,
   overrides: Parameters<typeof renderApp>[2] = [],
 ) {
   const stream = fakeStream(setup.db);
@@ -133,13 +136,25 @@ describe("calendar week view", () => {
     expect(await screen.findByRole("heading", { name: "12 – 18 Oct 2026" })).toBeInTheDocument();
   });
 
-  it("follows the series time zone when asked", async () => {
+  it("follows the workspace's time zone, or yours or the series' when asked", async () => {
     const setup = calendarSetup();
     process.env.TZ = "Asia/Colombo";
     try {
-      const { user } = renderCalendar(setup);
+      const { user, router } = renderCalendar(setup);
       const moves = await screen.findByRole("button", { name: new RegExp(`^${MOVES}`) });
-      expect(cellOf(moves)).toBe("cell:2026-10-16:15");
+      // The workspace's time zone, London, not the browser's.
+      expect(cellOf(moves)).toBe("cell:2026-10-16:6");
+      const zone = screen.getByRole("button", { name: "Time zone: Europe/London" });
+      expect(zone).toHaveTextContent("Workspace time");
+
+      await user.click(zone);
+      await user.click(await screen.findByRole("menuitemradio", { name: /Your time zone/ }));
+      await waitFor(() =>
+        expect(cellOf(screen.getByRole("button", { name: new RegExp(`^${MOVES}`) }))).toBe(
+          "cell:2026-10-16:15",
+        ),
+      );
+      expect(router.state.location.search).toMatchObject({ zone: "local" });
 
       await user.click(screen.getByRole("button", { name: "Time zone: Asia/Colombo" }));
       await user.click(await screen.findByRole("menuitemradio", { name: /Series time zone/ }));
@@ -148,7 +163,9 @@ describe("calendar week view", () => {
           "cell:2026-10-16:6",
         ),
       );
-      expect(screen.getByRole("button", { name: "Time zone: Europe/London" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Time zone: Europe/London" })).toHaveTextContent(
+        "Series time",
+      );
     } finally {
       process.env.TZ = CALENDAR_ZONE;
     }
@@ -229,7 +246,7 @@ describe("rescheduling", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const { user } = renderCalendar(setup, "/calendar", [
+    const { user } = renderCalendar(setup, CALENDAR, [
       http.patch(`*${routes["scheduledPosts.reschedule"].path}`, async () => {
         await held;
         return HttpResponse.json({ error: { code: "internal", message: "Boom" } }, { status: 500 });
@@ -250,7 +267,7 @@ describe("rescheduling", () => {
 
   it("refetches and explains when the post changed elsewhere", async () => {
     const setup = calendarSetup();
-    const { user } = renderCalendar(setup, "/calendar", [
+    const { user } = renderCalendar(setup, CALENDAR, [
       http.patch(`*${routes["scheduledPosts.reschedule"].path}`, () => {
         // Someone else moved it to Saturday first.
         const post = setup.db.posts.find((entry) => entry.id === setup.posts.moves.id);
@@ -340,7 +357,7 @@ describe("focus after a keyboard move", () => {
     let calendarRequests = 0;
     let saveRequested = false;
     const requests = recordRequests();
-    const { user } = renderCalendar(setup, "/calendar", [
+    const { user } = renderCalendar(setup, CALENDAR, [
       http.patch(`*${routes["scheduledPosts.reschedule"].path}`, async ({ request }) => {
         const body = (await request.json()) as { scheduledAt: string };
         saveRequested = true;
@@ -567,7 +584,7 @@ describe("calendar month view", () => {
         }),
       );
     }
-    const { user } = renderCalendar(setup, "/calendar?view=month&date=2026-10-20");
+    const { user } = renderCalendar(setup, `${CALENDAR}?view=month&date=2026-10-20`);
 
     expect(await screen.findByRole("heading", { name: "October 2026" })).toBeInTheDocument();
     const day = await waitFor(() => {
@@ -593,7 +610,7 @@ describe("calendar month view", () => {
   it("moves a post by a week with the keyboard and keeps its time", async () => {
     const setup = calendarSetup();
     const requests = recordRequests();
-    const { user } = renderCalendar(setup, "/calendar?view=month");
+    const { user } = renderCalendar(setup, `${CALENDAR}?view=month`);
     const moves = await screen.findByRole("button", { name: new RegExp(`^${MOVES}`) });
     expect(cellOf(moves)).toBe("day:2026-10-16");
     moves.focus();

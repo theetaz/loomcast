@@ -2,8 +2,9 @@
 
 Loomcast is an invite-only platform for producing short technology videos. Scripts and
 conversations live in a web app; a studio agent on the owner's workstation runs producer
-sessions and renders; finished videos are published on a schedule. One installation is one
-workspace with a handful of users.
+sessions and renders; finished videos are published on a schedule. One installation serves a
+handful of users and holds several workspaces, one per brand, such as Unfolded or Maths is
+Beautiful.
 
 ## Components
 
@@ -54,7 +55,22 @@ workspace with a handful of users.
   safe. There is no Redis.
 - **Internal packages are TypeScript source** (`exports: {".": "./src/index.ts"}`). Only the
   API and the studio agent are bundled for production (tsdown); the web app builds with Vite.
-- **No tenancy.** A project is the unit that owns conversations, the knowledge base and content.
+- **Workspaces, not tenants.** A workspace owns everything one brand publishes: its channels,
+  series and formats, content, knowledge base, conversations, competitors and API clients. Every
+  signed-in user sees every workspace; there is no per-workspace membership. Composite foreign
+  keys keep a series' channels and an API client's channels inside its own workspace.
+- **Projects were renamed workspaces** (migration `0017`). Old names stay valid where outside code
+  may still use them: the MCP tools `project.create`, `project.get` and `project.list` are
+  deprecated aliases, `/api/v1/me` returns `project` next to `workspace`, and the bridge sends a
+  job's workspace as `projectId` too. The studio agent's folders stay at
+  `~/Loomcast/projects/<workspaceId>` and storage keys keep their `projects/<workspaceId>/` prefix,
+  so existing producer sessions and files are untouched.
+- **Channels belong to one workspace** (migration `0018`). The migration placed each existing
+  channel in the workspace whose items it published most, else the workspace of a series or API
+  client that used it; an Instagram account follows its Page, and a channel left over got a new
+  workspace named after it. Series links and API client grants that would have crossed workspaces
+  were removed. Connecting an account that is already a channel of another workspace is refused
+  with `409 channel_in_other_workspace`.
 - **The workstation never listens.** The studio agent dials out, so it works behind NAT and
   needs no open ports.
 
@@ -71,13 +87,14 @@ and mirrored as pg enums. Migrations are append-only SQL in `packages/db/migrati
 | `password_tokens` | One-time set-password links (hash only) |
 | `pairing_codes` | Single-use device pairing codes (hash only), 10-minute expiry |
 | `devices` | Paired studio agents and their tokens, last seen time, revocation |
-| `projects` | Workspace projects: unique slug, name, status `active` or `archived` |
-| `conversations` | Chats in a project, with the producer session id and the device that holds it |
+| `workspaces` | Workspaces: unique slug, name, description, status `active` or `archived`, accent colour, optional icon image (PNG, JPEG or WebP, at most 256 KB) and time zone |
+| `channels` | The social accounts a workspace publishes to, with sealed credentials; each belongs to one workspace, and an account is connected to at most one |
+| `conversations` | Chats in a workspace, with the producer session id and the device that holds it |
 | `messages` | User, assistant, system and event messages; `client_message_id` de-duplicates sends |
 | `jobs` | The job queue: type, status, payload, result, error, attempts, device affinity, lease |
 | `job_events` | Durable job events, unique per `(job_id, seq)` |
 | `kb_entries`, `kb_references` | The knowledge base: brainstorms, references, decisions, notes and session summaries, with full-text and trigram search |
-| `audit_log` | Sign-ins, token, device, user and project changes |
+| `audit_log` | Sign-ins, token, device, user and workspace changes |
 
 Job types form a fixed allow-list (`jobRegistry` in the contracts): each has a payload and result
 schema, durable event kinds, a timeout, a retry policy and a concurrency class. The server checks
@@ -90,30 +107,30 @@ Writes publish typed events on the in-process bus once their transaction commits
 receives them on `GET /api/stream` (server-sent events with ids `<epoch>-<seq>`, a replay of the
 last 1 000 through `Last-Event-ID`, a heartbeat every 15 seconds, and streams that end after 30
 minutes so the browser reconnects). The union is `LiveEvent` in `packages/contracts/src/events.ts`:
-project, conversation message and delta, job update and activity, device status, knowledge-base
+workspace, conversation message and delta, job update and activity, device status, knowledge-base
 and content events, and `resync`.
 
 ## Studio agent and the bridge
 
-The studio agent is paired once with a code from Settings → Devices and then holds one
+The studio agent is paired once with a code from Account settings → Devices and then holds one
 WebSocket to `/bridge/v1`. The server assigns queued jobs to it when it has free credits; the
 agent streams progress back as durable events (stored and acknowledged) and ephemeral text
 deltas. Jobs wait in the queue while the agent is offline. The protocol, the job lifecycle and
 the reliability rules are in [bridge-protocol.md](bridge-protocol.md).
 
-In the web app a project page has three tabs: **Overview** (the default, with the description,
-recent knowledge and recent conversations), **Chat** (`/projects/<slug>/chat`, the
-conversations with the studio agent; `?conversation=<id>` opens one) and **Knowledge** (the
-knowledge base). Sending a chat message queues a `producer.chat` job, which runs one
-conversation turn in a producer session inside the project's workspace directory
-(`~/Loomcast/projects/<projectId>`). The session id is stored on the conversation, so the next
+In the web app every page of a workspace lives under `/w/<slug>/`: the overview at `/w/<slug>`,
+then its calendar, library, review, approvals, analytics, chat, knowledge base, series,
+competitors and settings. **Chat** (`/w/<slug>/chat`; `?conversation=<id>` opens one) holds the
+conversations with the studio agent. Sending a chat message queues a `producer.chat` job, which
+runs one conversation turn in a producer session inside the workspace's folder
+(`~/Loomcast/projects/<workspaceId>`). The session id is stored on the conversation, so the next
 turn resumes it on the same device.
 
 ## MCP server
 
 `/mcp` serves tools to any MCP client over streamable HTTP with an access token (`lc_mcp_…`,
 scopes `mcp:read`, `mcp:write`, `mcp:admin`). Producer sessions get per-job tokens bound to one
-project. See [mcp.md](mcp.md).
+workspace. See [mcp.md](mcp.md).
 
 ## Security model
 
@@ -132,9 +149,9 @@ project. See [mcp.md](mcp.md).
   and revocable.
 - **Rate limits** (in memory): sign-in 5 a minute per address and email and 20 per address;
   pairing exchanges 10 a minute per address; MCP 120 requests a minute per token.
-- **Producer sandbox.** Producer sessions get a tool allow-list, writes confined to the project
-  workspace (checked after resolving symlinks), and no user-level settings or hooks.
-- **Audit log** for sign-ins, tokens, devices, users and projects.
+- **Producer sandbox.** Producer sessions get a tool allow-list, writes confined to the
+  workspace's folder (checked after resolving symlinks), and no user-level settings or hooks.
+- **Audit log** for sign-ins, tokens, devices, users and workspaces.
 - **Headers.** `secureHeaders` with a Content Security Policy (`default-src 'self'`, no frames);
   fonts are self-hosted.
 

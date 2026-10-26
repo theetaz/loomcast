@@ -28,7 +28,8 @@ export const ContentReviewOutputSchema = z.object({
 });
 export type ContentReviewOutput = z.infer<typeof ContentReviewOutputSchema>;
 
-export const ChannelListInputSchema = z.object({});
+/** `workspaceId` keeps the list to one workspace's channels. */
+export const ChannelListInputSchema = z.object({ workspaceId: IdSchema.optional() });
 export type ChannelListInput = z.infer<typeof ChannelListInputSchema>;
 
 /** Every channel, by platform and name. Credentials never leave the server. */
@@ -46,13 +47,13 @@ const ChannelIdsSchema = z
 
 /**
  * Posts scheduled in `[from, to)` and the open cadence slots in it, at most 62 days, as the web
- * app's calendar shows them. `projectId` and `channelIds` narrow the result.
+ * app's calendar shows them. `workspaceId` and `channelIds` narrow the result.
  */
 export const CalendarListPostsInputSchema = z
   .object({
     from: TimestampSchema,
     to: TimestampSchema,
-    projectId: IdSchema.optional(),
+    workspaceId: IdSchema.optional(),
     channelIds: ChannelIdsSchema.optional(),
   })
   .superRefine(checkCalendarRange);
@@ -93,7 +94,7 @@ export const ownerTools = {
     name: "content.review",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Owner only. Decide an item in review as the owner: approve its current version (it must have a render), request changes (with a comment; a revision is queued unless enqueueRevision is false) or reject it. versionId must be the item's current version, from content.get.",
     input: ContentReviewInputSchema,
@@ -103,9 +104,9 @@ export const ownerTools = {
     name: "channel.list",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "none",
+    workspaceBinding: "input",
     description:
-      "Owner only. List the channels posts can be scheduled on, with their platform, name, handle, status, whether credentials are connected and whether they publish in dry-run.",
+      "Owner only. List the channels posts can be scheduled on, with their workspace, platform, name, handle, status, whether credentials are connected and whether they publish in dry-run. Pass workspaceId for one workspace's channels.",
     input: ChannelListInputSchema,
     output: ChannelListOutputSchema,
   },
@@ -113,9 +114,9 @@ export const ownerTools = {
     name: "calendar.list_posts",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
-      "Owner only. List the posts scheduled between two times (at most 62 days) and the open cadence slots from now on, optionally for one project or some channels. Each post carries the updatedAt that calendar.reschedule_post expects.",
+      "Owner only. List the posts scheduled between two times (at most 62 days) and the open cadence slots from now on, optionally for one workspace or some channels. Each post carries the updatedAt that calendar.reschedule_post expects.",
     input: CalendarListPostsInputSchema,
     output: CalendarListPostsOutputSchema,
   },
@@ -123,7 +124,7 @@ export const ownerTools = {
     name: "calendar.schedule_post",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "input",
+    workspaceBinding: "input",
     description:
       "Owner only. Schedule an approved item on a channel at a time at least two minutes ahead, as the owner. The post publishes its current version; an item already queued on that channel is a conflict.",
     input: CalendarSchedulePostInputSchema,
@@ -133,7 +134,7 @@ export const ownerTools = {
     name: "calendar.reschedule_post",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "Owner only. Move a planned, queued, failed or missed post to a new time at least two minutes ahead. expectedUpdatedAt is the post's updatedAt as last read; a post changed since is a conflict.",
     input: CalendarReschedulePostInputSchema,
@@ -143,7 +144,7 @@ export const ownerTools = {
     name: "calendar.cancel_post",
     scope: "mcp:admin",
     jobTokens: "deny",
-    projectBinding: "none",
+    workspaceBinding: "none",
     description:
       "Owner only. Cancel a post that has not started publishing. An item left without a queued post goes back to approved.",
     input: CalendarCancelPostInputSchema,

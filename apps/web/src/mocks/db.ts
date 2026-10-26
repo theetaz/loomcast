@@ -20,7 +20,6 @@ import {
   PAIRING_CODE_TTL_MS,
   type PairingCode,
   type PasswordTokenPurpose,
-  type Project,
   type PublisherStatus,
   type Review,
   type ScheduledPost,
@@ -31,6 +30,7 @@ import {
   TOKEN_PREFIXES,
   TOKEN_SECRET_LENGTH,
   type UserSummary,
+  type Workspace,
 } from "@loomcast/contracts";
 import type { MockLivePost } from "./analytics";
 import type { MockOAuthConnection } from "./oauth";
@@ -44,12 +44,21 @@ export interface MockPasswordToken {
   usedAt: string | null;
 }
 
+/** A workspace's icon as the mock API keeps it: base64 bytes and a version for its URL. */
+export interface MockWorkspaceIcon {
+  mime: "image/png" | "image/jpeg" | "image/webp";
+  data: string;
+  version?: number;
+}
+
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
 export interface MockDb {
   user: Me;
   password: string;
   signedIn: boolean;
-  projects: Project[];
+  workspaces: Workspace[];
+  /** Workspace icons by workspace id. */
+  workspaceIcons?: Record<string, MockWorkspaceIcon>;
   devices: Device[];
   /** Access tokens as listed; secrets are never kept. */
   tokens: AccessToken[];
@@ -65,15 +74,15 @@ export interface MockDb {
   conversations: Conversation[];
   messages: Message[];
   jobs: JobSummary[];
-  /** Knowledge-base entries of every project, with their reference details. */
+  /** Knowledge-base entries of every workspace, with their reference details. */
   kbEntries: KbEntryDetail[];
   /** Everyone else in the workspace, as the owner lists them; the signed-in user is `user`. */
   members: UserSummary[];
   /** Set-password links handed out, newest last. */
   passwordTokens: MockPasswordToken[];
-  /** Series of every project. */
+  /** Series of every workspace. */
   series: Series[];
-  /** Content items of every project. */
+  /** Content items of every workspace. */
   contentItems: ContentItem[];
   /** Every version of every content item. */
   contentVersions: ContentVersion[];
@@ -81,11 +90,11 @@ export interface MockDb {
   assets: AssetDetail[];
   /** Review decisions on content items, newest last. */
   reviews: Review[];
-  /** Formats of every project, with their current version. */
+  /** Formats of every workspace, with their current version. */
   formats: Format[];
   /** Every version of every format. */
   formatVersions: FormatVersion[];
-  /** Publishing channels (global, like the real API). */
+  /** Publishing channels of every workspace. */
   channels: Channel[];
   /** The channels each series publishes to. */
   seriesChannels: SeriesChannels[];
@@ -101,7 +110,7 @@ export interface MockDb {
   oauthConnections?: MockOAuthConnection[];
   /** Scheduled tasks, as the scheduler admin routes list them. */
   tasks: ScheduledTask[];
-  /** Competitors every project follows. */
+  /** Competitors every workspace follows. */
   competitors: Competitor[];
   /** Scans of every competitor, newest first. */
   competitorScans: CompetitorScan[];
@@ -133,7 +142,7 @@ export function createMockDb(seed: Partial<Omit<MockDb, "listeners">> = {}): Moc
     user: MOCK_USER,
     password: MOCK_PASSWORD,
     signedIn: false,
-    projects: [],
+    workspaces: [],
     devices: [],
     tokens: [],
     apiClients: [],
@@ -186,12 +195,17 @@ export function mockId(): string {
   return `${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${counter.toString(16).padStart(4, "0")}${hex(8)}`;
 }
 
-export function mockProject(overrides: Partial<Project> & Pick<Project, "name" | "slug">): Project {
+export function mockWorkspace(
+  overrides: Partial<Workspace> & Pick<Workspace, "name" | "slug">,
+): Workspace {
   const at = overrides.updatedAt ?? new Date().toISOString();
   return {
     id: mockId(),
     description: null,
     status: "active",
+    color: "thread",
+    iconUrl: null,
+    timeZone: "UTC",
     createdAt: at,
     updatedAt: at,
     archivedAt: null,
@@ -270,31 +284,41 @@ export function pairMockDevice(db: MockDb, overrides: Partial<Device> = {}): Dev
 export function demoSeed(now = Date.now()): Partial<Omit<MockDb, "listeners">> {
   return {
     autoPairAfterMs: 30_000,
-    projects: [
-      mockProject({
+    workspaces: [
+      mockWorkspace({
         name: "Rust in 60 seconds",
         slug: "rust-in-60-seconds",
+        color: "thread",
+        timeZone: "Europe/London",
         description: "One Rust idea per short, explained with a single runnable example.",
         updatedAt: minutesAgo(12, now),
       }),
-      mockProject({
+      mockWorkspace({
         name: "Agents for small teams",
         slug: "agents-for-small-teams",
+        color: "ember",
+        timeZone: "America/New_York",
         updatedAt: minutesAgo(3 * 60, now),
       }),
-      mockProject({
+      mockWorkspace({
         name: "Postgres tricks you will use this week",
         slug: "postgres-tricks-you-will-use-this-week",
+        color: "ocean",
+        timeZone: "Asia/Colombo",
         updatedAt: minutesAgo(26 * 60, now),
       }),
-      mockProject({
+      mockWorkspace({
         name: "TypeScript type puzzles",
         slug: "typescript-type-puzzles",
+        color: "plum",
+        timeZone: "Europe/Berlin",
         updatedAt: minutesAgo(4 * 24 * 60, now),
       }),
-      mockProject({
+      mockWorkspace({
         name: "Shell one-liners",
         slug: "shell-one-liners",
+        color: "slate",
+        timeZone: "UTC",
         status: "archived",
         archivedAt: minutesAgo(20 * 24 * 60, now),
         updatedAt: minutesAgo(20 * 24 * 60, now),

@@ -13,7 +13,7 @@ import type { ModuleDeps } from "../src/deps";
 import type { MetaAppConfig, PlatformsConfig, ThreadsAppConfig } from "../src/env";
 import type { Alert } from "../src/lib/alerts";
 import { testKeyring } from "./publisher-support";
-import { createTestApp, insertUser, login, type TestApp } from "./support";
+import { createTestApp, insertUser, insertWorkspace, login, type TestApp } from "./support";
 
 // Sign-in tests answer every Graph and Threads API call with an undici `MockAgent` installed as
 // the global dispatcher, so `fetch` never leaves the process. App ids, secrets, codes and tokens
@@ -168,6 +168,8 @@ export interface OAuthHarness {
   deps: ModuleDeps;
   cookie: string;
   userId: string;
+  /** An active workspace of the signed-in user, where accepted accounts are connected. */
+  workspaceId: string;
   live: LiveEvent[];
   /** Every alert the app raised, in order. */
   alerts: Alert[];
@@ -229,6 +231,7 @@ export async function createOAuthHarness(
   };
   const user = await insertUser(testDb.db);
   const { cookie } = await login(t.app, user.email);
+  const workspaceId = await insertWorkspace(testDb.db, { createdBy: user.id, name: "Channels" });
   const mock = installMockAgent();
   return {
     testDb,
@@ -237,6 +240,7 @@ export async function createOAuthHarness(
     deps,
     cookie,
     userId: user.id,
+    workspaceId,
     live,
     alerts,
     meta,

@@ -31,16 +31,16 @@ const CREATED_VIA: Record<KbEntry["createdVia"], string> = {
 
 /** "Back to knowledge", plus the page's actions on the right. */
 export function EntryToolbar({
-  projectParam,
+  workspaceParam,
   children,
 }: {
-  projectParam: string;
+  workspaceParam: string;
   children?: ReactNode;
 }) {
   return (
     <div className="flex min-h-7.5 flex-wrap items-center gap-2">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link to="/projects/$projectId/kb" params={{ projectId: projectParam }}>
+        <Link to="/w/$workspace/kb" params={{ workspace: workspaceParam }}>
           <ArrowLeftIcon aria-hidden="true" />
           Knowledge
         </Link>
@@ -98,10 +98,10 @@ export function TagChips({ tags, className }: { tags: readonly string[]; classNa
 /** Deletes the entry after a confirmation, then returns to the list. */
 export function DeleteEntryButton({
   entry,
-  projectParam,
+  workspaceParam,
 }: {
   entry: KbEntry;
-  projectParam: string;
+  workspaceParam: string;
 }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -111,8 +111,8 @@ export function DeleteEntryButton({
     onSuccess: () => {
       setOpen(false);
       toast.success("Entry deleted", { description: entry.title });
-      void navigate({ to: "/projects/$projectId/kb", params: { projectId: projectParam } });
-      removeKbEntry(queryClient, entry.id, entry.projectId);
+      void navigate({ to: "/w/$workspace/kb", params: { workspace: workspaceParam } });
+      removeKbEntry(queryClient, entry.id, entry.workspaceId);
     },
   });
 

@@ -20,14 +20,14 @@ import {
 } from "../../lib/db";
 import { conflict, validationFailed } from "../../lib/errors";
 import { auditActor, type PipelineActor } from "../content/actor";
-import { inTransaction, projectExists } from "../content/support";
-import { formatOfProject, type WriteOptions } from "../formats/service";
-import { freeProjectSlug, nameSlug } from "../formats/slugs";
-import { requireActiveProject } from "../kb/service";
+import { inTransaction, workspaceExists } from "../content/support";
+import { formatOfWorkspace, type WriteOptions } from "../formats/service";
+import { freeWorkspaceSlug, nameSlug } from "../formats/slugs";
+import { requireActiveWorkspace } from "../kb/service";
 
 export const FALLBACK_SERIES_SLUG = "series";
 
-const SLUG_UNIQUE_CONSTRAINT = "series_project_id_slug_uq";
+const SLUG_UNIQUE_CONSTRAINT = "series_workspace_id_slug_uq";
 const SLUG_ATTEMPTS = 5;
 
 /** The status moves of a series and the statuses each one starts from. */
@@ -41,15 +41,15 @@ export type SeriesStatusMove = keyof typeof STATUS_MOVES;
 
 export interface SeriesService {
   /**
-   * Creates an active series of a format of the same project. 404 for an unknown project, 409
-   * for an archived one or a taken explicit slug, 400 for a format of another project.
+   * Creates an active series of a format of the same workspace. 404 for an unknown workspace, 409
+   * for an archived one or a taken explicit slug, 400 for a format of another workspace.
    */
-  create(projectId: string, input: CreateSeriesRequest, actor: PipelineActor): Promise<Series>;
+  create(workspaceId: string, input: CreateSeriesRequest, actor: PipelineActor): Promise<Series>;
   get(id: string, executor?: Executor): Promise<Series | null>;
-  /** The series of a project by name, optionally of one status. Null for an unknown project. */
-  list(projectId: string, query?: ListSeriesQuery): Promise<Series[] | null>;
+  /** The series of a workspace by name, optionally of one status. Null for an unknown workspace. */
+  list(workspaceId: string, query?: ListSeriesQuery): Promise<Series[] | null>;
   /**
-   * Renames a series or moves it to another format of the project. 409 for an archived series.
+   * Renames a series or moves it to another format of the workspace. 409 for an archived series.
    * Null when there is no such series.
    */
   update(
@@ -79,7 +79,7 @@ export interface SeriesServiceDeps {
 export function toSeries(row: SeriesRow): Series {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     name: row.name,
     slug: row.slug,
     formatId: row.formatId,
@@ -97,11 +97,11 @@ async function lockSeries(tx: Transaction, id: string): Promise<SeriesRow | null
   return row ?? null;
 }
 
-async function requireFormat(executor: Executor, projectId: string, formatId: string) {
-  const format = await formatOfProject(executor, projectId, formatId);
+async function requireFormat(executor: Executor, workspaceId: string, formatId: string) {
+  const format = await formatOfWorkspace(executor, workspaceId, formatId);
   if (format === null) {
     throw validationFailed([
-      { path: "formatId", message: "No format with that id in this project" },
+      { path: "formatId", message: "No format with that id in this workspace" },
     ]);
   }
   if (format.archivedAt !== null) {
@@ -115,7 +115,7 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
   function publishUpdated(tx: Transaction, before: SeriesRow, after: SeriesRow): void {
     const payload = {
       seriesId: after.id,
-      projectId: after.projectId,
+      workspaceId: after.workspaceId,
       status: after.status,
       previousStatus: before.status,
       formatId: after.formatId,
@@ -124,23 +124,23 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
     afterCommit(tx, () => bus.publish({ type: "series.updated", payload }));
   }
 
-  async function insert(projectId: string, input: CreateSeriesRequest, actor: PipelineActor) {
+  async function insert(workspaceId: string, input: CreateSeriesRequest, actor: PipelineActor) {
     return transaction(db, async (tx) => {
-      await requireActiveProject(tx, projectId);
-      await requireFormat(tx, projectId, input.formatId);
+      await requireActiveWorkspace(tx, workspaceId);
+      await requireFormat(tx, workspaceId, input.formatId);
       const slug =
         input.slug ??
-        (await freeProjectSlug(
+        (await freeWorkspaceSlug(
           tx,
           "series",
-          projectId,
+          workspaceId,
           nameSlug(input.name, FALLBACK_SERIES_SLUG),
         ));
       const [row] = await tx
         .insert(series)
         .values({
           id: randomUUID(),
-          projectId,
+          workspaceId,
           name: input.name,
           slug,
           formatId: input.formatId,
@@ -156,23 +156,23 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
         action: "series.created",
         targetType: "series",
         targetId: row.id,
-        data: { projectId, slug, formatId: row.formatId },
+        data: { workspaceId, slug, formatId: row.formatId },
       });
       return toSeries(row);
     });
   }
 
   return {
-    async create(projectId, input, actor) {
+    async create(workspaceId, input, actor) {
       for (let attempt = 1; ; attempt += 1) {
         try {
-          return await insert(projectId, input, actor);
+          return await insert(workspaceId, input, actor);
         } catch (error) {
           if (!isUniqueViolation(error, SLUG_UNIQUE_CONSTRAINT)) {
             throw error;
           }
           if (input.slug !== undefined) {
-            throw conflict("A series of this project already uses that slug.", { field: "slug" });
+            throw conflict("A series of this workspace already uses that slug.", { field: "slug" });
           }
           if (attempt >= SLUG_ATTEMPTS) {
             throw error;
@@ -189,8 +189,8 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
       return row === undefined ? null : toSeries(row);
     },
 
-    async list(projectId, query = {}) {
-      if (!(await projectExists(db, projectId))) {
+    async list(workspaceId, query = {}) {
+      if (!(await workspaceExists(db, workspaceId))) {
         return null;
       }
       const rows = await db
@@ -198,7 +198,7 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
         .from(series)
         .where(
           and(
-            eq(series.projectId, projectId),
+            eq(series.workspaceId, workspaceId),
             query.status === undefined ? undefined : eq(series.status, query.status),
           ),
         )
@@ -219,7 +219,7 @@ export function createSeriesService(deps: SeriesServiceDeps): SeriesService {
           throw archivedSeries();
         }
         if (input.formatId !== undefined && input.formatId !== before.formatId) {
-          await requireFormat(tx, before.projectId, input.formatId);
+          await requireFormat(tx, before.workspaceId, input.formatId);
         }
         const [row] = await tx
           .update(series)

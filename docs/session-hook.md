@@ -1,7 +1,7 @@
 # Session-end hook
 
 `apps/studio-agent/hooks/session-end.mjs` files a summary of a finished working session in a
-project's knowledge base, as a **Session summary** entry. It works with any client that runs a
+workspace's knowledge base, as a **Session summary** entry. It works with any client that runs a
 session-end hook with a JSON payload on stdin.
 
 It is optional and off by default. It is plain Node (22.12 or newer) with no dependencies and no
@@ -37,7 +37,7 @@ Before anything leaves the machine it redacts:
 - every line that sets a password (`password=`, `password:` and similar), replaced as a whole.
 
 It then calls the `kb.save_session_summary` MCP tool on `<LOOMCAST_URL>/mcp` with
-`sessionId`, `summaryMd`, `cwd` and, when known, `projectId`. The full transcript is never sent.
+`sessionId`, `summaryMd`, `cwd` and, when known, `workspaceId`. The full transcript is never sent.
 Calling it again for the same session replaces that session's summary.
 
 ## Guarantees
@@ -56,29 +56,34 @@ Calling it again for the same session replaces that session's summary.
 |---|---|---|
 | `LOOMCAST_SESSION_HOOK` | yes | `1` (or `true`, `on`, `yes`) turns the hook on; anything else and it exits at once |
 | `LOOMCAST_URL` | yes | The Loomcast server, for example `https://loomcast.example.com`; `/mcp` is added unless the URL already ends with it |
-| `LOOMCAST_MCP_TOKEN` | yes | An access token with **Write** (`mcp:write`), from **Settings → Access tokens** |
-| `LOOMCAST_PROJECT_ID` | no | The project to file summaries in |
+| `LOOMCAST_MCP_TOKEN` | yes | An access token with **Write** (`mcp:write`), from **Account settings → Access tokens** |
+| `LOOMCAST_WORKSPACE_ID` | no | The workspace to file summaries in |
 
 The variables must be in the environment the client starts its hooks with, for example the
 shell profile of the user who runs the client. Job tokens cannot call this tool.
 
-### Which project
+### Which workspace
 
-The first of these that names a project wins:
+The first of these that names a workspace wins:
 
-1. `LOOMCAST_PROJECT_ID`.
-2. The nearest `.loomcast/project.json` at or above the session's working directory:
+1. `LOOMCAST_WORKSPACE_ID`.
+2. The nearest `.loomcast/workspace.json` at or above the session's working directory:
 
    ```json
-   { "projectId": "2d8e4b9a-af6c-4e3a-9b5d-4c3f6a7b8c92" }
+   { "workspaceId": "2d8e4b9a-af6c-4e3a-9b5d-4c3f6a7b8c92" }
    ```
 
-   The nearest file decides: if it is unreadable or names no valid id, no project is sent.
-3. On the server: a `Loomcast/projects/<project id>` folder in the working directory, which is
-   where the studio agent keeps each project's workspace.
+   The nearest file decides: if it is unreadable or names no valid id, no workspace is sent.
+3. On the server: a `Loomcast/projects/<workspace id>` folder in the working directory, which is
+   where the studio agent keeps each workspace's files. The folder keeps its `projects` name from
+   before projects were renamed workspaces.
 
-If none applies, the server answers `project_unresolved` and the hook reports
-`failed: project_unresolved: …`.
+If none applies, the server answers `workspace_unresolved` and the hook reports
+`failed: workspace_unresolved: …`.
+
+Hooks set up before the rename used `LOOMCAST_PROJECT_ID` and `.loomcast/project.json` with a
+`projectId` key. The hook no longer reads those names: rename them to `LOOMCAST_WORKSPACE_ID` and
+`.loomcast/workspace.json` with `workspaceId`, or the summary falls back to the folder rule.
 
 ## Installing
 
@@ -119,7 +124,7 @@ With it on, against a local stack (`pnpm dev`) and a token with Write:
 
 ```bash
 export LOOMCAST_SESSION_HOOK=1 LOOMCAST_URL=http://localhost:5173
-export LOOMCAST_PROJECT_ID=<project id>   # from the project's URL or Overview
+export LOOMCAST_WORKSPACE_ID=<workspace id>   # the id, from the MCP tool workspace.list
 read -rs LOOMCAST_MCP_TOKEN && export LOOMCAST_MCP_TOKEN
 printf '%s\n' '{"type":"user","message":{"role":"user","content":"Plan the DNS explainer"}}' > /tmp/session.jsonl
 echo '{"session_id":"try-1","transcript_path":"/tmp/session.jsonl","cwd":"'"$PWD"'"}' \
@@ -127,7 +132,7 @@ echo '{"session_id":"try-1","transcript_path":"/tmp/session.jsonl","cwd":"'"$PWD
 ```
 
 It prints `[loomcast hook] saved: saved session summary <entry id>`, and the entry appears in
-the project's **Knowledge** tab under **Sessions** without a reload.
+the workspace's **Knowledge** page under **Sessions** without a reload.
 
 | Message | Cause |
 |---|---|
@@ -136,7 +141,7 @@ the project's **Knowledge** tab under **Sessions** without a reload.
 | `skipped: the payload names no session_id` | The client sent no payload, or one without `session_id` |
 | `failed: HTTP 401` | The token is missing, mistyped or revoked |
 | `failed: forbidden: …` | The token lacks Write |
-| `failed: project_unresolved: …` | No project could be found; see [Which project](#which-project) |
+| `failed: workspace_unresolved: …` | No workspace could be found; see [Which workspace](#which-workspace) |
 | `failed: timeout` | The server did not answer within 5 seconds |
 
 ## Tests
@@ -146,5 +151,5 @@ pnpm --filter @loomcast/studio-agent exec vitest run hooks
 ```
 
 The tests cover the digest, redaction (with secret-shaped samples assembled at run time),
-project resolution, the installer and the timeout, using synthetic transcripts and an
+workspace resolution, the installer and the timeout, using synthetic transcripts and an
 in-process MCP server. `pnpm test:e2e` runs the hook against the real API as well.

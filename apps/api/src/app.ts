@@ -50,7 +50,6 @@ import {
   storageCheck,
 } from "./modules/ops";
 import { register as registerProduction } from "./modules/production";
-import { register as registerProjects } from "./modules/projects";
 import { register as registerPublisher } from "./modules/publisher";
 import { register as registerReviews } from "./modules/reviews";
 import { createScheduler, register as registerScheduler } from "./modules/scheduler";
@@ -58,6 +57,7 @@ import { register as registerSeries } from "./modules/series";
 import { register as registerSkills } from "./modules/skills";
 import { register as registerStream } from "./modules/stream";
 import { createTokensService, register as registerTokens } from "./modules/tokens";
+import { register as registerWorkspaces } from "./modules/workspaces";
 import type { AppEnv } from "./types";
 
 /** Largest request body accepted on `/api/*`. */
@@ -315,7 +315,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerAuth(app, moduleDeps);
   registerTokens(app, moduleDeps);
   registerApiClients(app, moduleDeps);
-  registerProjects(app, moduleDeps);
+  registerWorkspaces(app, moduleDeps);
   registerConversations(app, moduleDeps);
   registerKb(app, moduleDeps);
   registerCompetitors(app, moduleDeps);

@@ -143,7 +143,10 @@ error. From a checkout with the values in the root `.env`, the same check is
 
 ## Connecting the accounts
 
-In Loomcast, **Settings → Channels → Connect**:
+In Loomcast, open the workspace the accounts belong to, then
+**Workspace settings → Channels → Connect**. After the sign-in, the connect page asks which
+workspace the accounts join (it starts with the one you came from); an account already connected in
+another workspace is refused with a message naming that workspace.
 
 - **Facebook Page and Instagram** opens the Facebook dialog with the configuration of step 4.
   Choose the Page (and its business), allow every permission, and pick the Page and the Instagram

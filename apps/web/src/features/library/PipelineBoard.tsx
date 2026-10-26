@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { TriangleAlertIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { FormatIcon } from "@/features/post-formats/FormatBadge";
+import { useWorkspaceParam } from "@/features/workspace/current";
 import { formatDateTime } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 import { formatDuration, formatTargetDay, isOverdue } from "./format";
@@ -84,6 +85,7 @@ function BoardCard({
   now: number;
   actions: ReactNode;
 }) {
+  const workspaceParam = useWorkspaceParam();
   const overdue =
     item.targetAt !== null &&
     item.state !== "published" &&
@@ -99,8 +101,8 @@ function BoardCard({
       )}
     >
       <Link
-        to="/content/$itemId"
-        params={{ itemId: item.id }}
+        to="/w/$workspace/content/$itemId"
+        params={{ workspace: workspaceParam, itemId: item.id }}
         className="line-clamp-2 pr-6 font-medium text-[13px] text-foreground leading-snug outline-none after:absolute after:inset-0 after:rounded-md after:content-['']"
       >
         {item.title}

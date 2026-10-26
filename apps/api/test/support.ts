@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { UserRole } from "@loomcast/contracts";
-import { type Database, type UserRow, users } from "@loomcast/db";
+import { type Database, type UserRow, users, workspaces } from "@loomcast/db";
 import type { Hono } from "hono";
 import { type CreateAppOptions, createApp } from "../src/app";
 import type { AppDeps } from "../src/deps";
@@ -221,4 +221,39 @@ export async function login(
 export async function errorCode(response: Response): Promise<string | undefined> {
   const body = (await response.json()) as { error?: { code?: string } };
   return body.error?.code;
+}
+
+/** Inserts an active workspace; `createdBy` defaults to a fresh admin. */
+export async function insertWorkspace(
+  db: Database,
+  values: { createdBy?: string; name?: string; status?: "active" | "archived" } = {},
+): Promise<string> {
+  const createdBy = values.createdBy ?? (await insertUser(db)).id;
+  const archived = values.status === "archived";
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      slug: `ws-${randomUUID().slice(0, 8)}`,
+      name: values.name ?? "Test workspace",
+      createdBy,
+      status: values.status ?? "active",
+      archivedAt: archived ? new Date() : null,
+    })
+    .returning({ id: workspaces.id });
+  if (row === undefined) {
+    throw new Error("workspace was not inserted");
+  }
+  return row.id;
+}
+
+const defaultWorkspaces = new WeakMap<Database, Promise<string>>();
+
+/** One workspace per database, for channels whose workspace does not matter to the test. */
+export function defaultWorkspace(db: Database): Promise<string> {
+  let id = defaultWorkspaces.get(db);
+  if (id === undefined) {
+    id = insertWorkspace(db, { name: "Default workspace" });
+    defaultWorkspaces.set(db, id);
+  }
+  return id;
 }

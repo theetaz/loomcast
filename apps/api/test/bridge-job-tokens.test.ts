@@ -19,7 +19,7 @@ import {
   type Fixtures,
   pairDevice,
   producerChatPayload,
-  seedProject,
+  seedWorkspace,
   startBridgeServer,
   type TestDevice,
   trackUnhandledRejections,
@@ -34,7 +34,7 @@ const agents: FakeAgent[] = [];
 
 beforeAll(async () => {
   testDb = await createTestDb({ max: 10 });
-  fixtures = await seedProject(testDb.db);
+  fixtures = await seedWorkspace(testDb.db);
 });
 
 afterEach(async () => {
@@ -104,7 +104,7 @@ async function producerChatJob(server: BridgeServer) {
   return enqueue(testDb.db, server.bus, {
     type: "producer.chat",
     payload: producerChatPayload(fixtures, conversationId),
-    projectId: fixtures.projectId,
+    workspaceId: fixtures.workspaceId,
     conversationId,
     createdBy: fixtures.userId,
   });
@@ -126,7 +126,7 @@ async function verifies(server: BridgeServer, secret: string): Promise<boolean> 
 }
 
 describe("job credentials on assign", () => {
-  it("mints a job token bound to the job and its project and sends it once", async () => {
+  it("mints a job token bound to the job and its workspace and sends it once", async () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await producerChatJob(server);
@@ -147,7 +147,7 @@ describe("job credentials on assign", () => {
     expect(rows[0]).toMatchObject({
       kind: "job",
       userId: fixtures.userId,
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       jobId: job.id,
       scopes: ["mcp:read", "mcp:write"],
       tokenHash: sha256Hex(secret),
@@ -156,7 +156,7 @@ describe("job credentials on assign", () => {
     const verified = await server.moduleDeps.tokens.verify(secret, "job");
     expect(verified).toMatchObject({
       kind: "job",
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       jobId: job.id,
       scopes: ["mcp:read", "mcp:write"],
     });
@@ -180,7 +180,7 @@ describe("job credentials on assign", () => {
     const server = await start();
     const device = await pairDevice(testDb.db, fixtures.userId);
     const job = await enqueue(testDb.db, server.bus, {
-      projectId: fixtures.projectId,
+      workspaceId: fixtures.workspaceId,
       createdBy: fixtures.userId,
     });
     const agent = await connect(server, device);

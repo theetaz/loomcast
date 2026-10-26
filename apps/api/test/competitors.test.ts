@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  COMPETITORS_PER_PROJECT_MAX,
+  COMPETITORS_PER_WORKSPACE_MAX,
   type Competitor,
   type CompetitorInsights,
   type CompetitorScan,
@@ -19,7 +19,7 @@ import {
   jobs,
   kbEntries,
   kbReferences,
-  projects,
+  workspaces,
 } from "@loomcast/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -72,9 +72,9 @@ function call(method: string, path: string, body?: unknown, cookie = h.cookie) {
   return send(h.t.app, method, path, { cookie, body });
 }
 
-async function newProject(status: "active" | "archived" = "active"): Promise<string> {
-  const [project] = await h.db
-    .insert(projects)
+async function newWorkspace(status: "active" | "archived" = "active"): Promise<string> {
+  const [workspace] = await h.db
+    .insert(workspaces)
     .values({
       slug: `competitors-${randomUUID().slice(0, 8)}`,
       name: "Competitors",
@@ -83,14 +83,14 @@ async function newProject(status: "active" | "archived" = "active"): Promise<str
       createdBy: h.userId,
     })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project.id;
+  return workspace.id;
 }
 
-async function follow(projectId: string, url: string): Promise<Competitor> {
-  const response = await call("POST", `/api/projects/${projectId}/competitors`, { url });
+async function follow(workspaceId: string, url: string): Promise<Competitor> {
+  const response = await call("POST", `/api/workspaces/${workspaceId}/competitors`, { url });
   expect(response.status, await response.clone().text()).toBe(201);
   return CompetitorSchema.parse(await response.json());
 }
@@ -243,10 +243,10 @@ function discoveryPage(items: JsonObject[], after?: string) {
 
 describe("following competitors", () => {
   it("parses profile links and handles, refuses duplicates and lists the competitors", async () => {
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "@nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "@nasa");
     expect(nasa).toMatchObject({
-      projectId,
+      workspaceId,
       platform: "instagram",
       handle: "nasa",
       profileUrl: "https://instagram.com/nasa",
@@ -255,12 +255,12 @@ describe("following competitors", () => {
       latestScan: null,
       latestReportEntryId: null,
     });
-    const page = await follow(projectId, "https://www.facebook.com/NASA/");
+    const page = await follow(workspaceId, "https://www.facebook.com/NASA/");
     expect(page).toMatchObject({ platform: "facebook", handle: "NASA" });
-    const threads = await follow(projectId, "https://www.threads.net/@nasa");
+    const threads = await follow(workspaceId, "https://www.threads.net/@nasa");
     expect(threads).toMatchObject({ platform: "threads", profileUrl: "https://threads.net/@nasa" });
 
-    const duplicate = await call("POST", `/api/projects/${projectId}/competitors`, {
+    const duplicate = await call("POST", `/api/workspaces/${workspaceId}/competitors`, {
       url: "https://instagram.com/NASA?igsh=abc",
     });
     expect(duplicate.status).toBe(409);
@@ -270,7 +270,7 @@ describe("following competitors", () => {
       details: { reason: "duplicate", competitorId: nasa.id },
     });
 
-    const listed = await call("GET", `/api/projects/${projectId}/competitors`);
+    const listed = await call("GET", `/api/workspaces/${workspaceId}/competitors`);
     expect(listed.status).toBe(200);
     const { items } = (await listed.json()) as { items: Competitor[] };
     expect(items.map((item) => item.id)).toEqual([nasa.id, page.id, threads.id]);
@@ -283,22 +283,22 @@ describe("following competitors", () => {
   });
 
   it("refuses links that are not profiles with 400", async () => {
-    const projectId = await newProject();
+    const workspaceId = await newWorkspace();
     for (const url of [
       "https://instagram.com/reel/abc123/",
       "https://youtube.com/@nasa",
       "https://instagram.com/",
       "ftp://instagram.com/nasa",
     ]) {
-      const response = await call("POST", `/api/projects/${projectId}/competitors`, { url });
+      const response = await call("POST", `/api/workspaces/${workspaceId}/competitors`, { url });
       expect(response.status, url).toBe(400);
       expect(await errorCode(response), url).toBe("validation_failed");
     }
   });
 
   it("updates notes, deletes softly and lets the profile be followed again", async () => {
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "nasa");
     const updated = await call("PATCH", `/api/competitors/${nasa.id}`, { notes: "Space footage" });
     expect(updated.status).toBe(200);
     expect(CompetitorSchema.parse(await updated.json()).notes).toBe("Space footage");
@@ -309,42 +309,44 @@ describe("following competitors", () => {
     expect((await call("GET", `/api/competitors/${nasa.id}`)).status).toBe(404);
     expect((await call("DELETE", `/api/competitors/${nasa.id}`)).status).toBe(404);
     expect((await call("PATCH", `/api/competitors/${nasa.id}`, { notes: null })).status).toBe(404);
-    const again = await follow(projectId, "nasa");
+    const again = await follow(workspaceId, "nasa");
     expect(again.id).not.toBe(nasa.id);
     const [row] = await h.db.select().from(competitors).where(eq(competitors.id, nasa.id));
     expect(row?.deletedAt).not.toBeNull();
   });
 
-  it("stops at the per-project limit", async () => {
-    const projectId = await newProject();
+  it("stops at the per-workspace limit", async () => {
+    const workspaceId = await newWorkspace();
     await h.db.insert(competitors).values(
-      Array.from({ length: COMPETITORS_PER_PROJECT_MAX }, (_, index) => ({
-        projectId,
+      Array.from({ length: COMPETITORS_PER_WORKSPACE_MAX }, (_, index) => ({
+        workspaceId,
         platform: "instagram" as const,
         handle: `account${index}`,
         profileUrl: `https://instagram.com/account${index}`,
       })),
     );
-    const response = await call("POST", `/api/projects/${projectId}/competitors`, { url: "nasa" });
+    const response = await call("POST", `/api/workspaces/${workspaceId}/competitors`, {
+      url: "nasa",
+    });
     expect(response.status).toBe(409);
     const body = (await response.json()) as { error: { details: unknown } };
     expect(body.error.details).toMatchObject({ reason: "limit" });
   });
 
-  it("checks the project and the session", async () => {
+  it("checks the workspace and the session", async () => {
     const unknown = randomUUID();
-    expect((await call("GET", `/api/projects/${unknown}/competitors`)).status).toBe(404);
+    expect((await call("GET", `/api/workspaces/${unknown}/competitors`)).status).toBe(404);
     expect(
-      (await call("POST", `/api/projects/${unknown}/competitors`, { url: "nasa" })).status,
+      (await call("POST", `/api/workspaces/${unknown}/competitors`, { url: "nasa" })).status,
     ).toBe(404);
-    const archived = await newProject("archived");
-    const refused = await call("POST", `/api/projects/${archived}/competitors`, { url: "nasa" });
+    const archived = await newWorkspace("archived");
+    const refused = await call("POST", `/api/workspaces/${archived}/competitors`, { url: "nasa" });
     expect(refused.status).toBe(409);
 
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "nasa");
     for (const [method, path] of [
-      ["GET", `/api/projects/${projectId}/competitors`],
+      ["GET", `/api/workspaces/${workspaceId}/competitors`],
       ["GET", `/api/competitors/${nasa.id}`],
       ["GET", `/api/competitors/${nasa.id}/scans`],
       ["POST", `/api/competitors/${nasa.id}/scans`],
@@ -355,7 +357,7 @@ describe("following competitors", () => {
       });
       expect(response.status, `${method} ${path}`).toBe(401);
     }
-    // Every signed-in user of the workspace shares its projects.
+    // Every signed-in user of the workspace shares its workspaces.
     const other = await h.otherUser();
     expect((await call("GET", `/api/competitors/${nasa.id}`, undefined, other.cookie)).status).toBe(
       200,
@@ -368,8 +370,8 @@ describe("following competitors", () => {
 
 describe("starting a scan", () => {
   it("needs links for Facebook and Threads and checks every link", async () => {
-    const projectId = await newProject();
-    const page = await follow(projectId, "https://facebook.com/nasa");
+    const workspaceId = await newWorkspace();
+    const page = await follow(workspaceId, "https://facebook.com/nasa");
     const missing = await call("POST", `/api/competitors/${page.id}/scans`, {});
     expect(missing.status).toBe(422);
     expect(await errorCode(missing)).toBe("links_required");
@@ -390,8 +392,8 @@ describe("starting a scan", () => {
   });
 
   it("refuses without a usable Instagram channel", async () => {
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "nasa");
     const response = await call("POST", `/api/competitors/${nasa.id}/scans`, {
       channelId: randomUUID(),
     });
@@ -400,8 +402,8 @@ describe("starting a scan", () => {
   });
 
   it("maps an account that is not professional to 422 not_professional_account", async () => {
-    const projectId = await newProject();
-    const someone = await follow(projectId, "@someone.personal");
+    const workspaceId = await newWorkspace();
+    const someone = await follow(workspaceId, "@someone.personal");
     answer(h.graph, "GET", `/${GRAPH_VERSION}/${channel.externalId}`, {
       status: 400,
       body: graphError(110, "Invalid user id", BUSINESS_DISCOVERY_NOT_FOUND_SUBCODE),
@@ -414,12 +416,12 @@ describe("starting a scan", () => {
   });
 
   it("ranks the account's videos by views across pages and queues their analyses", async () => {
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "nasa");
     const codes = Array.from({ length: 6 }, () => reelCode());
     const [c0, c1, c2, c3, c4, c5] = codes as [string, string, string, string, string, string];
     // An earlier, analysed reference of one of the videos is reused without a new job.
-    const saved = await call("POST", `/api/projects/${projectId}/kb`, {
+    const saved = await call("POST", `/api/workspaces/${workspaceId}/kb`, {
       kind: "reference",
       url: `https://instagram.com/reel/${c3}/`,
       tags: ["saved"],
@@ -464,7 +466,7 @@ describe("starting a scan", () => {
     const scan = await startScan(nasa.id, { topN: 3 });
     expect(scan).toMatchObject({
       competitorId: nasa.id,
-      projectId,
+      workspaceId,
       status: "analyzing",
       source: "official_api",
       topN: 3,
@@ -528,7 +530,7 @@ describe("starting a scan", () => {
       expect(job).toMatchObject({
         type: "kb.analyze_reference",
         status: "queued",
-        projectId,
+        workspaceId,
         idempotencyKey: scanAnalysisKey(scan.id, entryId),
         createdBy: h.userId,
       });
@@ -587,7 +589,7 @@ describe("starting a scan", () => {
     const note = await entryOf(done.reportEntryId ?? "");
     expect(note).toMatchObject({
       kind: "note",
-      projectId,
+      workspaceId,
       title: "Competitor report: @nasa (2026-10-14)",
       tags: ["competitor", tag, "competitor-report"],
       createdVia: "producer",
@@ -609,8 +611,8 @@ describe("starting a scan", () => {
   });
 
   it("falls back to likes and comments when the API refuses view counts", async () => {
-    const projectId = await newProject();
-    const nasa = await follow(projectId, "nasa");
+    const workspaceId = await newWorkspace();
+    const nasa = await follow(workspaceId, "nasa");
     const [low, high] = [reelCode(), reelCode()];
     answer(h.graph, "GET", `/${GRAPH_VERSION}/${channel.externalId}`, {
       status: 400,
@@ -636,19 +638,53 @@ describe("starting a scan", () => {
     ]);
     await call("POST", `/api/competitor-scans/${scan.id}/cancel`);
   });
+
+  it("looks the account up with the workspace's own Instagram channel first", async () => {
+    const workspaceId = await newWorkspace();
+    const keyring = h.t.deps.config.encryption;
+    if (keyring === null) {
+      throw new Error("the harness has no vault key");
+    }
+    // Newer than the shared channel, so it wins only because it belongs to the workspace.
+    const own = await insertChannel(h.db, keyring, {
+      platform: "instagram",
+      connected: true,
+      workspaceId,
+    });
+    const nasa = await follow(workspaceId, "nasa");
+    const seen: SeenRequest[] = [];
+    answer(
+      h.graph,
+      "GET",
+      `/${GRAPH_VERSION}/${own.externalId}`,
+      { body: discoveryPage([rawReel(reelCode(), 10)]) },
+      seen,
+    );
+    const scan = await startScan(nasa.id, { topN: 1 });
+    expect(seen[0]?.headers.authorization).toBe(`Bearer ${own.token}`);
+    await call("POST", `/api/competitor-scans/${scan.id}/cancel`);
+
+    // A channel of another workspace cannot be named.
+    const refused = await call("POST", `/api/competitors/${nasa.id}/scans`, {
+      topN: 1,
+      channelId: channel.id,
+    });
+    expect(refused.status).toBe(422);
+    expect(await errorCode(refused)).toBe("no_instagram_channel");
+  });
 });
 
 describe("scan outcomes", () => {
   async function linkScan(handle: string, count: number) {
-    const projectId = await newProject();
-    const competitor = await follow(projectId, `https://www.threads.net/@${handle}`);
+    const workspaceId = await newWorkspace();
+    const competitor = await follow(workspaceId, `https://www.threads.net/@${handle}`);
     const links = Array.from(
       { length: count },
       () => `https://www.threads.net/@${handle}/post/${reelCode()}`,
     );
     const scan = await startScan(competitor.id, { links });
     expect(scan).toMatchObject({ source: "links", topN: count, videoCount: count });
-    return { projectId, competitor, scan, jobIds: await analysisJobs(scan.id) };
+    return { workspaceId, competitor, scan, jobIds: await analysisJobs(scan.id) };
   }
 
   it("is partial when some videos could not be analysed", async () => {

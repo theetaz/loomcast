@@ -24,7 +24,7 @@ import {
   repairPrompt,
 } from "../producer/prompts/analyze-reference";
 import type { ProducerEvent, ProducerRunResult, ProducerRuntime } from "../producer/runtime";
-import { ensureProjectWorkspace } from "../producer/workspace";
+import { ensureWorkspaceWorkspace } from "../producer/workspace";
 import { type ProductionDeps, toJobFailure, withPlatform } from "../production/context";
 import { productionDeps } from "../production/deps";
 import { downloadFile } from "../production/upload";
@@ -44,7 +44,7 @@ export type ReferenceMediaDeps = Pick<
 
 export interface AnalyzeReferenceOptions {
   readonly runtime: ProducerRuntime;
-  /** Transcripts are written below `<workspaceRoot>/projects/<projectId>/references/`. */
+  /** Transcripts are written below `<workspaceRoot>/projects/<workspaceId>/references/`. */
   readonly workspaceRoot: string;
   /** Without it, a reference with media but no transcript fails as `transcript_required`. */
   readonly media?: ReferenceMediaDeps;
@@ -100,8 +100,8 @@ export function analyzeReferenceHandler(
       throw new JobFailure("invalid_payload", "The kb.analyze_reference payload is invalid");
     }
     const payload = parsed.data;
-    if (payload.projectId !== ctx.job.projectId) {
-      throw new JobFailure("invalid_payload", "The payload's project does not match the job's");
+    if (payload.workspaceId !== ctx.job.workspaceId) {
+      throw new JobFailure("invalid_payload", "The payload's workspace does not match the job's");
     }
     const fetches =
       payload.transcript === undefined &&
@@ -122,7 +122,7 @@ export function analyzeReferenceHandler(
     }
 
     ctx.emit("status", { state: "starting" });
-    const workspace = await ensureProjectWorkspace(options.workspaceRoot, payload.projectId);
+    const workspace = await ensureWorkspaceWorkspace(options.workspaceRoot, payload.workspaceId);
     const referenceDir = join(workspace.dir, "references", payload.entryId);
     await mkdir(referenceDir, { recursive: true });
     const transcriptPath = join(referenceDir, "transcript.txt");
@@ -179,7 +179,7 @@ export function analyzeReferenceHandler(
       ctx.emit("status", { state: "transcribing" });
       try {
         transcript = await transcribeReferenceMedia(ctx, options.media, {
-          projectId: payload.projectId,
+          workspaceId: payload.workspaceId,
           mediaAssetId: payload.mediaAssetId,
           referenceDir,
         });
@@ -388,7 +388,7 @@ async function transcribeReferenceMedia(
   ctx: JobContext<"kb.analyze_reference">,
   media: ReferenceMediaDeps,
   target: {
-    readonly projectId: string;
+    readonly workspaceId: string;
     readonly mediaAssetId: string;
     readonly referenceDir: string;
   },
@@ -400,11 +400,11 @@ async function transcribeReferenceMedia(
     if (
       asset.kind !== "reference_media" ||
       asset.status !== "ready" ||
-      asset.projectId !== target.projectId
+      asset.workspaceId !== target.workspaceId
     ) {
       throw new JobFailure(
         "invalid_payload",
-        "The media is not ready reference media of this project",
+        "The media is not ready reference media of this workspace",
       );
     }
     const extension = MEDIA_EXTENSIONS[asset.mime as AssetMimeType] ?? ".mp4";

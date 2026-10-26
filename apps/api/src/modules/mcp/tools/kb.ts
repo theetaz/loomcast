@@ -35,27 +35,27 @@ function plainSnippet(snippet: string): string {
 }
 
 /**
- * The project folder of a producer session or MCP client on the studio Mac:
- * `<workspace root>/Loomcast/projects/<project id>`, possibly with a subfolder after it.
+ * The workspace folder of a producer session or MCP client on the studio Mac:
+ * `<workspace root>/Loomcast/projects/<workspace id>`, possibly with a subfolder after it.
  * Windows separators are accepted too.
  */
-const PROJECT_CWD_RE =
+const WORKSPACE_CWD_RE =
   /[/\\]Loomcast[/\\]projects[/\\]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=[/\\]|$)/gi;
 
 /** Link to a knowledge-base entry in the web app. */
-export function kbEntryUrl(appOrigin: string, projectId: string, entryId: string): string {
+export function kbEntryUrl(appOrigin: string, workspaceId: string, entryId: string): string {
   return new URL(
-    `/projects/${encodeURIComponent(projectId)}/kb/${encodeURIComponent(entryId)}`,
+    `/w/${encodeURIComponent(workspaceId)}/kb/${encodeURIComponent(entryId)}`,
     appOrigin,
   ).toString();
 }
 
 /**
- * The project a working directory belongs to, from its `Loomcast/projects/<uuid>` segment, or
+ * The workspace a working directory belongs to, from its `Loomcast/projects/<uuid>` segment, or
  * null when it has none. The last such segment wins.
  */
-export function projectIdFromCwd(cwd: string): string | null {
-  const matches = [...cwd.matchAll(PROJECT_CWD_RE)];
+export function workspaceIdFromCwd(cwd: string): string | null {
+  const matches = [...cwd.matchAll(WORKSPACE_CWD_RE)];
   const id = matches.at(-1)?.[1]?.toLowerCase();
   return id !== undefined && IdSchema.safeParse(id).success ? id : null;
 }
@@ -74,12 +74,12 @@ function actor(caller: McpCaller, via?: KbCreatedVia): KbActor {
   };
 }
 
-/** The project of an `input` tool's call. The registry has already checked it for bound callers. */
-function boundProject(ctx: ToolContext): string {
-  if (ctx.projectId === null) {
-    throw new McpToolError("not_found", "No project has that id.");
+/** The workspace of an `input` tool's call. The registry has already checked it for bound callers. */
+function boundWorkspace(ctx: ToolContext): string {
+  if (ctx.workspaceId === null) {
+    throw new McpToolError("not_found", "No workspace has that id.");
   }
-  return ctx.projectId;
+  return ctx.workspaceId;
 }
 
 function describeEntry(entry: Pick<KbEntryDetail, "title" | "id">): string {
@@ -107,11 +107,11 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
   }
 
   const saveBrainstorm = defineTool(kbTools["kb.save_brainstorm"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, ctx) {
-      const projectId = boundProject(ctx);
+      const workspaceId = boundWorkspace(ctx);
       const entry = await kb.create(
-        projectId,
+        workspaceId,
         {
           kind: "brainstorm",
           title: input.title,
@@ -122,20 +122,20 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
         },
         actor(ctx.caller),
       );
-      return { entryId: entry.id, url: kbEntryUrl(appOrigin, projectId, entry.id) };
+      return { entryId: entry.id, url: kbEntryUrl(appOrigin, workspaceId, entry.id) };
     },
     summary: ({ entryId, url }) => `Saved brainstorm ${entryId}: ${url}`,
   });
 
   const addReference = defineTool(kbTools["kb.add_reference"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, ctx) {
-      const projectId = boundProject(ctx);
+      const workspaceId = boundWorkspace(ctx);
       try {
         // Saved as given: a reference is analysed only when someone asks for it (`kb.analyze`),
         // never on creation, and its link is never fetched.
         const entry = await kb.create(
-          projectId,
+          workspaceId,
           {
             kind: "reference",
             url: input.url,
@@ -159,11 +159,11 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
   });
 
   const addDecision = defineTool(kbTools["kb.add_decision"], {
-    resolveProject: async (input) => input.projectId,
+    resolveWorkspace: async (input) => input.workspaceId,
     async handler(input, ctx) {
-      const projectId = boundProject(ctx);
+      const workspaceId = boundWorkspace(ctx);
       const entry = await kb.create(
-        projectId,
+        workspaceId,
         {
           kind: "decision",
           title: input.title,
@@ -181,12 +181,12 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
   });
 
   const search = defineTool(kbTools["kb.search"], {
-    // Left out, the search spans every project, or only the bound project for a job token.
-    resolveProject: async (input) => input.projectId,
-    async handler(input, { projectId }) {
+    // Left out, the search spans every workspace, or only the bound workspace for a job token.
+    resolveWorkspace: async (input) => input.workspaceId,
+    async handler(input, { workspaceId }) {
       const hits = await kb.search({
         q: input.query,
-        ...(projectId === null ? {} : { projectId }),
+        ...(workspaceId === null ? {} : { workspaceId }),
         ...(input.kinds === undefined ? {} : { kinds: input.kinds }),
         ...(input.limit === undefined ? {} : { limit: input.limit }),
       });
@@ -200,7 +200,7 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
         .slice(0, SEARCH_SUMMARY_LIMIT)
         .map(
           (hit) =>
-            `- ${hit.kind} "${hit.title}" (id ${hit.entryId}, project ${hit.projectId}): ` +
+            `- ${hit.kind} "${hit.title}" (id ${hit.entryId}, workspace ${hit.workspaceId}): ` +
             plainSnippet(hit.snippet),
         );
       if (hits.length > SEARCH_SUMMARY_LIMIT) {
@@ -211,41 +211,41 @@ export function createKbTools(deps: KbToolsDeps): ToolDefinition[] {
   });
 
   const get = defineTool(kbTools["kb.get"], {
-    async resolveProject(input) {
+    async resolveWorkspace(input) {
       const entry = await kb.get(input.entryId);
-      return entry?.projectId ?? null;
+      return entry?.workspaceId ?? null;
     },
-    async handler(input, { projectId }) {
-      const entry = projectId === null ? null : await kb.get(input.entryId);
+    async handler(input, { workspaceId }) {
+      const entry = workspaceId === null ? null : await kb.get(input.entryId);
       // Checked again: the entry may have been deleted or moved since the binding was resolved.
-      if (entry === null || entry.projectId !== projectId) {
+      if (entry === null || entry.workspaceId !== workspaceId) {
         throw new McpToolError("not_found", "No knowledge-base entry has that id.");
       }
       return { entry };
     },
     summary: ({ entry }) =>
-      `${entry.kind} ${describeEntry(entry)} in project ${entry.projectId}, updated ${entry.updatedAt}.`,
+      `${entry.kind} ${describeEntry(entry)} in workspace ${entry.workspaceId}, updated ${entry.updatedAt}.`,
   });
 
   const saveSessionSummary = defineTool(kbTools["kb.save_session_summary"], {
-    async resolveProject(input) {
-      if (input.projectId !== undefined) {
-        return input.projectId;
+    async resolveWorkspace(input) {
+      if (input.workspaceId !== undefined) {
+        return input.workspaceId;
       }
-      const fromCwd = input.cwd === undefined ? null : projectIdFromCwd(input.cwd);
+      const fromCwd = input.cwd === undefined ? null : workspaceIdFromCwd(input.cwd);
       if (fromCwd === null) {
         throw new McpToolError(
-          "project_unresolved",
-          "Name the project with projectId, or call from a Loomcast/projects/<project id> folder.",
+          "workspace_unresolved",
+          "Name the workspace with workspaceId, or call from a Loomcast/projects/<workspace id> folder.",
         );
       }
       return fromCwd;
     },
     async handler(input, ctx) {
-      const projectId = boundProject(ctx);
+      const workspaceId = boundWorkspace(ctx);
       // Written by the session-end hook, so the entry is marked `hook`.
       const { entry } = await kb.saveSessionSummary(
-        projectId,
+        workspaceId,
         {
           sessionId: input.sessionId,
           summaryMd: input.summaryMd,
@@ -271,5 +271,5 @@ function duplicateReference(error: unknown): McpToolError | null {
     return null;
   }
   const entry = typeof details.entryId === "string" ? ` as entry ${details.entryId}` : "";
-  return new McpToolError("conflict", `This reference is already saved in the project${entry}.`);
+  return new McpToolError("conflict", `This reference is already saved in the workspace${entry}.`);
 }

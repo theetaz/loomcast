@@ -25,24 +25,24 @@ export interface KbListFilter {
 /** Knowledge-base query keys. Live events and mutations patch the same caches. */
 export const kbKeys = {
   all: ["kb"] as const,
-  lists: (projectId: string) => ["kb", "list", projectId] as const,
-  list: (projectId: string, filter: KbListFilter) =>
-    ["kb", "list", projectId, { kind: filter.kind, tag: filter.tag }] as const,
-  searches: (projectId: string) => ["kb", "search", projectId] as const,
-  search: (projectId: string, q: string, kind: KbFilter) =>
-    ["kb", "search", projectId, { q, kind }] as const,
-  tags: (projectId: string) => ["kb", "tags", projectId] as const,
+  lists: (workspaceId: string) => ["kb", "list", workspaceId] as const,
+  list: (workspaceId: string, filter: KbListFilter) =>
+    ["kb", "list", workspaceId, { kind: filter.kind, tag: filter.tag }] as const,
+  searches: (workspaceId: string) => ["kb", "search", workspaceId] as const,
+  search: (workspaceId: string, q: string, kind: KbFilter) =>
+    ["kb", "search", workspaceId, { q, kind }] as const,
+  tags: (workspaceId: string) => ["kb", "tags", workspaceId] as const,
   detail: (id: string) => ["kb", "detail", id] as const,
 };
 
 type KbPages = InfiniteData<CursorPage<KbEntry>, string | undefined>;
 
-export function kbListQueryOptions(projectId: string, filter: KbListFilter) {
+export function kbListQueryOptions(workspaceId: string, filter: KbListFilter) {
   return infiniteQueryOptions({
-    queryKey: kbKeys.list(projectId, filter),
+    queryKey: kbKeys.list(workspaceId, filter),
     queryFn: ({ pageParam, signal }) =>
       api.request("kb.list", {
-        params: { projectId },
+        params: { workspaceId },
         query: {
           limit: KB_PAGE_SIZE,
           ...(pageParam ? { cursor: pageParam } : {}),
@@ -56,14 +56,14 @@ export function kbListQueryOptions(projectId: string, filter: KbListFilter) {
   });
 }
 
-export function kbSearchQueryOptions(projectId: string, q: string, kind: KbFilter) {
+export function kbSearchQueryOptions(workspaceId: string, q: string, kind: KbFilter) {
   return queryOptions({
-    queryKey: kbKeys.search(projectId, q, kind),
+    queryKey: kbKeys.search(workspaceId, q, kind),
     queryFn: ({ signal }) =>
       api.request("kb.search", {
         query: {
           q,
-          projectId,
+          workspaceId,
           limit: KB_SEARCH_MAX_LIMIT,
           ...(kind === "all" ? {} : { kinds: filterKinds(kind) }),
         },
@@ -73,10 +73,10 @@ export function kbSearchQueryOptions(projectId: string, q: string, kind: KbFilte
   });
 }
 
-export function kbTagsQueryOptions(projectId: string) {
+export function kbTagsQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: kbKeys.tags(projectId),
-    queryFn: ({ signal }) => api.request("kb.tags", { params: { projectId }, signal }),
+    queryKey: kbKeys.tags(workspaceId),
+    queryFn: ({ signal }) => api.request("kb.tags", { params: { workspaceId }, signal }),
     select: (list) =>
       [...list.items].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag)),
   });
@@ -115,13 +115,13 @@ function mapPages(data: KbPages, map: (items: KbEntry[], index: number) => KbEnt
 }
 
 /**
- * Applies a created or changed entry to every loaded list of its project: replaced where it is,
+ * Applies a created or changed entry to every loaded list of its workspace: replaced where it is,
  * dropped where it no longer matches, and added at the top of lists it newly belongs to.
  */
 export function upsertKbEntry(queryClient: QueryClient, input: KbEntry | KbEntryDetail) {
   const entry = toKbEntry(input);
   for (const [queryKey, data] of queryClient.getQueriesData<KbPages>({
-    queryKey: kbKeys.lists(entry.projectId),
+    queryKey: kbKeys.lists(entry.workspaceId),
   })) {
     const filter = filterOfKey(queryKey);
     if (!data || !filter) continue;
@@ -141,14 +141,14 @@ export function upsertKbEntry(queryClient: QueryClient, input: KbEntry | KbEntry
     }
     queryClient.setQueryData(queryKey, next);
   }
-  void queryClient.invalidateQueries({ queryKey: kbKeys.tags(entry.projectId) });
-  void queryClient.invalidateQueries({ queryKey: kbKeys.searches(entry.projectId) });
+  void queryClient.invalidateQueries({ queryKey: kbKeys.tags(entry.workspaceId) });
+  void queryClient.invalidateQueries({ queryKey: kbKeys.searches(entry.workspaceId) });
 }
 
-/** Drops a deleted entry from its project's lists and refetches anything showing it. */
-export function removeKbEntry(queryClient: QueryClient, entryId: string, projectId: string) {
+/** Drops a deleted entry from its workspace's lists and refetches anything showing it. */
+export function removeKbEntry(queryClient: QueryClient, entryId: string, workspaceId: string) {
   for (const [queryKey, data] of queryClient.getQueriesData<KbPages>({
-    queryKey: kbKeys.lists(projectId),
+    queryKey: kbKeys.lists(workspaceId),
   })) {
     if (!data) continue;
     queryClient.setQueryData(
@@ -156,8 +156,8 @@ export function removeKbEntry(queryClient: QueryClient, entryId: string, project
       mapPages(data, (items) => items.filter((item) => item.id !== entryId)),
     );
   }
-  void queryClient.invalidateQueries({ queryKey: kbKeys.tags(projectId) });
-  void queryClient.invalidateQueries({ queryKey: kbKeys.searches(projectId) });
+  void queryClient.invalidateQueries({ queryKey: kbKeys.tags(workspaceId) });
+  void queryClient.invalidateQueries({ queryKey: kbKeys.searches(workspaceId) });
   void queryClient.invalidateQueries({ queryKey: kbKeys.detail(entryId) });
 }
 

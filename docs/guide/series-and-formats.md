@@ -4,7 +4,7 @@ A series is a run of videos that share one set of rules and publish on a schedul
 
 ## How series, formats and videos fit together
 
-- A **project** can hold several series.
+- A **workspace** can hold several series.
 - Each **series** follows exactly one **format**. Several series may share a format; a change to it then applies to all of them.
 - Every save of a format creates a new **format version**. A video in production keeps the version it started with, so changing a format never alters work that is already running.
 - The format's **cadence** turns into **slots**: each day and time it lists is one slot. The server plans an idea for each upcoming slot and starts producing it ahead of time.
@@ -12,9 +12,9 @@ A series is a run of videos that share one set of rules and publish on a schedul
 
 ## The series list
 
-Open a project and choose the **Series** tab.
+Open a workspace and choose **Series** in the sidebar, under **Studio**.
 
-![The Series tab with two active series, their formats, cadences and next videos](images/series.png)
+![The Series page with two active series, their formats, cadences and next videos](images/series.png)
 
 Each row shows:
 
@@ -30,7 +30,7 @@ Archived series are hidden. Press **Show archived** below the list (it shows how
 
 ### Creating a series
 
-1. In the **Series** tab, press **New series**.
+1. On the **Series** page, press **New series**.
 2. Type a **Name**, for example "Ownership basics".
 3. Choose a **Format**:
    - **New format with default rules** creates a format named after the series. The format editor opens next, so you can set its rules straight away.
@@ -53,7 +53,7 @@ The header shows the name, the status and the slug, with these buttons:
 
 ### Upcoming videos
 
-The list on the left shows the series' videos that are not published or archived yet, soonest target date first, with their state (for example **Script**, **Voice**, **In review** or **Scheduled**). Press a video to open it, or **Open in content** to see the series in the project's **Content** tab.
+The list on the left shows the series' videos that are not published or archived yet, soonest target date first, with their state (for example **Script**, **Voice**, **In review** or **Scheduled**). Press a video to open it, or **Open in library** to see the series in the workspace's **Library**.
 
 ### The Cadence card
 
@@ -71,18 +71,18 @@ To change any of it, edit the format (below).
 The **Format** card shows the format's name and current version (for example **v1**) and the main rules: **Length**, **Hook**, **Style**, **Voice** and how many **Topics** are in the pool.
 
 - **Edit rules** opens the format editor.
-- **Use another format** switches the series to another format of the project. It appears when the project has more than one format. The cadence is planned again at once with the new format's rules.
+- **Use another format** switches the series to another format of the workspace. It appears when the workspace has more than one format. The cadence is planned again at once with the new format's rules.
 
 ### Linked channels
 
-The **Channels** card lists the project's channels with an **On**/**Off** switch for this series. A series publishes only to channels that are switched on.
+The **Channels** card lists the workspace's channels with an **On**/**Off** switch for this series. A series publishes only to channels that are switched on.
 
 - Switching a channel **on** plans the series' upcoming slots on it.
 - Switching it **off** plans nothing new there and withdraws its planned posts for videos that are not approved yet. Posts that are queued with an approved video, or already published, stay.
 - A note next to a channel says **dry run** when the channel only records what it would send, and **approval** when every post to it needs a person's approval.
-- **Manage** opens **Settings → Channels**, where you connect accounts and change those settings. See [Publishing](publishing.md).
+- **Manage** opens **Workspace settings → Channels**, where you connect the workspace's accounts and change those settings. See [Publishing](publishing.md).
 
-If no channels exist yet, the card links to Settings so you can add one.
+If the workspace has no channels yet, the card links to its channel settings so you can add one. A series can only publish to channels of its own workspace.
 
 ### Pausing and archiving
 
@@ -96,7 +96,7 @@ Pause and Archive ask you to confirm first. A paused or archived series shows a 
 
 ## The format editor
 
-Open it with **Edit rules** on the series page. The button reads **View rules** when the series or the project is archived; in an archived project the editor is read-only.
+Open it with **Edit rules** on the series page. The button reads **View rules** when the series or the workspace is archived; in an archived workspace the editor is read-only.
 
 ![The format editor: the Format and Script sections, the version history on the right and the save bar at the bottom](images/series-format.png)
 
@@ -178,6 +178,6 @@ What versions mean in practice:
 
 ## Related pages
 
-- [Projects and the producer chat](projects.md) for the project the series belongs to.
+- [Workspaces and the producer chat](workspaces.md) for the workspace the series belongs to.
 - [Videos and review](videos-and-review.md) for producing and approving the videos of a series.
 - [Publishing](publishing.md) for channels, dry run, the calendar and going live.

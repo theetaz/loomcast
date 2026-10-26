@@ -30,7 +30,14 @@ import { useCreateChannel } from "./queries";
  * Wraps a trigger button. A planning channel has a platform and a name but no account: posts can
  * be planned on it and dry-run, and connecting an account later takes it live.
  */
-export function AddChannelDialog({ children }: { children: ReactNode }) {
+export function AddChannelDialog({
+  workspaceId,
+  children,
+}: {
+  /** The workspace the channel joins. */
+  workspaceId: string;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   return (
@@ -43,16 +50,22 @@ export function AddChannelDialog({ children }: { children: ReactNode }) {
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[440px]">
-        <AddChannelForm key={formKey} onCreated={() => setOpen(false)} />
+        <AddChannelForm key={formKey} workspaceId={workspaceId} onCreated={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function AddChannelForm({ onCreated }: { onCreated: () => void }) {
+function AddChannelForm({
+  workspaceId,
+  onCreated,
+}: {
+  workspaceId: string;
+  onCreated: () => void;
+}) {
   const id = useId();
   const nameRef = useRef<HTMLInputElement>(null);
-  const create = useCreateChannel();
+  const create = useCreateChannel(workspaceId);
   const [platform, setPlatform] = useState<Platform>("instagram");
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);

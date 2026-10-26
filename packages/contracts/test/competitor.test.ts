@@ -94,7 +94,7 @@ describe("scan requests and analysis payloads", () => {
 
   it("fetches only public video links of the platform", () => {
     const base = {
-      projectId: "0f11bef5-16a8-46c3-a532-076d15345dcb",
+      workspaceId: "0f11bef5-16a8-46c3-a532-076d15345dcb",
       entryId: "e313dc4c-a67e-4ad8-8a19-5a8c67ca4b8b",
       fetchPublicVideo: true,
     };

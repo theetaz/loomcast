@@ -4,14 +4,14 @@ import {
   type CreateApiClientResponse,
   CreateApiClientResponseSchema,
 } from "@loomcast/contracts";
-import { projects } from "@loomcast/db";
+import { workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { ModuleDeps } from "../src/deps";
 import type { Config } from "../src/env";
 import { approvalsFor } from "../src/modules/approvals";
 import { createTestApp, insertUser, login, send, type TestApp } from "./support";
 
-// Shared setup of the API client tests: an app with a signed-in owner, a project, and helpers to
+// Shared setup of the API client tests: an app with a signed-in owner, a workspace, and helpers to
 // create API clients through the owner's REST routes and call the machine API with their keys.
 
 export interface ApiHarness {
@@ -21,13 +21,13 @@ export interface ApiHarness {
   ownerId: string;
   /** The owner's session cookie. */
   cookie: string;
-  projectId: string;
+  workspaceId: string;
   /** Sends a request as the signed-in owner, the way the web app does. */
   owner(method: string, path: string, body?: unknown): Promise<Response>;
-  /** Creates an API client with these grants (in the harness project unless given). */
+  /** Creates an API client with these grants (in the harness workspace unless given). */
   createClient(
     grants: ApiChannelGrant[],
-    extra?: { name?: string; projectId?: string; expiresAt?: string },
+    extra?: { name?: string; workspaceId?: string; expiresAt?: string },
   ): Promise<CreateApiClientResponse>;
   /** Waits for the bus-driven approval rules to settle. */
   settle(): Promise<void>;
@@ -52,11 +52,11 @@ export async function createApiHarness(
   const captured = deps;
   const user = await insertUser(testDb.db, { role: "owner" });
   const { cookie } = await login(t.app, user.email);
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `api-${randomUUID().slice(0, 8)}`, name: "API posts", createdBy: user.id })
     .returning();
-  if (project === undefined) throw new Error("project was not inserted");
+  if (workspace === undefined) throw new Error("workspace was not inserted");
 
   const owner = (method: string, path: string, body?: unknown) =>
     send(t.app, method, path, { cookie, body });
@@ -67,12 +67,12 @@ export async function createApiHarness(
     deps: captured,
     ownerId: user.id,
     cookie,
-    projectId: project.id,
+    workspaceId: workspace.id,
     owner,
     async createClient(grants, extra = {}) {
       const response = await owner("POST", "/api/api-clients", {
         name: extra.name ?? `client ${randomUUID().slice(0, 6)}`,
-        projectId: extra.projectId ?? project.id,
+        workspaceId: extra.workspaceId ?? workspace.id,
         grants,
         ...(extra.expiresAt === undefined ? {} : { expiresAt: extra.expiresAt }),
       });

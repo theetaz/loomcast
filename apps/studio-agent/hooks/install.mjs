@@ -3,8 +3,8 @@
  * Prints the configuration for the Loomcast session-end hook: a hook entry that runs
  * `session-end.mjs` when a session ends, and the environment it reads.
  *
- *   node install.mjs [--url <server>] [--project <project id>]
- *   node install.mjs --write <settings.json> [--url …] [--project …]
+ *   node install.mjs [--url <server>] [--workspace <workspace id>]
+ *   node install.mjs --write <settings.json> [--url …] [--workspace …]
  *
  * With `--write`, the hook entry is merged into a JSON settings file of the client: an existing
  * entry for this hook is updated in place, so running it again changes nothing, and the previous
@@ -118,7 +118,7 @@ export async function installHook(file, command) {
 }
 
 /** The environment lines to add where the client starts its hooks. */
-export function envLines({ url, project } = {}) {
+export function envLines({ url, workspace } = {}) {
   return [
     "# Turn the hook on. Without this line it does nothing.",
     "export LOOMCAST_SESSION_HOOK=1",
@@ -126,9 +126,9 @@ export function envLines({ url, project } = {}) {
     `export LOOMCAST_URL=${shellQuote(url ?? "https://loomcast.example.com")}`,
     "# An access token with Write, from Settings > Access tokens. Keep it out of shared files.",
     "export LOOMCAST_MCP_TOKEN=",
-    project === undefined
-      ? "# Optional: export LOOMCAST_PROJECT_ID=<project id>, or a .loomcast/project.json file"
-      : `export LOOMCAST_PROJECT_ID=${shellQuote(project)}`,
+    workspace === undefined
+      ? "# Optional: export LOOMCAST_WORKSPACE_ID=<workspace id>, or a .loomcast/workspace.json file"
+      : `export LOOMCAST_WORKSPACE_ID=${shellQuote(workspace)}`,
   ];
 }
 
@@ -139,7 +139,7 @@ async function main() {
       options: {
         write: { type: "string" },
         url: { type: "string" },
-        project: { type: "string" },
+        workspace: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     }));
@@ -150,12 +150,12 @@ async function main() {
   }
   if (values.help) {
     process.stdout.write(
-      "Usage: install.mjs [--write <settings.json>] [--url <server>] [--project <project id>]\n",
+      "Usage: install.mjs [--write <settings.json>] [--url <server>] [--workspace <workspace id>]\n",
     );
     return;
   }
   const command = hookCommand();
-  const env = envLines({ url: values.url, project: values.project }).join("\n");
+  const env = envLines({ url: values.url, workspace: values.workspace }).join("\n");
   if (values.write !== undefined) {
     const result = await installHook(values.write, command);
     process.stdout.write(

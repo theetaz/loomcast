@@ -9,7 +9,7 @@ import {
 import { COMPETITOR_REPORT_LIMITS, CompetitorVideoMetricsSchema } from "../kb/competitor";
 import { REFERENCE_URL_MAX_LENGTH } from "../util/reference-url";
 
-// Competitor research: a project follows competitors' profiles, and a scan picks their most
+// Competitor research: a workspace follows competitors' profiles, and a scan picks their most
 // popular videos, analyses each one on the studio agent and writes a report to the knowledge base.
 // Every analysed video is an ordinary `reference` entry; the report is a `note` entry.
 
@@ -19,8 +19,8 @@ export const COMPETITOR_SCAN_MAX_VIDEOS = 20;
 export const COMPETITOR_SCAN_DEFAULT_VIDEOS = 10;
 /** Most recent posts the official API is asked for when ranking by views. */
 export const COMPETITOR_DISCOVERY_MAX_POSTS = 200;
-/** Most competitors one project follows. */
-export const COMPETITORS_PER_PROJECT_MAX = 50;
+/** Most competitors one workspace follows. */
+export const COMPETITORS_PER_WORKSPACE_MAX = 50;
 export const COMPETITOR_NOTES_MAX_LENGTH = 2_000;
 
 /** What a scan found out about the competitor's account, when the official API answered. */
@@ -43,7 +43,7 @@ export type CompetitorScanSummary = z.infer<typeof CompetitorScanSummarySchema>;
 
 export const CompetitorSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   platform: CompetitorPlatformSchema,
   handle: z.string(),
   profileUrl: z.string(),
@@ -79,7 +79,7 @@ export type CompetitorScanError = z.infer<typeof CompetitorScanErrorSchema>;
 
 export const CompetitorScanSchema = CompetitorScanSummarySchema.extend({
   competitorId: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   topN: z.number().int().min(1).max(COMPETITOR_SCAN_MAX_VIDEOS),
   videos: z.array(CompetitorScanVideoSchema).max(COMPETITOR_SCAN_MAX_VIDEOS),
   reportEntryId: IdSchema.nullable(),

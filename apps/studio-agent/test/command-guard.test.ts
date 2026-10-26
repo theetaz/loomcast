@@ -13,14 +13,14 @@ import {
 } from "../src/production/command-guard";
 import { tempDir } from "./production-fakes";
 
-/** A project workspace with one item, a render folder, a voice take and the pinned CLI. */
+/** A workspace folder with one item, a render folder, a voice take and the pinned CLI. */
 function setup() {
   const root = realpathSync(tempDir("loomcast-guard-"));
-  const project = join(root, "projects", "p1");
-  const itemDir = join(project, "items", "i1");
+  const workspace = join(root, "projects", "p1");
+  const itemDir = join(workspace, "items", "i1");
   mkdirSync(join(itemDir, "v2", "render"), { recursive: true });
   writeFileSync(join(itemDir, "v2", "voice.mp3"), "voice");
-  writeFileSync(join(project, "PROJECT.md"), "# project");
+  writeFileSync(join(workspace, "PROJECT.md"), "# workspace");
   const outside = join(root, "outside");
   mkdirSync(outside, { recursive: true });
   writeFileSync(join(outside, "secret.mp3"), "secret");
@@ -28,7 +28,7 @@ function setup() {
   mkdirSync(join(bin, ".."), { recursive: true });
   writeFileSync(bin, "// cli");
   const scope: CommandScope = { itemDir, hyperframesBin: bin, nodePath: "/usr/local/bin/node" };
-  return { root, project, itemDir, outside, bin, scope };
+  return { root, workspace, itemDir, outside, bin, scope };
 }
 
 const env = Object.entries(COMMAND_ENV)
@@ -81,14 +81,14 @@ describe("command tokenizer", () => {
 
 describe("command allow-list", () => {
   it("rewrites lint to the pinned CLI with absolute paths and the telemetry variables", async () => {
-    const { project, itemDir, bin, scope } = setup();
+    const { workspace, itemDir, bin, scope } = setup();
     const target = join(itemDir, "v2", "render");
     for (const command of [
       "npx hyperframes lint items/i1/v2/render",
       "hyperframes lint items/i1/v2/render --json",
       `npx hyperframes lint ${target}`,
     ]) {
-      expect(await checkCommand(command, scope, project)).toEqual({
+      expect(await checkCommand(command, scope, workspace)).toEqual({
         ok: true,
         kind: "lint",
         target,
@@ -98,12 +98,12 @@ describe("command allow-list", () => {
   });
 
   it("rewrites ffprobe with a file: path and keeps allowed options", async () => {
-    const { project, itemDir, scope } = setup();
+    const { workspace, itemDir, scope } = setup();
     const voice = join(itemDir, "v2", "voice.mp3");
     const decision = await checkCommand(
       "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 items/i1/v2/voice.mp3",
       scope,
-      project,
+      workspace,
     );
     expect(decision).toEqual({
       ok: true,
@@ -132,7 +132,7 @@ describe("command allow-list", () => {
     ["parent segments", "npx hyperframes lint items/i1/../i1/v2/render"],
     ["escape with ../", "ffprobe -v error items/i1/v2/../../../../outside/secret.mp3"],
     ["outside the item", "npx hyperframes lint items"],
-    ["project file", "ffprobe -v error PROJECT.md"],
+    ["workspace file", "ffprobe -v error PROJECT.md"],
     ["missing path", "ffprobe -v error items/i1/v2/missing.mp3"],
     ["a url", "ffprobe -v error http://example.com/a.mp3"],
     ["a protocol", "ffprobe -v error concat:items/i1/v2/voice.mp3"],
@@ -140,8 +140,8 @@ describe("command allow-list", () => {
     ["probe of a folder", "ffprobe -v error items/i1/v2/render"],
     ["empty", ""],
   ])("denies %s with a reason", async (_name, command) => {
-    const { project, scope } = setup();
-    const decision = await checkCommand(command, scope, project);
+    const { workspace, scope } = setup();
+    const decision = await checkCommand(command, scope, workspace);
     expect(decision.ok).toBe(false);
     if (!decision.ok) {
       expect(decision.reason).toContain("Only `npx hyperframes lint <path>`");
@@ -149,26 +149,26 @@ describe("command allow-list", () => {
   });
 
   it("denies a symlink that leaves the item directory", async () => {
-    const { project, itemDir, outside, scope } = setup();
+    const { workspace, itemDir, outside, scope } = setup();
     symlinkSync(join(outside, "secret.mp3"), join(itemDir, "v2", "linked.mp3"));
     symlinkSync(outside, join(itemDir, "v2", "linked-dir"));
-    expect((await checkCommand("ffprobe -v error items/i1/v2/linked.mp3", scope, project)).ok).toBe(
-      false,
-    );
     expect(
-      (await checkCommand("npx hyperframes lint items/i1/v2/linked-dir", scope, project)).ok,
+      (await checkCommand("ffprobe -v error items/i1/v2/linked.mp3", scope, workspace)).ok,
+    ).toBe(false);
+    expect(
+      (await checkCommand("npx hyperframes lint items/i1/v2/linked-dir", scope, workspace)).ok,
     ).toBe(false);
   });
 
   it("denies lint when the pinned CLI is missing", async () => {
-    const { project, scope } = setup();
+    const { workspace, scope } = setup();
     const decision = await checkCommand(
       "npx hyperframes lint items/i1/v2/render",
       {
         ...scope,
         hyperframesBin: join(scope.itemDir, "missing.mjs"),
       },
-      project,
+      workspace,
     );
     expect(decision).toMatchObject({ ok: false });
   });
@@ -176,10 +176,10 @@ describe("command allow-list", () => {
 
 describe("Bash in producer sessions", () => {
   it("allows the listed commands only in storyboard sessions with a command scope", async () => {
-    const { project, scope } = setup();
+    const { workspace, scope } = setup();
     const input = { command: "npx hyperframes lint items/i1/v2/render", run_in_background: true };
     const storyboard = await checkToolUse(
-      { workspaceDir: project, jobType: "content.storyboard", commandScope: scope },
+      { workspaceDir: workspace, jobType: "content.storyboard", commandScope: scope },
       "Bash",
       input,
     );
@@ -199,16 +199,20 @@ describe("Bash in producer sessions", () => {
       "content.revise",
     ] as const) {
       expect(
-        await checkToolUse({ workspaceDir: project, jobType, commandScope: scope }, "Bash", input),
+        await checkToolUse(
+          { workspaceDir: workspace, jobType, commandScope: scope },
+          "Bash",
+          input,
+        ),
       ).toMatchObject({ behavior: "deny" });
     }
     expect(
-      await checkToolUse({ workspaceDir: project, jobType: "content.storyboard" }, "Bash", input),
+      await checkToolUse({ workspaceDir: workspace, jobType: "content.storyboard" }, "Bash", input),
     ).toMatchObject({ behavior: "deny", message: "Commands are not available in this session." });
   });
 
   it("denies a render and a substitution in a storyboard session", async () => {
-    const { project, scope } = setup();
+    const { workspace, scope } = setup();
     for (const command of [
       "npx hyperframes render items/i1/v2/render",
       "ffprobe -v error $(id)",
@@ -216,7 +220,7 @@ describe("Bash in producer sessions", () => {
     ]) {
       expect(
         await checkToolUse(
-          { workspaceDir: project, jobType: "content.storyboard", commandScope: scope },
+          { workspaceDir: workspace, jobType: "content.storyboard", commandScope: scope },
           "Bash",
           { command },
         ),
@@ -225,13 +229,13 @@ describe("Bash in producer sessions", () => {
   });
 
   it("enforces the guard in the PreToolUse hook and approves the rewritten command", async () => {
-    const { project, scope } = setup();
+    const { workspace, scope } = setup();
     const hook = preToolUseGuard({
-      workspaceDir: project,
+      workspaceDir: workspace,
       jobType: "content.storyboard",
       commandScope: scope,
     });
-    const base = { session_id: "s", transcript_path: "/t", cwd: project, tool_use_id: "toolu_1" };
+    const base = { session_id: "s", transcript_path: "/t", cwd: workspace, tool_use_id: "toolu_1" };
     const signal = new AbortController().signal;
 
     const allowed = await hook(

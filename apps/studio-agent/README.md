@@ -16,7 +16,7 @@ Build once, then use the `studio-agent` bin (`dist/cli.mjs`). From the repositor
 
 ## Pairing
 
-1. In the web app, open Settings → Devices and create a pairing code (`XXXX-XXXX`, valid for 10 minutes, single use).
+1. In the web app, open Account settings → Devices and create a pairing code (`XXXX-XXXX`, valid for 10 minutes, single use).
 2. On the Mac:
 
    ```bash
@@ -75,8 +75,8 @@ Jobs that were running when the agent stopped are reported as `interrupted` on t
 | Job type | Handler |
 |---|---|
 | `system.ping` | Reports the agent version, the Node runtime and whether the producer is available |
-| `producer.chat` | Runs one conversation turn in a producer session confined to the project workspace, resuming the previous session when it exists and streaming text and tool activity back. If the producer runtime fails to load, the job type is not advertised |
-| `kb.analyze_reference` | Analyses a saved reference from its transcript in a new, read-only producer session and returns a schema-checked analysis with a short summary. The transcript is written to `references/<entryId>/transcript.txt` in the project workspace; the reference URL is never fetched. A reference with uploaded media and no transcript is transcribed first (see below) and the result carries the transcript. With `fetchPublicVideo` (competitor research), the agent itself downloads the public video, measures and transcribes it, and the session also gets the measured facts and six frames (see below) |
+| `producer.chat` | Runs one conversation turn in a producer session confined to the workspace folder, resuming the previous session when it exists and streaming text and tool activity back. If the producer runtime fails to load, the job type is not advertised |
+| `kb.analyze_reference` | Analyses a saved reference from its transcript in a new, read-only producer session and returns a schema-checked analysis with a short summary. The transcript is written to `references/<entryId>/transcript.txt` in the workspace folder; the reference URL is never fetched. A reference with uploaded media and no transcript is transcribed first (see below) and the result carries the transcript. With `fetchPublicVideo` (competitor research), the agent itself downloads the public video, measures and transcribes it, and the session also gets the measured facts and six frames (see below) |
 | `kb.competitor_report` | Writes one report on a competitor from the analyses of its top videos in a new, read-only producer session, and returns schema-checked insights with the markdown report. The competitor's captions, analyses and summaries are sent as untrusted data |
 | `content.write_script` | Writes the item's script in a new producer session; the reply must match the script contract |
 | `content.storyboard` | Sets the script to cards of the format's style; the reply must pass the studio runtime's storyboard validation |
@@ -93,10 +93,10 @@ The session gets the platform's MCP server (`loomcast`) with that token, and the
 
 | Job type | MCP tools | Built-in tools |
 |---|---|---|
-| `producer.chat` | `kb.search`, `kb.get`, `kb.save_brainstorm`, `kb.add_decision`, `kb.add_reference`, `project.get` | Read, Glob, Grep, Write and Edit in the workspace, WebSearch, WebFetch |
-| `kb.analyze_reference`, `kb.competitor_report` | `kb.search`, `kb.get`, `project.get` | Read, Glob and Grep inside the workspace only |
-| `content.write_script`, `content.revise` | `content.get`, `format.get_rules`, `kb.search`, `kb.get`, `project.get` | Read, Glob and Grep inside the workspace only |
-| `content.storyboard` | the same | Read, Glob and Grep inside the workspace, and the two allow-listed commands |
+| `producer.chat` | `kb.search`, `kb.get`, `kb.save_brainstorm`, `kb.add_decision`, `kb.add_reference`, `workspace.get` | Read, Glob, Grep, Write and Edit in the workspace folder, WebSearch, WebFetch |
+| `kb.analyze_reference`, `kb.competitor_report` | `kb.search`, `kb.get`, `workspace.get` | Read, Glob and Grep inside the workspace folder only |
+| `content.write_script`, `content.revise` | `content.get`, `format.get_rules`, `kb.search`, `kb.get`, `workspace.get` | Read, Glob and Grep inside the workspace folder only |
+| `content.storyboard` | the same | Read, Glob and Grep inside the workspace folder, and the two allow-listed commands |
 
 The producer runtime names MCP tools `mcp__<server>__<tool>` with every character outside `[A-Za-z0-9_-]` replaced by `_`, so `kb.search` appears as `mcp__loomcast__kb_search`. Every other MCP tool and server is denied.
 
@@ -107,11 +107,13 @@ Handlers are registered in `src/jobs/index.ts`. The runner validates every paylo
 Production jobs read the item and write assets through the platform's MCP server with the job token (`content.get`, `content.upload_asset`, `content.finalize_asset`, `asset.get_url`, `skill.pull`). A job works in the folder of the version it starts from:
 
 ```
-~/Loomcast/projects/<projectId>/items/<itemId>/v<n>/
+~/Loomcast/projects/<workspaceId>/items/<itemId>/v<n>/
   script.json  storyboard.json  voice.mp3  alignment.json  render/  out/final.mp4  poster.jpg
 ```
 
-- **Producer steps** (`write_script`, `storyboard`, `revise`) start a new producer session in the project workspace. The step brief, the format rules, the item's topic and the skill pack are appended to its system prompt. The reply must hold one fenced JSON block; up to two repair turns in the same session get the problems found. The session only reads: the item, the format and the knowledge base through MCP, and files inside the project workspace.
+Each workspace works in `~/Loomcast/projects/<workspaceId>` (under `workspaceRoot`). The folder keeps the name `projects` from before projects were renamed workspaces, so existing producer sessions and files keep working. The server still sends each job's workspace as `projectId` too, so an agent built before the rename keeps working until it is updated.
+
+- **Producer steps** (`write_script`, `storyboard`, `revise`) start a new producer session in the workspace folder. The step brief, the format rules, the item's topic and the skill pack are appended to its system prompt. The reply must hold one fenced JSON block; up to two repair turns in the same session get the problems found. The session only reads: the item, the format and the knowledge base through MCP, and files inside the workspace folder.
 - **Voice and render** run the studio runtime directly; no producer session takes part, so renders are never produced by a producer session. Progress is reported as `status` events every 10%. Render checks for ffmpeg, ffprobe, the studio's pinned HyperFrames CLI, GSAP and a render browser already on the Mac, and never downloads one.
 - **Uploads** are content-addressed: the file is hashed while streamed from disk, `content.upload_asset` gets the size and SHA-256, the bytes are PUT with exactly the signed headers (including the checksum header) and `duplex: "half"`, retried up to 3 attempts on network errors and 408/429/5xx, and the asset is finalized with its probe (and a voice take's word timings). When the server already has an identical file, nothing is sent.
 - **Reference media** with no transcript is downloaded from the platform's own storage through `asset.get_url` (checked against its SHA-256), its audio is extracted and transcribed, and the media file is deleted again.
@@ -149,7 +151,7 @@ The key is stored in `~/.config/loomcast-agent/secrets.env` (mode 0600, in the 0
 
 `hooks/session-end.mjs` is an optional hook for any client that runs a session-end hook with a
 JSON payload on stdin. It digests the session transcript, redacts secrets and files the result
-in the project's knowledge base with the `kb.save_session_summary` MCP tool. It is off by
+in the workspace's knowledge base with the `kb.save_session_summary` MCP tool. It is off by
 default, has no dependencies, gives the server 5 seconds and always exits 0.
 `hooks/install.mjs` prints the hook entry and its environment, or merges the entry into a JSON
 settings file with `--write <file>`. See [docs/session-hook.md](../../docs/session-hook.md).

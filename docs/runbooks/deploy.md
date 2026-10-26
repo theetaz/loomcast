@@ -279,6 +279,31 @@ A deploy that fails is rolled back on the server before the workflow reports the
 log shows which step failed: `could not pull` (nothing changed), `did not start healthy` or
 `was not ready within 60s` (followed by `rolled back to sha-...`).
 
+### 3.1 The workspaces release (migrations 0017 and 0018)
+
+The release that organises Loomcast by workspace changes the database and the studio agent, so
+roll it out in this order:
+
+1. **Deploy the server first.** The migrations run when the api starts: `0017` renames projects
+   to workspaces, and `0018` moves every channel into one workspace (the one whose items it
+   published most, else the workspace of a series or API client that used it; an Instagram
+   account follows its Page; a channel left over gets a new workspace named after it). Series
+   links and API client grants that would cross workspaces are removed. Check `/readyz`, sign
+   in, and look over each workspace's **Workspace settings → Channels** and **API clients**.
+2. **Then rebuild and restart the studio agent on the Mac** (see the
+   [studio agent guide](../guide/studio-agent.md#keeping-it-up-to-date)). An agent built before
+   the release keeps working against the new server in the meantime: the bridge still sends each
+   job's workspace as `projectId`, and the agent's folders stay at
+   `~/Loomcast/projects/<workspaceId>`.
+
+Old browser links (`/projects/...`, `/calendar`, `/settings/channels` and the like) redirect to
+the same page in a workspace, and outside clients keep the deprecated `project.*` MCP tools and
+the `project` field of `/api/v1/me`. A session-end hook configured with `LOOMCAST_PROJECT_ID` or
+`.loomcast/project.json` must be switched to the new names ([session-hook.md](../session-hook.md)).
+
+Rolling back past this release needs a database restore: `0017` renames tables, so an older
+release cannot read the migrated schema (see [section 4](#4-rolling-back-by-hand)).
+
 ## 4. Rolling back by hand
 
 Pick the release to go back to: the `sha-` tag of an earlier commit on `main`

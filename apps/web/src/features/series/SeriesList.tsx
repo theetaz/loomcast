@@ -1,4 +1,4 @@
-import type { ContentItem, Format, Project, Series } from "@loomcast/contracts";
+import type { ContentItem, Format, Series, Workspace } from "@loomcast/contracts";
 import { Button } from "@loomcast/ui/components/button";
 import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { cn } from "@loomcast/ui/lib/cn";
@@ -29,15 +29,21 @@ export function sortSeries(series: readonly Series[]): Series[] {
 }
 
 /**
- * The project's Series tab: each series with its format, status, cadence and the videos coming
+ * The workspace's Series tab: each series with its format, status, cadence and the videos coming
  * up. Archived series are folded away until asked for.
  */
-export function SeriesList({ project, projectParam }: { project: Project; projectParam: string }) {
+export function SeriesList({
+  workspace,
+  workspaceParam,
+}: {
+  workspace: Workspace;
+  workspaceParam: string;
+}) {
   useContentLive();
   const now = useNow();
-  const series = useQuery(seriesListQueryOptions(project.id));
-  const formats = useQuery(formatsListQueryOptions(project.id));
-  const upcoming = useInfiniteQuery(contentListQueryOptions(upcomingFilter(project.id)));
+  const series = useQuery(seriesListQueryOptions(workspace.id));
+  const formats = useQuery(formatsListQueryOptions(workspace.id));
+  const upcoming = useInfiniteQuery(contentListQueryOptions(upcomingFilter(workspace.id)));
   const [showArchived, setShowArchived] = useState(false);
 
   const formatById = useMemo(
@@ -51,19 +57,19 @@ export function SeriesList({ project, projectParam }: { project: Project; projec
   const all = sortSeries(series.data?.items ?? []);
   const archivedCount = all.filter((entry) => entry.status === "archived").length;
   const shown = showArchived ? all : all.filter((entry) => entry.status !== "archived");
-  const canCreate = project.status === "active";
+  const canCreate = workspace.status === "active";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="text-heading">Series</h2>
+          <h1 className="text-title">Series</h1>
           <p className="text-control text-muted-foreground">
             Videos that share a format and a publishing cadence.
           </p>
         </div>
         {canCreate ? (
-          <NewSeriesDialog projectId={project.id} projectParam={projectParam}>
+          <NewSeriesDialog workspaceId={workspace.id} workspaceParam={workspaceParam}>
             <Button className="self-start sm:self-auto">
               <PlusIcon aria-hidden="true" />
               New series
@@ -91,7 +97,7 @@ export function SeriesList({ project, projectParam }: { project: Project; projec
             description="A series sets the tone, length, look and cadence its videos share. Create one to plan videos on a schedule."
             action={
               canCreate ? (
-                <NewSeriesDialog projectId={project.id} projectParam={projectParam}>
+                <NewSeriesDialog workspaceId={workspace.id} workspaceParam={workspaceParam}>
                   <Button variant="outline">
                     <PlusIcon aria-hidden="true" />
                     New series
@@ -103,7 +109,7 @@ export function SeriesList({ project, projectParam }: { project: Project; projec
         ) : (
           <>
             <table className="w-full table-fixed border-collapse text-left">
-              <caption className="sr-only">Series of {project.name}</caption>
+              <caption className="sr-only">Series of {workspace.name}</caption>
               <thead>
                 <tr className="h-8 border-divider border-b text-small text-muted-foreground">
                   <th scope="col" className="px-2 pl-3.5 font-medium">
@@ -132,7 +138,7 @@ export function SeriesList({ project, projectParam }: { project: Project; projec
                     formatsLoading={formats.isPending}
                     items={itemsBySeries.get(entry.id) ?? []}
                     itemsLoading={upcoming.isPending}
-                    projectParam={projectParam}
+                    workspaceParam={workspaceParam}
                     now={now}
                   />
                 ))}
@@ -163,7 +169,7 @@ function SeriesRow({
   formatsLoading,
   items,
   itemsLoading,
-  projectParam,
+  workspaceParam,
   now,
 }: {
   series: Series;
@@ -171,7 +177,7 @@ function SeriesRow({
   formatsLoading: boolean;
   items: ContentItem[];
   itemsLoading: boolean;
-  projectParam: string;
+  workspaceParam: string;
   now: number;
 }) {
   const cadence = format?.currentVersion.rules.cadence;
@@ -187,8 +193,8 @@ function SeriesRow({
     >
       <td className="py-1.5 pr-2 pl-3.5">
         <Link
-          to="/projects/$projectId/series/$seriesId"
-          params={{ projectId: projectParam, seriesId: series.id }}
+          to="/w/$workspace/series/$seriesId"
+          params={{ workspace: workspaceParam, seriesId: series.id }}
           className="block min-w-0 truncate rounded-sm font-medium text-body text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           {series.name}
@@ -233,8 +239,8 @@ function SeriesRow({
         ) : next ? (
           <div className="flex min-w-0 flex-col">
             <Link
-              to="/content/$itemId"
-              params={{ itemId: next.id }}
+              to="/w/$workspace/content/$itemId"
+              params={{ workspace: workspaceParam, itemId: next.id }}
               className="truncate rounded-sm text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
             >
               {next.title}

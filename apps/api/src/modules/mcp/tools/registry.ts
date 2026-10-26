@@ -34,7 +34,7 @@ export type ToolInput<C extends McpToolContract> = z.output<C["input"]>;
 export type ToolResult<C extends McpToolContract> = z.input<C["output"]>;
 export type ToolOutput<C extends McpToolContract> = z.output<C["output"]>;
 
-/** What `resolveProject` gets: the caller, before any check that depends on the project. */
+/** What `resolveWorkspace` gets: the caller, before any check that depends on the workspace. */
 export interface ResolveContext {
   caller: McpCaller;
 }
@@ -43,11 +43,11 @@ export interface ResolveContext {
 export interface ToolContext {
   caller: McpCaller;
   /**
-   * For `projectBinding: "input"` tools: the project the call is about. That is the project the
-   * input names, or the caller's bound project when the input names none. Null when the input
-   * names a project that does not exist (and the caller is not bound), and for `none` tools.
+   * For `workspaceBinding: "input"` tools: the workspace the call is about. That is the workspace the
+   * input names, or the caller's bound workspace when the input names none. Null when the input
+   * names a workspace that does not exist (and the caller is not bound), and for `none` tools.
    */
-  projectId: string | null;
+  workspaceId: string | null;
   logger: Logger;
 }
 
@@ -64,22 +64,22 @@ interface ToolImplementationBase<C extends McpToolContract> {
 }
 
 /**
- * `input` tools must say which project their input names, so the registry can hold a bound
- * caller (a job token) to its project before the handler runs:
+ * `input` tools must say which workspace their input names, so the registry can hold a bound
+ * caller (a job token) to its workspace before the handler runs:
  *
- * - a project id: the input names that project (resolve slugs and child records to it);
- * - null: the input names a project that does not exist;
- * - undefined: the input names no project (an optional `projectId` left out).
+ * - a workspace id: the input names that workspace (resolve slugs and child records to it);
+ * - null: the input names a workspace that does not exist;
+ * - undefined: the input names no workspace (an optional `workspaceId` left out).
  */
 export type ToolImplementation<C extends McpToolContract> = ToolImplementationBase<C> &
-  (C["projectBinding"] extends "input"
+  (C["workspaceBinding"] extends "input"
     ? {
-        resolveProject(
+        resolveWorkspace(
           input: ToolInput<C>,
           ctx: ResolveContext,
         ): Promise<string | null | undefined>;
       }
-    : { resolveProject?: undefined });
+    : { resolveWorkspace?: undefined });
 
 /** Per request: who calls and where audit rows go. */
 export interface ToolCallContext {
@@ -93,7 +93,7 @@ export interface ToolCallContext {
 export interface ToolDefinition {
   readonly contract: McpToolContract;
   /**
-   * Runs one call: checks the scope, the job-token policy and the project binding, runs the
+   * Runs one call: checks the scope, the job-token policy and the workspace binding, runs the
    * handler, validates the output and writes the audit row. `input` must already satisfy
    * `contract.input`: the SDK validates arguments against it before the callback runs.
    * Never throws; failures come back as `isError` results without stack traces.
@@ -102,7 +102,7 @@ export interface ToolDefinition {
 }
 
 /**
- * Binds a contract from `@loomcast/contracts` (name, scope, job-token policy, project binding,
+ * Binds a contract from `@loomcast/contracts` (name, scope, job-token policy, workspace binding,
  * input and output schemas) to its implementation. Adding a tool is a matter of calling this in a
  * file under `tools/` and listing the result in `tools/index.ts`.
  */
@@ -117,7 +117,7 @@ export function defineTool<const C extends McpToolContract>(
       const log = logger.child({ tool: contract.name });
       const input = rawInput as ToolInput<C>;
       const started = performance.now();
-      let projectId: string | null = null;
+      let workspaceId: string | null = null;
       let result: CallToolResult;
       let outcome: "ok" | "denied" | "error";
       let code: string | undefined;
@@ -125,8 +125,8 @@ export function defineTool<const C extends McpToolContract>(
 
       try {
         authorize(contract, caller);
-        projectId = await bindProject(contract, implementation, input, caller);
-        const raw = await implementation.handler(input, { caller, projectId, logger: log });
+        workspaceId = await bindWorkspace(contract, implementation, input, caller);
+        const raw = await implementation.handler(input, { caller, workspaceId, logger: log });
         const output = contract.output.parse(raw) as ToolOutput<C>;
         extra = implementation.auditData?.(output);
         result = {
@@ -146,7 +146,7 @@ export function defineTool<const C extends McpToolContract>(
 
       const durationMs = Math.round(performance.now() - started);
       log.info({ outcome, code, durationMs, tokenId: caller.token.id }, "mcp tool call");
-      await writeAudit(ctx, contract.name, { outcome, code, projectId, extra }).catch(
+      await writeAudit(ctx, contract.name, { outcome, code, workspaceId, extra }).catch(
         (error: unknown) => {
           log.error({ err: error }, "mcp tool call audit failed");
         },
@@ -170,27 +170,27 @@ function authorize(contract: McpToolContract, caller: McpCaller): void {
 }
 
 /**
- * The project an `input` tool works on. A bound caller may only name its own project, and leaving
- * the project out binds the call to it.
+ * The workspace an `input` tool works on. A bound caller may only name its own workspace, and leaving
+ * the workspace out binds the call to it.
  */
-async function bindProject<C extends McpToolContract>(
+async function bindWorkspace<C extends McpToolContract>(
   contract: C,
   implementation: ToolImplementation<C>,
   input: ToolInput<C>,
   caller: McpCaller,
 ): Promise<string | null> {
-  if (contract.projectBinding !== "input" || implementation.resolveProject === undefined) {
+  if (contract.workspaceBinding !== "input" || implementation.resolveWorkspace === undefined) {
     return null;
   }
-  const named = await implementation.resolveProject(input, { caller });
-  if (caller.boundProjectId === null) {
+  const named = await implementation.resolveWorkspace(input, { caller });
+  if (caller.boundWorkspaceId === null) {
     return named ?? null;
   }
   if (named === undefined) {
-    return caller.boundProjectId;
+    return caller.boundWorkspaceId;
   }
-  if (named !== caller.boundProjectId) {
-    throw new McpToolError("forbidden", "This token can only be used with its own project.");
+  if (named !== caller.boundWorkspaceId) {
+    throw new McpToolError("forbidden", "This token can only be used with its own workspace.");
   }
   return named;
 }
@@ -234,7 +234,7 @@ async function writeAudit(
   fields: {
     outcome: string;
     code: string | undefined;
-    projectId: string | null;
+    workspaceId: string | null;
     extra: JsonObject | undefined;
   },
 ): Promise<void> {
@@ -242,8 +242,8 @@ async function writeAudit(
   if (fields.code !== undefined) {
     data.code = fields.code;
   }
-  if (fields.projectId !== null) {
-    data.projectId = fields.projectId;
+  if (fields.workspaceId !== null) {
+    data.workspaceId = fields.workspaceId;
   }
   if (ctx.caller.jobId !== null) {
     data.jobId = ctx.caller.jobId;
@@ -257,6 +257,21 @@ async function writeAudit(
     data,
     ip: ctx.caller.ip,
   });
+}
+
+/**
+ * Serves `tool` under an older name too, so clients built before a rename keep working. The alias
+ * shares the tool's schemas, policy and handler; only its name and description differ.
+ */
+export function legacyAlias(tool: ToolDefinition, name: string): ToolDefinition {
+  return {
+    contract: {
+      ...tool.contract,
+      name,
+      description: `Deprecated: use ${tool.contract.name}. ${tool.contract.description}`,
+    },
+    run: (input, ctx) => tool.run(input, ctx),
+  };
 }
 
 /**

@@ -5,6 +5,6 @@ export const item: NavItem = {
   id: "library",
   label: "Library",
   icon: LibraryBigIcon,
-  to: "/library",
+  to: "/w/$workspace/library",
   order: 20,
 };

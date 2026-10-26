@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { JOB_TOKEN_RE, TOKEN_PREFIXES } from "@loomcast/contracts";
-import { apiTokens, jobs, projects } from "@loomcast/db";
+import { apiTokens, jobs, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,17 +13,17 @@ import { createTestApp, createTestClock, insertUser, login, send, testIp } from 
 
 let testDb: TestDb;
 let userId: string;
-let projectId: string;
+let workspaceId: string;
 
 beforeAll(async () => {
   testDb = await createTestDb();
   const user = await insertUser(testDb.db);
   userId = user.id;
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `jobs-${randomUUID()}`, name: "Jobs", createdBy: userId })
     .returning();
-  projectId = project?.id ?? "";
+  workspaceId = workspace?.id ?? "";
 });
 
 afterAll(async () => {
@@ -33,7 +33,7 @@ afterAll(async () => {
 async function insertJob() {
   const [job] = await testDb.db
     .insert(jobs)
-    .values({ type: "producer.chat", payload: {}, projectId, createdBy: userId })
+    .values({ type: "producer.chat", payload: {}, workspaceId, createdBy: userId })
     .returning();
   if (job === undefined) {
     throw new Error("job was not inserted");
@@ -42,14 +42,14 @@ async function insertJob() {
 }
 
 describe("job tokens", () => {
-  it("are bound to one job and project, carry the access scopes and expire", async () => {
+  it("are bound to one job and workspace, carry the access scopes and expire", async () => {
     const clock = createTestClock();
     const tokens = createTokensService({ db: testDb.db, clock });
     const job = await insertJob();
 
     const read = await tokens.mintJobToken({
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId,
       access: "read",
       ttlMs: 60_000,
@@ -58,7 +58,7 @@ describe("job tokens", () => {
     expect(read.row).toMatchObject({
       kind: "job",
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId,
       scopes: ["mcp:read"],
       tokenHash: sha256Hex(read.secret),
@@ -68,7 +68,7 @@ describe("job tokens", () => {
 
     const write = await tokens.mintJobToken({
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId,
       access: "read_write",
       ttlMs: 60_000,
@@ -80,7 +80,7 @@ describe("job tokens", () => {
       kind: "job",
       scopes: ["mcp:read"],
       user: { id: userId },
-      projectId,
+      workspaceId,
       jobId: job.id,
     });
     expect(await tokens.verify(read.secret, ["mcp", "job"])).toMatchObject({ kind: "job" });
@@ -96,14 +96,14 @@ describe("job tokens", () => {
     const other = await insertJob();
     const minted = await tokens.mintJobToken({
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId,
       access: "read",
       ttlMs: 60_000,
     });
     const kept = await tokens.mintJobToken({
       jobId: other.id,
-      projectId,
+      workspaceId,
       userId,
       access: "read",
       ttlMs: 60_000,
@@ -128,7 +128,7 @@ describe("job tokens", () => {
     const job = await insertJob();
     await createTokensService({ db: testDb.db, clock }).mintJobToken({
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId: user.id,
       access: "read",
       ttlMs: 60_000,
@@ -155,7 +155,7 @@ describe("job tokens", () => {
     const job = await insertJob();
     const minted = await tokens.mintJobToken({
       jobId: job.id,
-      projectId,
+      workspaceId,
       userId,
       access: "read",
       ttlMs: 60_000,

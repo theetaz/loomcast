@@ -23,7 +23,7 @@ export interface ProducerRunInput {
   /** The producer session to continue. Without it a new session starts. */
   readonly resumeId?: string;
   /**
-   * The project workspace. It must be the same directory on every turn of a session, because the
+   * The workspace folder. It must be the same directory on every turn of a session, because the
    * runtime keeps session transcripts per working directory.
    */
   readonly cwd: string;

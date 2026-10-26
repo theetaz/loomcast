@@ -3,8 +3,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setOAuthNavigator } from "@/features/channels/connect/navigation";
+import { mockWorkspace } from "@/mocks/db";
 import { addMockConnection } from "@/mocks/oauth";
-import { CHANNELS_NOW, channelsSetup } from "./support/channels";
+import { CHANNELS_NOW, CHANNELS_WORKSPACE_SLUG, channelsSetup } from "./support/channels";
 import { recordRequests } from "./support/kb";
 import { renderApp } from "./support/render";
 
@@ -13,7 +14,12 @@ const THREADS = "Rust threads (Threads)";
 const IG = "Rust in 60 seconds (Instagram)";
 const AGENTS_PAGE = "Agents for small teams (Facebook)";
 const AGENTS_IG = "Agents for small teams (Instagram)";
-const META_START = "/api/oauth/meta/start?redirectTo=%2Fsettings%2Fchannels";
+/** The open workspace's channel settings, where a sign-in returns. */
+const RETURN = `/w/${CHANNELS_WORKSPACE_SLUG}/settings/channels`;
+const startUrl = (provider: string) =>
+  `/api/oauth/${provider}/start?redirectTo=${encodeURIComponent(RETURN)}`;
+const META_START = startUrl("meta");
+const CONNECT_WORKSPACE_KEY = "loomcast.connect.workspace";
 
 let navigate: ReturnType<typeof vi.fn<(url: string) => void>>;
 
@@ -42,8 +48,8 @@ function checkbox(name: string) {
 
 describe("connect menu", () => {
   it("offers Facebook and Threads and leaves the page for the sign-in", async () => {
-    const { db } = connectSetup();
-    const { user } = renderApp("/settings/channels", db);
+    const { db, workspace } = connectSetup();
+    const { user } = renderApp(RETURN, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     await user.click(screen.getByRole("button", { name: "Connect" }));
@@ -56,34 +62,34 @@ describe("connect menu", () => {
 
     await user.click(within(menu).getByRole("menuitem", { name: /Facebook Page and Instagram/ }));
     expect(navigate).toHaveBeenCalledWith(META_START);
+    // The connect page offers the workspace the sign-in started in.
+    expect(window.sessionStorage.getItem(CONNECT_WORKSPACE_KEY)).toBe(workspace.id);
 
     await user.click(screen.getByRole("button", { name: "Connect" }));
     await user.click(await screen.findByRole("menuitem", { name: /^@?Threads/ }));
-    expect(navigate).toHaveBeenLastCalledWith(
-      "/api/oauth/threads/start?redirectTo=%2Fsettings%2Fchannels",
-    );
+    expect(navigate).toHaveBeenLastCalledWith(startUrl("threads"));
   });
 
   it("offers X only while the server's X publishing flag is on", async () => {
     const { db } = connectSetup({ xPublishing: true });
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(RETURN, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     await user.click(screen.getByRole("button", { name: "Connect" }));
     const menu = await screen.findByRole("menu");
     await waitFor(() => expect(within(menu).getAllByRole("menuitem")).toHaveLength(3));
     await user.click(within(menu).getByRole("menuitem", { name: /An X account/ }));
-    expect(navigate).toHaveBeenCalledWith("/api/oauth/x/start?redirectTo=%2Fsettings%2Fchannels");
+    expect(navigate).toHaveBeenCalledWith(startUrl("x"));
   });
 });
 
 describe("account picker", () => {
   it("connects the chosen accounts, their Pages included, and returns to Channels", async () => {
-    const { db, channels } = connectSetup();
+    const { db, channels, workspace } = connectSetup();
     const connection = addMockConnection(db, "meta");
     const requests = recordRequests();
     const { user, router } = renderApp(
-      `/settings/channels/connect?connection=${connection.id}&provider=meta`,
+      `/channels/connect?connection=${connection.id}&provider=meta`,
       db,
     );
 
@@ -115,11 +121,14 @@ describe("account picker", () => {
     expect(screen.getByText("2 of 4 chosen")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect 2 accounts" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/channels"));
+    await waitFor(() => expect(router.state.location.pathname).toBe(RETURN));
     expect(router.state.location.search).toEqual({});
     expect(requests.find((request) => request.method === "POST")).toMatchObject({
       path: `/api/oauth/connections/${connection.id}/accept`,
-      body: { accountIds: ["facebook:100000000000001", "instagram:178400000000001"] },
+      body: {
+        workspaceId: workspace.id,
+        accountIds: ["facebook:100000000000001", "instagram:178400000000001"],
+      },
     });
     expect(await screen.findByText("Connected 2 channels")).toBeInTheDocument();
 
@@ -134,7 +143,7 @@ describe("account picker", () => {
   it("chooses the only account of a sign-in for the user", async () => {
     const { db } = connectSetup();
     const connection = addMockConnection(db, "threads");
-    renderApp(`/settings/channels/connect?connection=${connection.id}&provider=threads`, db);
+    renderApp(`/channels/connect?connection=${connection.id}&provider=threads`, db);
     expect(await screen.findByRole("checkbox", { name: "rustin60 (Threads)" })).toBeChecked();
     expect(screen.getByRole("button", { name: "Connect account" })).toBeEnabled();
   });
@@ -144,26 +153,20 @@ describe("account picker", () => {
     const connection = addMockConnection(db, "meta", undefined, {
       now: Date.parse(CHANNELS_NOW) - 31 * 60_000,
     });
-    const { user } = renderApp(
-      `/settings/channels/connect?connection=${connection.id}&provider=meta`,
-      db,
-    );
+    const { user } = renderApp(`/channels/connect?connection=${connection.id}&provider=meta`, db);
 
     expect(await screen.findByText("This sign-in has expired")).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Accounts to connect" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in again" }));
     expect(navigate).toHaveBeenCalledWith(META_START);
-    expect(screen.getByRole("link", { name: "Back to channels" })).toHaveAttribute(
-      "href",
-      "/settings/channels",
-    );
+    expect(screen.getByRole("link", { name: "Back to channels" })).toHaveAttribute("href", RETURN);
   });
 
   it("turns into the expired state when the sign-in runs out before the accept", async () => {
     const { db } = connectSetup();
     const connection = addMockConnection(db, "threads");
     const { user } = renderApp(
-      `/settings/channels/connect?connection=${connection.id}&provider=threads`,
+      `/channels/connect?connection=${connection.id}&provider=threads`,
       db,
       [
         http.post(`*${routes["oauth.accept"].path}`, () =>
@@ -187,30 +190,26 @@ describe("account picker", () => {
 
   it("explains a failed sign-in from the callback", async () => {
     const { db } = connectSetup();
-    const { user } = renderApp(
-      "/settings/channels/connect?error=access_denied&provider=threads",
-      db,
-    );
+    const { user } = renderApp("/channels/connect?error=access_denied&provider=threads", db);
     expect(await screen.findByText("Sign-in cancelled")).toBeInTheDocument();
     expect(
       screen.getByText(/The sign-in with Threads was cancelled or its permissions were declined/),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sign in again" }));
-    expect(navigate).toHaveBeenCalledWith(
-      "/api/oauth/threads/start?redirectTo=%2Fsettings%2Fchannels",
-    );
+    // Signing in again starts in the workspace the accounts would join.
+    await user.click(await screen.findByRole("button", { name: "Sign in again" }));
+    expect(navigate).toHaveBeenCalledWith(startUrl("threads"));
   });
 
   it("offers no retry for X while its flag is off", async () => {
     const { db } = connectSetup();
-    renderApp("/settings/channels/connect?error=not_configured&provider=x", db);
+    renderApp("/channels/connect?error=not_configured&provider=x", db);
     expect(await screen.findByText("Publishing to X is off")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in again" })).not.toBeInTheDocument();
   });
 
   it("offers the sign-ins when there is nothing to finish, ignoring values it can't use", async () => {
     const { db } = connectSetup();
-    const { user } = renderApp("/settings/channels/connect?connection=nope&error=other", db);
+    const { user } = renderApp("/channels/connect?connection=nope&error=other", db);
     const list = await screen.findByRole("list", { name: "Sign-ins" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     await user.click(within(list).getByRole("button", { name: "Sign in with Facebook" }));
@@ -218,10 +217,82 @@ describe("account picker", () => {
   });
 });
 
+describe("connecting to a workspace", () => {
+  /** The channels db with a second workspace, Agents, which has no channels yet. */
+  function twoWorkspaces() {
+    const setup = connectSetup();
+    const agents = mockWorkspace({
+      name: "Agents for small teams",
+      slug: "agents-for-small-teams",
+    });
+    setup.db.workspaces.push(agents);
+    return { ...setup, agents };
+  }
+
+  it("starts from the workspace the sign-in began in and connects to the one chosen", async () => {
+    const { db, workspace, agents } = twoWorkspaces();
+    window.sessionStorage.setItem(CONNECT_WORKSPACE_KEY, workspace.id);
+    const connection = addMockConnection(db, "threads");
+    const requests = recordRequests();
+    const { user, router } = renderApp(
+      `/channels/connect?connection=${connection.id}&provider=threads`,
+      db,
+    );
+
+    const select = await screen.findByRole("combobox", { name: "Connect to workspace" });
+    await waitFor(() => expect(select).toHaveTextContent("Rust in 60 seconds"));
+    await user.click(select);
+    await user.click(await screen.findByRole("option", { name: "Agents for small teams" }));
+    expect(select).toHaveTextContent("Agents for small teams");
+    await user.click(screen.getByRole("button", { name: "Connect account" }));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/w/${agents.slug}/settings/channels`),
+    );
+    expect(requests.find((request) => request.method === "POST")).toMatchObject({
+      path: `/api/oauth/connections/${connection.id}/accept`,
+      body: { workspaceId: agents.id, accountIds: ["threads:200000000000002"] },
+    });
+    const added = db.channels.find((channel) => channel.externalId === "200000000000002");
+    expect(added?.workspaceId).toBe(agents.id);
+    // The Agents channel settings list only Agents' channels.
+    expect(await screen.findByRole("listitem", { name: "rustin60 (Threads)" })).toBeInTheDocument();
+    expect(screen.queryByRole("listitem", { name: PAGE })).not.toBeInTheDocument();
+  });
+
+  it("defaults to the remembered workspace of the sign-in", async () => {
+    const { db, agents } = twoWorkspaces();
+    window.sessionStorage.setItem(CONNECT_WORKSPACE_KEY, agents.id);
+    const connection = addMockConnection(db, "threads");
+    renderApp(`/channels/connect?connection=${connection.id}&provider=threads`, db);
+    const select = await screen.findByRole("combobox", { name: "Connect to workspace" });
+    await waitFor(() => expect(select).toHaveTextContent("Agents for small teams"));
+  });
+
+  it("names the workspace an account is already connected in", async () => {
+    const { db, agents } = twoWorkspaces();
+    window.sessionStorage.setItem(CONNECT_WORKSPACE_KEY, agents.id);
+    const connection = addMockConnection(db, "meta");
+    const { user, router } = renderApp(
+      `/channels/connect?connection=${connection.id}&provider=meta`,
+      db,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: PAGE }));
+    await user.click(screen.getByRole("button", { name: "Connect account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "An account you chose is already connected in Rust in 60 seconds.",
+    );
+    expect(router.state.location.pathname).toBe("/channels/connect");
+    expect(db.channels.filter((channel) => channel.workspaceId === agents.id)).toHaveLength(0);
+  });
+});
+
 describe("channel actions", () => {
   it("shows a reauth banner with Reconnect on a channel that needs reconnecting", async () => {
     const { db } = connectSetup();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(RETURN, db);
     const row = await screen.findByRole("listitem", { name: THREADS });
 
     expect(
@@ -232,15 +303,13 @@ describe("channel actions", () => {
       within(screen.getByRole("listitem", { name: PAGE })).queryByText(/Reconnect to keep/),
     ).not.toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "Reconnect" }));
-    expect(navigate).toHaveBeenCalledWith(
-      "/api/oauth/threads/start?redirectTo=%2Fsettings%2Fchannels",
-    );
+    expect(navigate).toHaveBeenCalledWith(startUrl("threads"));
   });
 
   it("disconnects a channel only after a confirmation", async () => {
     const { db, channels } = connectSetup();
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(RETURN, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     // A planning channel has nothing to disconnect.
@@ -274,7 +343,7 @@ describe("going live", () => {
   it("needs the words typed out and shows what the server checks", async () => {
     const { db, channels } = channelsSetup({ mode: "live", enabled: false });
     const requests = recordRequests();
-    const { user } = renderApp("/settings/channels", db);
+    const { user } = renderApp(RETURN, db);
     await screen.findByRole("list", { name: "Channel settings" });
 
     await user.click(screen.getByRole("switch", { name: `Dry run for ${PAGE}` }));

@@ -30,7 +30,7 @@ function byActivity(a: Conversation, b: Conversation): number {
 }
 
 export function mockConversation(
-  overrides: Partial<Conversation> & Pick<Conversation, "projectId" | "createdBy">,
+  overrides: Partial<Conversation> & Pick<Conversation, "workspaceId" | "createdBy">,
 ): Conversation {
   return {
     id: mockId(),
@@ -56,7 +56,7 @@ export function mockMessage(
 }
 
 export function mockJob(
-  overrides: Partial<JobSummary> & Pick<JobSummary, "projectId" | "conversationId">,
+  overrides: Partial<JobSummary> & Pick<JobSummary, "workspaceId" | "conversationId">,
 ): JobSummary {
   return {
     id: mockId(),
@@ -241,24 +241,24 @@ export function createConversationHandlers(db: MockDb) {
   return [
     http.get(path("conversations.list"), ({ params }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!db.projects.some((project) => project.id === projectId)) {
-        return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!db.workspaces.some((workspace) => workspace.id === workspaceId)) {
+        return apiError(404, "not_found", "No workspace has that id.");
       }
-      const items = db.conversations.filter((item) => item.projectId === projectId);
+      const items = db.conversations.filter((item) => item.workspaceId === workspaceId);
       return HttpResponse.json({ items: [...items].sort(byActivity) });
     }),
 
     http.post(path("conversations.create"), async ({ params, request }) => {
       if (!db.signedIn) return unauthorized();
-      const projectId = String(params.projectId);
-      if (!db.projects.some((project) => project.id === projectId)) {
-        return apiError(404, "not_found", "No project has that id.");
+      const workspaceId = String(params.workspaceId);
+      if (!db.workspaces.some((workspace) => workspace.id === workspaceId)) {
+        return apiError(404, "not_found", "No workspace has that id.");
       }
       const parsed = CreateConversationSchema.safeParse(await request.json().catch(() => ({})));
       if (!parsed.success) return apiError(400, "validation_failed", "Check the title.");
       const conversation = mockConversation({
-        projectId,
+        workspaceId,
         createdBy: db.user.id,
         title: parsed.data.title ?? null,
       });
@@ -310,7 +310,10 @@ export function createConversationHandlers(db: MockDb) {
         if (job) return HttpResponse.json({ message: existing, job }, { status: 201 });
       }
 
-      const job = mockJob({ projectId: conversation.projectId, conversationId: conversation.id });
+      const job = mockJob({
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.id,
+      });
       const message = mockMessage({
         conversationId: conversation.id,
         role: "user",
@@ -349,36 +352,36 @@ export function createConversationHandlers(db: MockDb) {
   ];
 }
 
-/** Two conversations for the first demo project, so mock mode opens on a real thread. */
+/** Two conversations for the first demo workspace, so mock mode opens on a real thread. */
 export function demoConversations(
-  projectId: string,
+  workspaceId: string,
   userId: string,
   now: number,
 ): Pick<MockDb, "conversations" | "messages" | "jobs"> {
   const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
   const ownership = mockConversation({
-    projectId,
+    workspaceId,
     createdBy: userId,
     title: "Ownership in one minute",
     createdAt: at(40),
     lastMessageAt: at(12),
   });
   const ideas = mockConversation({
-    projectId,
+    workspaceId,
     createdBy: userId,
     title: "Series ideas",
     createdAt: at(3 * 24 * 60),
     lastMessageAt: at(3 * 24 * 60 - 5),
   });
   const firstJob = mockJob({
-    projectId,
+    workspaceId,
     conversationId: ownership.id,
     status: "succeeded",
     createdAt: at(14),
     finishedAt: at(12),
   });
   const ideasJob = mockJob({
-    projectId,
+    workspaceId,
     conversationId: ideas.id,
     status: "succeeded",
     createdAt: at(3 * 24 * 60),

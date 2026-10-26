@@ -110,7 +110,7 @@ export function csvIdsQuerySchema(max: number) {
   ]);
 }
 
-/** An unpaginated list. Used for collections that stay small, such as projects and devices. */
+/** An unpaginated list. Used for collections that stay small, such as workspaces and devices. */
 export function listSchema<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item) });
 }

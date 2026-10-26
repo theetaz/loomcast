@@ -15,8 +15,8 @@ import { createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { conversations } from "./conversations";
 import { devices } from "./devices";
 import { jobStatus, jobType } from "./enums";
-import { projects } from "./projects";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /**
  * Work for a studio agent. `type` and `payload` are validated against the job registry before
@@ -29,9 +29,9 @@ export const jobs = pgTable(
     id: uuidPrimaryKey(),
     type: jobType("type").notNull(),
     status: jobStatus("status").notNull().default("queued"),
-    projectId: uuid("project_id")
+    workspaceId: uuid("workspace_id")
       .notNull()
-      .references(() => projects.id),
+      .references(() => workspaces.id),
     conversationId: uuid("conversation_id").references(() => conversations.id),
     deviceAffinity: uuid("device_affinity").references(() => devices.id, { onDelete: "set null" }),
     claimedByDevice: uuid("claimed_by_device").references(() => devices.id, {

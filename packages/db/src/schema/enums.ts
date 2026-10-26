@@ -17,7 +17,6 @@ import {
   POST_FORMATS,
   POST_STATUSES,
   PRODUCE_TARGETS,
-  PROJECT_STATUSES,
   REFERENCE_PLATFORMS,
   REVIEW_DECISIONS,
   SERIES_STATUSES,
@@ -27,6 +26,8 @@ import {
   TOKEN_SCOPES,
   USER_ROLES,
   VERSION_CREATED_VIA,
+  WORKSPACE_COLORS,
+  WORKSPACE_STATUSES,
 } from "@loomcast/contracts";
 import { pgEnum } from "drizzle-orm/pg-core";
 
@@ -37,7 +38,8 @@ import { pgEnum } from "drizzle-orm/pg-core";
 export const userRole = pgEnum("user_role", USER_ROLES);
 export const tokenKind = pgEnum("token_kind", TOKEN_KINDS);
 export const tokenScope = pgEnum("token_scope", TOKEN_SCOPES);
-export const projectStatus = pgEnum("project_status", PROJECT_STATUSES);
+export const workspaceStatus = pgEnum("workspace_status", WORKSPACE_STATUSES);
+export const workspaceColor = pgEnum("workspace_color", WORKSPACE_COLORS);
 export const jobType = pgEnum("job_type", JOB_TYPES);
 export const jobStatus = pgEnum("job_status", JOB_STATUSES);
 export const messageRole = pgEnum("message_role", MESSAGE_ROLES);

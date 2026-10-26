@@ -16,13 +16,13 @@ import { Skeleton } from "@loomcast/ui/components/skeleton";
 import { Switch } from "@loomcast/ui/components/switch";
 import { cn } from "@loomcast/ui/lib/cn";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { CheckIcon, RadioTowerIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { fromLocalInput, suggestedTime, toLocalInput } from "@/features/approvals/RescheduleDialog";
 import { type ChannelOutcome, useScheduleItem } from "@/features/calendar/queries";
+import { ChannelSettingsLink } from "@/features/channels/ChannelSettingsLink";
 import { ChannelPicture, sortChannels } from "@/features/channels/platforms";
 import { channelsQueryOptions } from "@/features/channels/queries";
 import {
@@ -78,7 +78,7 @@ export function ScheduleForm({
   onDone,
 }: ScheduleFormProps) {
   const id = useId();
-  const channels = useQuery(channelsQueryOptions());
+  const channels = useQuery(channelsQueryOptions(item.workspaceId));
   const schedule = useScheduleItem();
   const [current, setCurrent] = useState(item);
   const [selected, setSelected] = useState<string[]>([]);
@@ -249,10 +249,10 @@ export function ScheduleForm({
             title={`No channel publishes ${formatLabel(format).toLowerCase()}s`}
             description={`${platformsFor(format)
               .map((platform) => PLATFORM_LABELS[platform])
-              .join(" and ")} channels can. Connect one in Settings.`}
+              .join(" and ")} channels can. Connect one in the workspace settings.`}
             action={
               <Button asChild variant="outline" size="sm">
-                <Link to="/settings/channels">Open channels</Link>
+                <ChannelSettingsLink>Open channels</ChannelSettingsLink>
               </Button>
             }
           />

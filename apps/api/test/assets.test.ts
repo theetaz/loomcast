@@ -7,7 +7,7 @@ import {
   type LiveEvent,
   listSchema,
 } from "@loomcast/contracts";
-import { assets, auditLog, contentItems, contentVersions, projects } from "@loomcast/db";
+import { assets, auditLog, contentItems, contentVersions, workspaces } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -63,9 +63,9 @@ afterAll(async () => {
   await testDb.drop();
 });
 
-async function newProject(status: "active" | "archived" = "active") {
-  const [project] = await testDb.db
-    .insert(projects)
+async function newWorkspace(status: "active" | "archived" = "active") {
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({
       slug: `assets-${randomUUID().slice(0, 8)}`,
       name: "Assets",
@@ -74,19 +74,19 @@ async function newProject(status: "active" | "archived" = "active") {
       createdBy: userId,
     })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  return project;
+  return workspace;
 }
 
-async function newItem(projectId: string) {
+async function newItem(workspaceId: string) {
   const itemId = randomUUID();
   const versionId = randomUUID();
   await testDb.db.transaction(async (tx) => {
     await tx.insert(contentItems).values({
       id: itemId,
-      projectId,
+      workspaceId,
       title: "Item",
       createdVia: "ui",
       currentVersionId: versionId,
@@ -99,7 +99,7 @@ async function newItem(projectId: string) {
 }
 
 interface UploadRequest {
-  projectId: string;
+  workspaceId: string;
   itemId?: string;
   kind?: string;
   filename?: string;
@@ -157,10 +157,10 @@ describe("POST /api/assets/uploads", () => {
   });
 
   it("checks the MIME type and size against the kind", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(16);
     const wrongType = await requestUpload(t, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "voice",
       mime: "video/mp4",
       bytes: 16,
@@ -170,7 +170,7 @@ describe("POST /api/assets/uploads", () => {
     expect(await errorCode(wrongType)).toBe("validation_failed");
 
     const tooLarge = await requestUpload(t, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "poster",
       mime: "image/png",
       bytes: 20 * 1024 * 1024 + 1,
@@ -178,32 +178,32 @@ describe("POST /api/assets/uploads", () => {
     });
     expect(tooLarge.status).toBe(400);
 
-    const badSha = await requestUpload(t, { projectId: project.id, bytes: 16, sha256: "abc" });
+    const badSha = await requestUpload(t, { workspaceId: workspace.id, bytes: 16, sha256: "abc" });
     expect(badSha.status).toBe(400);
   });
 
-  it("refuses unknown and archived projects and items of other projects", async () => {
+  it("refuses unknown and archived workspaces and items of other workspaces", async () => {
     const file = randomFile(16);
     const unknown = await requestUpload(t, {
-      projectId: randomUUID(),
+      workspaceId: randomUUID(),
       bytes: 16,
       sha256: file.sha256,
     });
     expect(unknown.status).toBe(404);
 
-    const archived = await newProject("archived");
+    const archived = await newWorkspace("archived");
     const response = await requestUpload(t, {
-      projectId: archived.id,
+      workspaceId: archived.id,
       bytes: 16,
       sha256: file.sha256,
     });
     expect(response.status).toBe(409);
 
-    const project = await newProject();
-    const other = await newProject();
+    const workspace = await newWorkspace();
+    const other = await newWorkspace();
     const foreignItem = await newItem(other.id);
     const foreign = await requestUpload(t, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       itemId: foreignItem,
       bytes: 16,
       sha256: file.sha256,
@@ -215,18 +215,18 @@ describe("POST /api/assets/uploads", () => {
 
 describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint" : "the in-process fake"}`, () => {
   it("uploads straight to storage, verifies it and serves a download URL", async () => {
-    const project = await newProject();
-    const itemId = await newItem(project.id);
+    const workspace = await newWorkspace();
+    const itemId = await newItem(workspace.id);
     const file = randomFile(48 * 1024);
     live.length = 0;
 
     const { asset, upload } = await startUpload(file, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       itemId,
       filename: "Final cut.mp4",
     });
     expect(asset).toMatchObject({
-      projectId: project.id,
+      workspaceId: workspace.id,
       itemId,
       kind: "render",
       status: "pending",
@@ -247,7 +247,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
 
     const row = await storedRow(asset.id);
     expect(row?.storageKey).toBe(
-      `projects/${project.id}/items/${itemId}/render/${file.sha256}.mp4`,
+      `projects/${workspace.id}/items/${itemId}/render/${file.sha256}.mp4`,
     );
     expect(row?.bucket).toBe(target.config.bucket);
     expect(row?.createdByUser).toBe(userId);
@@ -322,9 +322,9 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
   });
 
   it("keeps the asset pending when finalize comes before the upload", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(1024);
-    const { asset } = await startUpload(file, { projectId: project.id });
+    const { asset } = await startUpload(file, { workspaceId: workspace.id });
     const response = await finalize(asset.id);
     expect(response.status).toBe(409);
     const body = (await response.json()) as { error: { details?: { reason?: string } } };
@@ -333,10 +333,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
   });
 
   it("fails and deletes an upload whose stored checksum does not match", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(2048);
-    const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
+    const { asset } = await startUpload(file, { workspaceId: workspace.id });
+    const key = assetStorageKey({ workspaceId: workspace.id }, "render", file.sha256, "video/mp4");
     const other = randomFile(2048);
     await plantObject(target, key, other.bytes, "video/mp4");
 
@@ -361,10 +361,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
   });
 
   it("fails an upload of the wrong size, then lets the same file start over", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(4096);
-    const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
+    const { asset } = await startUpload(file, { workspaceId: workspace.id });
+    const key = assetStorageKey({ workspaceId: workspace.id }, "render", file.sha256, "video/mp4");
     await plantObject(target, key, file.bytes.subarray(0, 4000), "video/mp4");
 
     const response = await finalize(asset.id);
@@ -380,7 +380,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(entry?.data).toEqual({ reason: "size_mismatch" });
 
     // Asking again for the same file reuses the failed row as a fresh pending upload.
-    const again = await startUpload(file, { projectId: project.id, filename: "retry.mp4" });
+    const again = await startUpload(file, { workspaceId: workspace.id, filename: "retry.mp4" });
     expect(again.asset.id).toBe(asset.id);
     expect(again.asset.status).toBe("pending");
     expect(again.asset.filename).toBe("retry.mp4");
@@ -393,11 +393,11 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(ready.status).toBe("ready");
   });
 
-  it("returns the existing asset for the same project, kind and checksum", async () => {
-    const project = await newProject();
+  it("returns the existing asset for the same workspace, kind and checksum", async () => {
+    const workspace = await newWorkspace();
     const file = randomFile(1500);
     const first = await startUpload(file, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "poster",
       mime: "image/png",
       filename: "a.png",
@@ -405,7 +405,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
 
     // Still pending: the same asset with a fresh upload URL.
     const pendingAgain = await startUpload(file, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "poster",
       mime: "image/png",
       filename: "b.png",
@@ -422,7 +422,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
 
     // Ready: nothing to upload.
     const ready = await startUpload(file, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "poster",
       mime: "image/png",
     });
@@ -430,32 +430,32 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(ready.asset.status).toBe("ready");
     expect(ready.upload).toBeNull();
 
-    // Another kind or another project is another asset.
+    // Another kind or another workspace is another asset.
     const frame = await startUpload(file, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "frame",
       mime: "image/png",
     });
     expect(frame.asset.id).not.toBe(first.asset.id);
-    const elsewhere = await newProject();
-    const otherProject = await startUpload(file, {
-      projectId: elsewhere.id,
+    const elsewhere = await newWorkspace();
+    const otherWorkspace = await startUpload(file, {
+      workspaceId: elsewhere.id,
       kind: "poster",
       mime: "image/png",
     });
-    expect(otherProject.asset.id).not.toBe(first.asset.id);
+    expect(otherWorkspace.asset.id).not.toBe(first.asset.id);
 
     const rows = await testDb.db
       .select({ id: assets.id })
       .from(assets)
-      .where(and(eq(assets.projectId, project.id), eq(assets.kind, "poster")));
+      .where(and(eq(assets.workspaceId, workspace.id), eq(assets.kind, "poster")));
     expect(rows).toHaveLength(1);
   });
 
   it("gives each item its own asset for a voice take or render another item holds", async () => {
-    const project = await newProject();
-    const first = await newItem(project.id);
-    const second = await newItem(project.id);
+    const workspace = await newWorkspace();
+    const first = await newItem(workspace.id);
+    const second = await newItem(workspace.id);
 
     for (const upload of [
       { kind: "voice", mime: "audio/mpeg", filename: "take.mp3", ext: "mp3" },
@@ -463,7 +463,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     ] as const) {
       const { kind, mime, filename, ext } = upload;
       const file = randomFile(1_200);
-      const fields = { projectId: project.id, kind, mime, filename };
+      const fields = { workspaceId: workspace.id, kind, mime, filename };
 
       const own = await startUpload(file, { ...fields, itemId: first });
       if (own.upload === null) {
@@ -480,10 +480,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
         throw new Error("expected an upload for the second item");
       }
       expect((await storedRow(own.asset.id))?.storageKey).toBe(
-        `projects/${project.id}/items/${first}/${kind}/${file.sha256}.${ext}`,
+        `projects/${workspace.id}/items/${first}/${kind}/${file.sha256}.${ext}`,
       );
       expect((await storedRow(copy.asset.id))?.storageKey).toBe(
-        `projects/${project.id}/items/${second}/${kind}/${file.sha256}.${ext}`,
+        `projects/${workspace.id}/items/${second}/${kind}/${file.sha256}.${ext}`,
       );
       expect((await putUpload(copy.upload, file.bytes)).status).toBe(200);
       expect(AssetSchema.parse(await (await finalize(copy.asset.id)).json()).status).toBe("ready");
@@ -498,10 +498,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
         expect(again.upload).toBeNull();
       }
 
-      // Neither item's asset is the project-level copy of the same bytes.
-      const projectLevel = await startUpload(file, fields);
-      expect([own.asset.id, copy.asset.id]).not.toContain(projectLevel.asset.id);
-      expect(projectLevel.asset.itemId).toBeNull();
+      // Neither item's asset is the workspace-level copy of the same bytes.
+      const workspaceLevel = await startUpload(file, fields);
+      expect([own.asset.id, copy.asset.id]).not.toContain(workspaceLevel.asset.id);
+      expect(workspaceLevel.asset.itemId).toBeNull();
     }
 
     const listed = AssetListSchema.parse(
@@ -510,12 +510,12 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(listed.items.map((asset) => asset.kind).sort()).toEqual(["render", "voice"]);
   });
 
-  it("dedupes reference media across the project", async () => {
-    const project = await newProject();
-    const itemId = await newItem(project.id);
+  it("dedupes reference media across the workspace", async () => {
+    const workspace = await newWorkspace();
+    const itemId = await newItem(workspace.id);
     const file = randomFile(900);
     const fields = {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "reference_media",
       mime: "video/quicktime",
       filename: "reference.mov",
@@ -524,7 +524,7 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     const first = await startUpload(file, fields);
     expect(first.asset.itemId).toBeNull();
     expect((await storedRow(first.asset.id))?.storageKey).toBe(
-      `projects/${project.id}/media/reference_media/${file.sha256}.mov`,
+      `projects/${workspace.id}/media/reference_media/${file.sha256}.mov`,
     );
     if (first.upload === null) {
       throw new Error("expected an upload");
@@ -546,20 +546,20 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     const rows = await testDb.db
       .select({ id: assets.id })
       .from(assets)
-      .where(and(eq(assets.projectId, project.id), eq(assets.kind, "reference_media")));
+      .where(and(eq(assets.workspaceId, workspace.id), eq(assets.kind, "reference_media")));
     expect(rows).toHaveLength(2);
   });
 
   it("dedupes concurrent requests for the same file", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(512);
     const results = await Promise.all(
       Array.from({ length: 6 }, () =>
-        requestUpload(t, { projectId: project.id, bytes: 512, sha256: file.sha256 }),
+        requestUpload(t, { workspaceId: workspace.id, bytes: 512, sha256: file.sha256 }),
       ),
     );
     createdKeys.push(
-      assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4"),
+      assetStorageKey({ workspaceId: workspace.id }, "render", file.sha256, "video/mp4"),
     );
     const ids = new Set<string>();
     for (const response of results) {
@@ -570,10 +570,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
   });
 
   it("stores a voice take's alignment and refuses one on other kinds", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const voice = randomFile(800);
     const { asset, upload } = await startUpload(voice, {
-      projectId: project.id,
+      workspaceId: workspace.id,
       kind: "voice",
       mime: "audio/mpeg",
       filename: "take.mp3",
@@ -596,24 +596,24 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
     expect(detail.durationMs).toBe(700);
 
     const render = randomFile(64);
-    const other = await startUpload(render, { projectId: project.id });
+    const other = await startUpload(render, { workspaceId: workspace.id });
     const refused = await finalize(other.asset.id, { alignment });
     expect(refused.status).toBe(400);
     expect((await storedRow(other.asset.id))?.status).toBe("pending");
   });
 
   it("lists an item's assets, newest first and by kind", async () => {
-    const project = await newProject();
-    const itemId = await newItem(project.id);
-    const first = await startUpload(randomFile(32), { projectId: project.id, itemId });
+    const workspace = await newWorkspace();
+    const itemId = await newItem(workspace.id);
+    const first = await startUpload(randomFile(32), { workspaceId: workspace.id, itemId });
     const second = await startUpload(randomFile(32), {
-      projectId: project.id,
+      workspaceId: workspace.id,
       itemId,
       kind: "voice",
       mime: "audio/wav",
       filename: "take.wav",
     });
-    await startUpload(randomFile(32), { projectId: project.id });
+    await startUpload(randomFile(32), { workspaceId: workspace.id });
 
     const all = await send(t.app, "GET", `/api/content/${itemId}/assets`, { cookie });
     expect(all.status).toBe(200);
@@ -642,10 +642,10 @@ describe(`upload and finalize against ${target.kind === "s3" ? "the S3 endpoint"
   });
 
   it("deletes pending uploads older than a day", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(256);
-    const { asset } = await startUpload(file, { projectId: project.id });
-    const key = assetStorageKey({ projectId: project.id }, "render", file.sha256, "video/mp4");
+    const { asset } = await startUpload(file, { workspaceId: workspace.id });
+    const key = assetStorageKey({ workspaceId: workspace.id }, "render", file.sha256, "video/mp4");
     await plantObject(target, key, file.bytes, "video/mp4");
 
     await moduleDeps.assets.cleanupPendingUploads();
@@ -682,9 +682,9 @@ describe("finalize on a store that does not record checksums", () => {
   });
 
   it("hashes the stored bytes itself", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(2048);
-    const { asset, upload } = await startUpload(file, { projectId: project.id }, app);
+    const { asset, upload } = await startUpload(file, { workspaceId: workspace.id }, app);
     if (upload === null) {
       throw new Error("expected an upload");
     }
@@ -699,9 +699,9 @@ describe("finalize on a store that does not record checksums", () => {
   });
 
   it("fails bytes that hash differently, even though the store accepted them", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(2048);
-    const { asset, upload } = await startUpload(file, { projectId: project.id }, app);
+    const { asset, upload } = await startUpload(file, { workspaceId: workspace.id }, app);
     if (upload === null) {
       throw new Error("expected an upload");
     }
@@ -714,9 +714,9 @@ describe("finalize on a store that does not record checksums", () => {
   });
 
   it("fails an upload above the verification cap it cannot check", async () => {
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(8192);
-    const { asset, upload } = await startUpload(file, { projectId: project.id }, app);
+    const { asset, upload } = await startUpload(file, { workspaceId: workspace.id }, app);
     if (upload === null) {
       throw new Error("expected an upload");
     }
@@ -738,12 +738,12 @@ describe("without object storage", () => {
     const app = createTestApp(testDb.db, { config: { storage: null } });
     const user = await insertUser(testDb.db);
     const session = (await login(app.app, user.email)).cookie;
-    const project = await newProject();
+    const workspace = await newWorkspace();
     const file = randomFile(64);
     const upload = await send(app.app, "POST", "/api/assets/uploads", {
       cookie: session,
       body: {
-        projectId: project.id,
+        workspaceId: workspace.id,
         kind: "render",
         filename: "final.mp4",
         mime: "video/mp4",
@@ -753,7 +753,7 @@ describe("without object storage", () => {
     });
     expect(upload.status).toBe(503);
     expect(await errorCode(upload)).toBe("storage_unavailable");
-    const rows = await testDb.db.select().from(assets).where(eq(assets.projectId, project.id));
+    const rows = await testDb.db.select().from(assets).where(eq(assets.workspaceId, workspace.id));
     expect(rows).toHaveLength(0);
     const missing = await send(app.app, "GET", `/api/assets/${randomUUID()}`, { cookie: session });
     expect(missing.status).toBe(404);

@@ -1,14 +1,14 @@
-import type { Format, Project, Series } from "@loomcast/contracts";
+import type { Format, Series, Workspace } from "@loomcast/contracts";
 import type { ComponentType } from "react";
 
 /** What every card on the series page receives. */
 export interface SeriesCardProps {
   series: Series;
-  project: Project;
+  workspace: Workspace;
   /** The series' format, once loaded. */
   format: Format | undefined;
-  /** The project as it appears in the address (id or slug), for links. */
-  projectParam: string;
+  /** The workspace as it appears in the address (id or slug), for links. */
+  workspaceParam: string;
 }
 
 /**

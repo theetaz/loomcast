@@ -1,4 +1,9 @@
-import { type Channel, DAILY_TASK_INTERVAL_MS, TOKEN_REFRESH_LEAD_MS } from "@loomcast/contracts";
+import {
+  type Channel,
+  DAILY_TASK_INTERVAL_MS,
+  OAUTH_CONNECT_PAGE_PATH,
+  TOKEN_REFRESH_LEAD_MS,
+} from "@loomcast/contracts";
 import { auditLog, channels, scheduledTasks } from "@loomcast/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -118,7 +123,7 @@ describe("threads sign-in", () => {
 
     const accepted = await send(h.t.app, "POST", `/api/oauth/connections/${connection}/accept`, {
       cookie: h.cookie,
-      body: { accountIds: [`threads:${profile.id}`] },
+      body: { workspaceId: h.workspaceId, accountIds: [`threads:${profile.id}`] },
     });
     expect(accepted.status).toBe(200);
     const text = await accepted.text();
@@ -164,7 +169,7 @@ describe("threads sign-in", () => {
       { cookie: h.cookie },
     );
     expect(callback.headers.get("location")).toBe(
-      "/settings/channels/connect?error=provider_error&provider=threads",
+      `${OAUTH_CONNECT_PAGE_PATH}?error=provider_error&provider=threads`,
     );
   });
 });

@@ -12,9 +12,9 @@ import {
   auditLog,
   channels,
   contentItems,
-  projects,
   reviews,
   scheduledPosts,
+  workspaces,
 } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -48,7 +48,7 @@ let ownerId: string;
 let ownerTokenId: string;
 let owner: Client;
 let writer: Client;
-let projectId: string;
+let workspaceId: string;
 let channelId: string;
 const clients: Client[] = [];
 
@@ -63,14 +63,14 @@ beforeAll(async () => {
     server.url,
     (await issueToken(server.deps, ownerId, ["mcp:read", "mcp:write"])).secret,
   );
-  const [project] = await testDb.db
-    .insert(projects)
+  const [workspace] = await testDb.db
+    .insert(workspaces)
     .values({ slug: `owner-${randomUUID().slice(0, 8)}`, name: "Owner", createdBy: ownerId })
     .returning();
-  if (project === undefined) {
-    throw new Error("project was not inserted");
+  if (workspace === undefined) {
+    throw new Error("workspace was not inserted");
   }
-  projectId = project.id;
+  workspaceId = workspace.id;
   channelId = await newChannel();
 });
 
@@ -96,10 +96,11 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
 }
 
 /** A planning channel in dry-run, without credentials. */
-async function newChannel(): Promise<string> {
+async function newChannel(workspace = workspaceId): Promise<string> {
   const [row] = await testDb.db
     .insert(channels)
     .values({
+      workspaceId: workspace,
       platform: "instagram",
       displayName: `Channel ${randomUUID().slice(0, 6)}`,
       status: "disconnected",
@@ -113,9 +114,9 @@ async function newChannel(): Promise<string> {
 }
 
 /** An item inserted straight into the database, with artifacts up to `level`. */
-function item(spec: Omit<ItemSpec, "projectId">): Promise<InsertedItem> {
+function item(spec: Omit<ItemSpec, "workspaceId">): Promise<InsertedItem> {
   const h = { db: testDb.db, userId: ownerId } as unknown as PipelineHarness;
-  return insertItem(h, { projectId, ...spec });
+  return insertItem(h, { workspaceId, ...spec });
 }
 
 async function stateOf(itemId: string) {
@@ -203,7 +204,7 @@ describe("owner publishing over MCP", () => {
         actorKind: "token",
         data: {
           outcome: "ok",
-          projectId,
+          workspaceId,
           reviewId: decision.reviewId,
           itemId: inReview.itemId,
           decision: "approve",
@@ -238,14 +239,14 @@ describe("owner publishing over MCP", () => {
     expect(postAudit).toMatchObject({ actorKind: "user", actorId: ownerId });
     expect(await toolAudits("calendar.schedule_post")).toContainEqual(
       expect.objectContaining({
-        data: { outcome: "ok", projectId, postId: post.id, itemId: inReview.itemId, channelId },
+        data: { outcome: "ok", workspaceId, postId: post.id, itemId: inReview.itemId, channelId },
       }),
     );
 
     const calendar = await call(owner, "calendar.list_posts", {
       from: ahead(0),
       to: ahead(48),
-      projectId,
+      workspaceId,
       channelIds: [channelId],
     });
     expectOk(calendar);
@@ -259,6 +260,35 @@ describe("owner publishing over MCP", () => {
     });
     expect(again.isError).toBe(true);
     expect(textOf(again)).toBe("conflict: This item already has a post on that channel.");
+  });
+
+  it("lists every channel with its workspace, or one workspace's channels", async () => {
+    const [other] = await testDb.db
+      .insert(workspaces)
+      .values({ slug: `other-${randomUUID().slice(0, 8)}`, name: "Other", createdBy: ownerId })
+      .returning();
+    if (other === undefined) throw new Error("workspace was not inserted");
+    const foreign = await newChannel(other.id);
+
+    const all = await call(owner, "channel.list", {});
+    expectOk(all);
+    const everyChannel = ChannelListOutputSchema.parse(all.structuredContent).channels;
+    expect(everyChannel).toContainEqual(expect.objectContaining({ id: channelId, workspaceId }));
+    expect(everyChannel).toContainEqual(
+      expect.objectContaining({ id: foreign, workspaceId: other.id }),
+    );
+
+    const mine = await call(owner, "channel.list", { workspaceId });
+    expectOk(mine);
+    const ids = ChannelListOutputSchema.parse(mine.structuredContent).channels.map(
+      (channel) => channel.id,
+    );
+    expect(ids).toContain(channelId);
+    expect(ids).not.toContain(foreign);
+    const theirs = await call(owner, "channel.list", { workspaceId: other.id });
+    expect(
+      ChannelListOutputSchema.parse(theirs.structuredContent).channels.map((channel) => channel.id),
+    ).toEqual([foreign]);
   });
 
   it("reschedules and cancels a post", async () => {
@@ -418,7 +448,7 @@ describe("owner publishing over MCP", () => {
         scopes: ["mcp:read", "mcp:write", "mcp:admin"],
         user: { id: admin.id, email: admin.email, name: admin.name, role: "admin" },
       },
-      boundProjectId: null,
+      boundWorkspaceId: null,
       jobId: null,
       ip: testIp(5),
     };
@@ -456,7 +486,7 @@ describe("owner publishing over MCP", () => {
   it("refuses job tokens, even the owner's", async () => {
     const { secret } = await issueJobToken(testDb.db, {
       userId: ownerId,
-      projectId,
+      workspaceId,
       scopes: ["mcp:read", "mcp:write", "mcp:admin"],
     });
     const client = await connectClient(server.url, secret);
@@ -480,13 +510,13 @@ describe("owner publishing over MCP", () => {
   it("still never approves through content.submit_for_review", async () => {
     const voiced = await item({ state: "voice", level: "voice" });
     const renderAssetId = await insertAsset(testDb.db, {
-      projectId,
+      workspaceId,
       itemId: voiced.itemId,
       kind: "render",
       durationMs: 31_000,
     });
     const posterAssetId = await insertAsset(testDb.db, {
-      projectId,
+      workspaceId,
       itemId: voiced.itemId,
       kind: "poster",
     });

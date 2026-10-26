@@ -99,7 +99,7 @@ describe("event bus", () => {
       payload: {
         jobId: "00000000-0000-4000-8000-000000000001",
         type: "system.ping",
-        projectId: "00000000-0000-4000-8000-000000000002",
+        workspaceId: "00000000-0000-4000-8000-000000000002",
         deviceAffinity: null,
       },
     } as const;

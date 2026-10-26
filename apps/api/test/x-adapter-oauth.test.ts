@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Channel, SystemFeatures } from "@loomcast/contracts";
+import { type Channel, OAUTH_CONNECT_PAGE_PATH, type SystemFeatures } from "@loomcast/contracts";
 import { channels, oauthStates } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import { eq } from "drizzle-orm";
@@ -15,7 +15,7 @@ import {
   type SeenRequest,
 } from "./oauth-support";
 import { testKeyring } from "./publisher-support";
-import { createTestApp, insertUser, login, send, type TestApp } from "./support";
+import { createTestApp, defaultWorkspace, insertUser, login, send, type TestApp } from "./support";
 
 // The X sign-in through the app, with every X API call answered by an undici `MockAgent` that
 // refuses the network. With the flag off, a catch-all interceptor counts calls to api.x.com: it
@@ -113,7 +113,7 @@ describe("x sign-in with the flag off", () => {
         const started = await send(t.app, "GET", "/api/oauth/x/start", { cookie });
         expect(started.status).toBe(302);
         expect(started.headers.get("location")).toBe(
-          "/settings/channels/connect?error=not_configured&provider=x",
+          `${OAUTH_CONNECT_PAGE_PATH}?error=not_configured&provider=x`,
         );
         expect(await testDb.db.select().from(oauthStates)).toHaveLength(before.length);
       });
@@ -229,7 +229,7 @@ describe("x sign-in with the flag on", () => {
 
     const accepted = await send(t.app, "POST", `/api/oauth/connections/${connection}/accept`, {
       cookie,
-      body: { accountIds: [`x:${user.id}`] },
+      body: { workspaceId: await defaultWorkspace(testDb.db), accountIds: [`x:${user.id}`] },
     });
     expect(accepted.status).toBe(200);
     const text = await accepted.text();
@@ -278,7 +278,7 @@ describe("x sign-in with the flag on", () => {
       { cookie },
     );
     expect(callback.headers.get("location")).toBe(
-      "/settings/channels/connect?error=provider_error&provider=x",
+      `${OAUTH_CONNECT_PAGE_PATH}?error=provider_error&provider=x`,
     );
   });
 });

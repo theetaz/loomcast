@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { NO_DOWNLOAD_NOTICE } from "@/features/kb/TranscriptInput";
 import { updateJob } from "@/mocks/conversations";
 import { DEMO_ANALYSIS, updateKbEntry } from "@/mocks/kb";
-import { kbSetup, PROJECT_SLUG, recordRequests } from "./support/kb";
+import { kbSetup, recordRequests, WORKSPACE_SLUG } from "./support/kb";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 
@@ -29,7 +29,7 @@ describe("reference intake", () => {
     const requests = recordRequests();
     const { user, router, container } = renderPath(
       db,
-      `/projects/${PROJECT_SLUG}/kb/new?kind=reference`,
+      `/w/${WORKSPACE_SLUG}/kb/new?kind=reference`,
     );
 
     expect(await screen.findByText(NO_DOWNLOAD_NOTICE)).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("reference intake", () => {
 
   it("rejects files it cannot read and links that are not http", async () => {
     const { db } = kbSetup();
-    const { user, container } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/new?kind=reference`);
+    const { user, container } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/new?kind=reference`);
     const input = await waitFor(() => {
       const found = container.querySelector<HTMLInputElement>('input[type="file"]');
       if (!found) throw new Error("no file input");
@@ -88,7 +88,7 @@ describe("reference intake", () => {
 describe("reference detail", () => {
   it("links out safely and finds text in the transcript", async () => {
     const { db, reference } = kbSetup();
-    const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/${reference.id}`);
+    const { user } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/${reference.id}`);
 
     const link = await screen.findByRole("link", { name: /instagram\.com\/reel\/abc/ });
     expect(link).toHaveAttribute("href", "https://instagram.com/reel/abc/");
@@ -112,7 +112,7 @@ describe("reference detail", () => {
 
   it("queues an analysis and follows the job to the stored result", async () => {
     const { db, reference } = kbSetup();
-    const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/${reference.id}`);
+    const { user } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/${reference.id}`);
 
     expect(await screen.findByText(/Not analyzed yet/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Analyze" }));
@@ -157,7 +157,7 @@ describe("reference detail", () => {
     const { db, reference } = kbSetup();
     const stored = db.kbEntries.find((entry) => entry.id === reference.id);
     if (stored?.reference) stored.reference.transcript = null;
-    const { user } = renderPath(db, `/projects/${PROJECT_SLUG}/kb/${reference.id}`);
+    const { user } = renderPath(db, `/w/${WORKSPACE_SLUG}/kb/${reference.id}`);
 
     expect(
       await screen.findByText("Add a transcript or upload the media to analyze this reference."),

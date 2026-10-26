@@ -39,7 +39,7 @@ format, and so its cadence.
 ### What the planner does
 
 `cadence.plan` (`apps/api/src/modules/cadence/plan.ts`) looks at the next `CADENCE_HORIZON_DAYS`
-(14 by default) of an active series in an active project, for slots on the channels the series
+(14 by default) of an active series in an active workspace, for slots on the channels the series
 publishes to (linked, switched on, and not disabled). For each slot it makes sure there is:
 
 1. **An item**: an idea titled `<series> · <local date>` (with the local time too when the cadence
@@ -117,10 +117,10 @@ The publisher checks again at the slot: a post publishes only if its item is app
 or published and the post's version is the item's current version. Otherwise the post fails with
 "approve and schedule it again".
 
-**The approvals inbox** (**Approvals**, `GET /api/approvals`) lists items in review with the
-time left before their first slot, nearest first, with Approve and Request changes on each row.
-Below it are **missed posts**: posts whose time came while still planned. Approve the video and
-reschedule the post, or leave it.
+**The approvals inbox** (a workspace's **Approvals**, `GET /api/approvals?workspaceId=`) lists items
+in review with the time left before their first slot, nearest first, with Approve and Request
+changes on each row. Below it are **missed posts**: posts whose time came while still planned.
+Approve the video and reschedule the post, or leave it.
 
 ### Posts from API clients
 
@@ -144,7 +144,7 @@ these hold at its time:
 | Switch | Where | Default |
 |---|---|---|
 | `PUBLISHING_MODE` | Server environment: `dry-run` or `live` | `dry-run` |
-| The channel's **Dry run** switch | **Settings → Channels** | On for every new channel |
+| The channel's **Dry run** switch | **Workspace settings → Channels** | On for every new channel |
 | The post's `dryRun` flag | Fixed when the post is created: on if the channel or the server was in dry-run | — |
 
 So a post planned while its channel was in dry-run stays a dry run even after the channel goes
@@ -160,8 +160,8 @@ blocks it; otherwise the API answers `409 dry_run_locked` with the blocker in `d
 | `not_active` | The channel needs reconnecting, or is disabled |
 | `publishing_dry_run` | The server runs with `PUBLISHING_MODE=dry-run` |
 
-`PUBLISHING_ENABLED=false` pauses publishing in either mode: posts that come due wait and try
-again every 15 minutes. The channel settings and **Settings → Scheduler** show a banner while the
+`PUBLISHING_ENABLED=false` pauses publishing in either mode: posts that come due wait and try again
+every 15 minutes. The channel settings and **Account settings → Scheduler** show a banner while the
 server dry-runs or is paused.
 
 ### What a dry run records
@@ -190,9 +190,13 @@ The live adapters (Instagram Reels, Facebook Page Reels and Threads; X behind
 1. Set `LOOMCAST_ENCRYPTION_KEY` (channel credentials are stored encrypted) and the platform app
    settings in `.env` (`META_*`, `THREADS_*`, `X_*`). The [Meta app runbook](runbooks/meta-app-setup.md)
    walks through creating the apps.
-2. Connect the account: **Settings → Channels → Connect**, sign in with the platform and pick the
-   accounts to add on the connect page. One Meta sign-in connects Facebook Pages and the Instagram
-   professional accounts linked to them; Threads and X have their own sign-ins.
+2. Connect the account: in the brand's workspace, **Workspace settings → Channels → Connect**,
+   sign in with the platform, then pick the accounts and the workspace they join on the connect
+   page (`/channels/connect`). One Meta sign-in connects Facebook Pages and the Instagram
+   professional accounts linked to them; an Instagram account joins its Page's workspace. Threads
+   and X have their own sign-ins. Each channel belongs to one workspace: an account that is
+   already a channel of another workspace is refused with `409 channel_in_other_workspace`, which
+   names that workspace.
 3. Run the server with `PUBLISHING_MODE=live`.
 4. Turn the channel's **Dry run** switch off and type `publish live` to confirm.
 
@@ -224,10 +228,10 @@ when its lease runs out.
 - A task whose every attempt failed is **dead**: it is audited (`scheduler.task.dead`), published
   as a `task.dead` event and raised as an alert.
 
-**Settings → Scheduler** (owner and admins) shows the scheduler's last run and lists dead and failed
-tasks with their last error and a **Retry** button, which runs the task again now with a fresh set
-of attempts (`GET /api/scheduler/tasks?status=dead`, `POST /api/scheduler/tasks/:id/retry`). Fix
-the cause first.
+**Account settings → Scheduler** (owner and admins) shows the scheduler's last run and lists dead
+and failed tasks with their last error and a **Retry** button, which runs the task again now with a
+fresh set of attempts (`GET /api/scheduler/tasks?status=dead`,
+`POST /api/scheduler/tasks/:id/retry`). Fix the cause first.
 
 A post the publisher cannot send is handled on the post rather than the task. A transient error
 (a timeout, a platform 5xx, a rate limit) puts the post back to `queued` and retries the task. A

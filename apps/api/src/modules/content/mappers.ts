@@ -64,7 +64,7 @@ export type VersionSummaryRow = Omit<ContentVersionRow, "script" | "storyboard" 
 export function toContentItem(row: ItemRow): ContentItem {
   return {
     id: row.id,
-    projectId: row.projectId,
+    workspaceId: row.workspaceId,
     seriesId: row.seriesId,
     title: row.title,
     pitch: row.pitch,

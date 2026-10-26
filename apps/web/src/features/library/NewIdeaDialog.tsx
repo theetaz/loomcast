@@ -28,7 +28,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { toast } from "sonner";
-import { projectsQueryOptions } from "@/features/projects/queries";
+import { useOptionalWorkspaceParam } from "@/features/workspace/current";
+import { workspacesQueryOptions } from "@/features/workspaces/queries";
 import { errorMessage } from "@/lib/api";
 import { seriesListQueryOptions, useCreateIdea } from "./queries";
 
@@ -36,15 +37,15 @@ const NO_SERIES = "none";
 
 /**
  * Wraps a trigger button. A new idea needs a title; the pitch and series are optional. Inside a
- * project the project is fixed; in the library the user picks one. The form starts empty every
+ * workspace the workspace is fixed; in the library the user picks one. The form starts empty every
  * time the dialog opens.
  */
 export function NewIdeaDialog({
-  projectId = null,
+  workspaceId = null,
   defaultSeriesId = null,
   children,
 }: {
-  projectId?: string | null;
+  workspaceId?: string | null;
   defaultSeriesId?: string | null;
   children: ReactNode;
 }) {
@@ -62,7 +63,7 @@ export function NewIdeaDialog({
       <DialogContent className="sm:max-w-[480px]">
         <NewIdeaForm
           key={formKey}
-          fixedProjectId={projectId}
+          fixedWorkspaceId={workspaceId}
           defaultSeriesId={defaultSeriesId}
           onCreated={() => setOpen(false)}
         />
@@ -72,27 +73,30 @@ export function NewIdeaDialog({
 }
 
 function NewIdeaForm({
-  fixedProjectId,
+  fixedWorkspaceId,
   defaultSeriesId,
   onCreated,
 }: {
-  fixedProjectId: string | null;
+  fixedWorkspaceId: string | null;
   defaultSeriesId: string | null;
   onCreated: () => void;
 }) {
+  const workspaceParam = useOptionalWorkspaceParam();
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const create = useCreateIdea();
 
-  const projects = useQuery({ ...projectsQueryOptions(), enabled: fixedProjectId === null });
-  const activeProjects = (projects.data ?? []).filter((project) => project.status === "active");
-  const [chosenProjectId, setChosenProjectId] = useState<string | null>(null);
-  const projectId = fixedProjectId ?? chosenProjectId ?? activeProjects[0]?.id ?? null;
+  const workspaces = useQuery({ ...workspacesQueryOptions(), enabled: fixedWorkspaceId === null });
+  const activeWorkspaces = (workspaces.data ?? []).filter(
+    (workspace) => workspace.status === "active",
+  );
+  const [chosenWorkspaceId, setChosenWorkspaceId] = useState<string | null>(null);
+  const workspaceId = fixedWorkspaceId ?? chosenWorkspaceId ?? activeWorkspaces[0]?.id ?? null;
 
   const series = useQuery({
-    ...seriesListQueryOptions(projectId ?? ""),
-    enabled: projectId !== null,
+    ...seriesListQueryOptions(workspaceId ?? ""),
+    enabled: workspaceId !== null,
   });
   const activeSeries = (series.data?.items ?? []).filter((entry) => entry.status !== "archived");
 
@@ -107,13 +111,13 @@ function NewIdeaForm({
     title: `${id}-title`,
     titleError: `${id}-title-error`,
     pitch: `${id}-pitch`,
-    project: `${id}-project`,
+    workspace: `${id}-workspace`,
     series: `${id}-series`,
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (create.isPending || !projectId) return;
+    if (create.isPending || !workspaceId) return;
     const parsed = ContentTitleSchema.safeParse(title);
     if (!parsed.success) {
       setTitleError("Give the idea a title.");
@@ -123,7 +127,7 @@ function NewIdeaForm({
     const trimmedPitch = pitch.trim();
     create.mutate(
       {
-        projectId,
+        workspaceId,
         body: {
           title: parsed.data,
           ...(trimmedPitch ? { pitch: trimmedPitch } : {}),
@@ -138,7 +142,13 @@ function NewIdeaForm({
             action: {
               label: "Open",
               onClick: () =>
-                void navigate({ to: "/content/$itemId", params: { itemId: detail.item.id } }),
+                void navigate({
+                  to: "/w/$workspace/content/$itemId",
+                  params: {
+                    workspace: workspaceParam ?? detail.item.workspaceId,
+                    itemId: detail.item.id,
+                  },
+                }),
             },
           });
         },
@@ -146,19 +156,21 @@ function NewIdeaForm({
     );
   };
 
-  if (fixedProjectId === null && projects.isSuccess && activeProjects.length === 0) {
+  if (fixedWorkspaceId === null && workspaces.isSuccess && activeWorkspaces.length === 0) {
     return (
       <div className="grid gap-4">
         <DialogHeader>
           <DialogTitle>New idea</DialogTitle>
-          <DialogDescription>Ideas belong to a project. Create a project first.</DialogDescription>
+          <DialogDescription>
+            Ideas belong to a workspace. Create a workspace first.
+          </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
           <Button asChild>
-            <Link to="/projects">Go to projects</Link>
+            <Link to="/workspaces">Go to workspaces</Link>
           </Button>
         </DialogFooter>
       </div>
@@ -215,24 +227,24 @@ function NewIdeaForm({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {fixedProjectId === null ? (
+        {fixedWorkspaceId === null ? (
           <div className="grid gap-1.5">
-            <Label htmlFor={ids.project}>Project</Label>
+            <Label htmlFor={ids.workspace}>Workspace</Label>
             <Select
-              value={projectId ?? undefined}
+              value={workspaceId ?? undefined}
               onValueChange={(value) => {
-                setChosenProjectId(value);
+                setChosenWorkspaceId(value);
                 setSeriesId(null);
               }}
-              disabled={activeProjects.length === 0}
+              disabled={activeWorkspaces.length === 0}
             >
-              <SelectTrigger id={ids.project} className="w-full">
-                <SelectValue placeholder="Loading projects…" />
+              <SelectTrigger id={ids.workspace} className="w-full">
+                <SelectValue placeholder="Loading workspaces…" />
               </SelectTrigger>
               <SelectContent>
-                {activeProjects.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.name}
+                {activeWorkspaces.map((workspace) => (
+                  <SelectItem key={workspace.id} value={workspace.id}>
+                    {workspace.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -278,7 +290,7 @@ function NewIdeaForm({
             Cancel
           </Button>
         </DialogClose>
-        <Button type="submit" disabled={create.isPending || !projectId}>
+        <Button type="submit" disabled={create.isPending || !workspaceId}>
           {create.isPending ? "Adding…" : "Add idea"}
         </Button>
       </DialogFooter>

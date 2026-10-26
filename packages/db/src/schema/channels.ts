@@ -4,6 +4,7 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -17,6 +18,7 @@ import { bytea, createdAt, timestamptz, uuidPrimaryKey } from "./columns";
 import { channelStatus, platform } from "./enums";
 import { series } from "./formats";
 import { users } from "./users";
+import { workspaces } from "./workspaces";
 
 /** Longest display name the database accepts. The API applies the tighter `CHANNEL_NAME_MAX_LENGTH`. */
 export const CHANNEL_DISPLAY_NAME_DB_MAX_LENGTH = 200;
@@ -29,7 +31,7 @@ export const CHANNEL_SECRET_TAG_BYTES = 16;
 
 /**
  * An account the publisher posts to: a Facebook Page, an Instagram professional account, a Threads
- * profile or an X account. Channels belong to the workspace, not to a project; series link to them
+ * profile or an X account. Channels belong to the workspace, not to a workspace; series link to them
  * through `series_channels`.
  *
  * **Credentials.** The platform tokens are stored only as AES-256-GCM ciphertext
@@ -53,6 +55,9 @@ export const channels = pgTable(
   "channels",
   {
     id: uuidPrimaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
     platform: platform("platform").notNull(),
     displayName: text("display_name").notNull(),
     /** The platform's id of the Page, professional account or profile; null until connected. */
@@ -100,6 +105,7 @@ export const channels = pgTable(
     uniqueIndex("channels_platform_external_id_uq")
       .on(t.platform, t.externalId)
       .where(sql`${t.externalId} is not null`),
+    uniqueIndex("channels_workspace_id_id_uq").on(t.workspaceId, t.id),
     index("channels_parent_channel_id_idx")
       .on(t.parentChannelId)
       .where(sql`${t.parentChannelId} is not null`),
@@ -132,23 +138,31 @@ export const channels = pgTable(
 
 /**
  * The channels a series publishes to. A disabled link keeps the posts it already has but plans no
- * new ones. Deleting the series or the channel removes the link.
+ * new ones. Deleting the series or the channel removes the link. Both keys carry the workspace, so
+ * a series only ever links channels of its own workspace.
  */
 export const seriesChannels = pgTable(
   "series_channels",
   {
-    seriesId: uuid("series_id")
-      .notNull()
-      .references(() => series.id, { onDelete: "cascade" }),
-    channelId: uuid("channel_id")
-      .notNull()
-      .references(() => channels.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").notNull(),
+    seriesId: uuid("series_id").notNull(),
+    channelId: uuid("channel_id").notNull(),
     enabled: boolean("enabled").notNull().default(true),
     createdAt: createdAt(),
   },
   (t) => [
     primaryKey({ name: "series_channels_pk", columns: [t.seriesId, t.channelId] }),
     index("series_channels_channel_id_idx").on(t.channelId),
+    foreignKey({
+      name: "series_channels_series_fk",
+      columns: [t.workspaceId, t.seriesId],
+      foreignColumns: [series.workspaceId, series.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "series_channels_channel_fk",
+      columns: [t.workspaceId, t.channelId],
+      foreignColumns: [channels.workspaceId, channels.id],
+    }).onDelete("cascade"),
   ],
 );
 

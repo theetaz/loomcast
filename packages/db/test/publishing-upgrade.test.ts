@@ -9,9 +9,9 @@ import { createTestDb, type TestDb } from "../src/testing";
 import {
   insertActiveChannel,
   insertLegacyContentItem,
+  insertLegacyWorkspace,
   insertOAuthConnection,
   insertOAuthState,
-  insertProject,
   insertUser,
   oauthState,
   sealedPkce,
@@ -46,9 +46,9 @@ describe("publishing migrations on a database of the previous release", () => {
   it("apply twice in one batch, keep channels and posts, and take the new rows", async () => {
     const db = testDb.db;
     // Rows as the previous release stores them, written in SQL because the current schema names
-    // channel columns that do not exist yet.
+    // channel columns that do not exist yet and `workspaces` was still `projects`.
     const user = await insertUser(db, { role: "owner" });
-    const project = await insertProject(db, user.id);
+    const project = await insertLegacyWorkspace(db, user.id);
     const { item, version } = await insertLegacyContentItem(db, {
       projectId: project.id,
       createdBy: user.id,
@@ -89,9 +89,11 @@ describe("publishing migrations on a database of the previous release", () => {
     );
     expect(after.rows.map((row) => row.table_name)).toEqual(NEW_TABLES);
 
-    // The existing channel keeps its credentials and has no health record yet.
+    // The existing channel keeps its credentials, has no health record yet and moves into the
+    // workspace of the item it published.
     const [kept] = await db.select().from(channels).where(eq(channels.id, pageId));
     expect(kept).toMatchObject({
+      workspaceId: project.id,
       status: "active",
       externalId: "page-1",
       keyVersion: 1,
@@ -115,6 +117,7 @@ describe("publishing migrations on a database of the previous release", () => {
     await db.insert(postMetrics).values({ postId: post.id, views: 10, raw: { views: 10 } });
     expect(await latestPostMetrics(db, [post.id])).toMatchObject([{ postId: post.id, views: 10 }]);
     const account = await insertActiveChannel(db, {
+      workspaceId: project.id,
       platform: "instagram",
       parentChannelId: pageId,
     });

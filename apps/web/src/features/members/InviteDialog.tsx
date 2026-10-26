@@ -131,7 +131,7 @@ function InviteForm({ onInvited }: { onInvited: (link: PasswordLinkView) => void
         <DialogTitle>Invite a member</DialogTitle>
         <DialogDescription>
           You get a link to send them. They choose a password with it and join as an admin: they can
-          work on every project, but can't manage members.
+          work on every workspace, but can't manage members.
         </DialogDescription>
       </DialogHeader>
 

@@ -1,6 +1,6 @@
 # Knowledge base
 
-Each project has a knowledge base: the ideas, reference videos, decisions and notes that the
+Each workspace has a knowledge base: the ideas, reference videos, decisions and notes that the
 studio agent reads before it writes. Entries are made in the web app, by producer sessions
 through MCP, by any MCP client with an access token, and by the optional
 [session-end hook](session-hook.md).
@@ -22,8 +22,8 @@ every change is published on the live event stream (`kb.entry.created`, `kb.entr
 
 ## In the web app
 
-The project's **Knowledge** tab (`/projects/<project>/kb`) lists the entries with a filter by
-kind and a search box. **New entry** offers a brainstorm, a note, a decision or a reference.
+The workspace's **Knowledge** page (`/w/<slug>/kb`) lists the entries with a filter by kind and a
+search box. **New entry** offers a brainstorm, a note, a decision or a reference.
 
 - **Brainstorms and notes** have a markdown editor with a preview. Unsaved changes are kept as a
   draft on the device and restored on return. ⌘S (Ctrl+S) saves. If the entry changed elsewhere
@@ -36,14 +36,14 @@ kind and a search box. **New entry** offers a brainstorm, a note, a decision or 
   never opened, previewed or downloaded by Loomcast.
 
 ⌘K (Ctrl+K) opens the command palette anywhere in the app. It searches the knowledge base of
-every project on the server as you type, next to projects, pages and actions.
+every workspace on the server as you type, next to workspaces, pages and actions.
 
 ## Reference analysis
 
 A reference with a transcript can be analyzed. **Analyze** queues a `kb.analyze_reference`
 job; the studio agent runs it in a new, read-only producer session that reads the transcript
-from the project workspace and returns a structured analysis (hook, structure, pacing,
-retention techniques, takeaways and how they apply to the project) and a short markdown summary.
+from the workspace folder and returns a structured analysis (hook, structure, pacing,
+retention techniques, takeaways and how they apply to the workspace) and a short markdown summary.
 The server checks the result against the contracts schema before storing it.
 
 The reference shows the analysis status as it moves:
@@ -78,14 +78,14 @@ then bodies. Snippets mark the matches.
 
 | Where | Scope |
 |---|---|
-| Knowledge tab search box | The project |
-| ⌘K palette | Every project |
-| `GET /api/kb/search?q=…&projectId=…&kinds=…` | One project or all, optionally some kinds |
-| MCP `kb.search` | One project or all; a job token only its own project |
+| Knowledge tab search box | The workspace |
+| ⌘K palette | Every workspace |
+| `GET /api/kb/search?q=…&workspaceId=…&kinds=…` | One workspace or all, optionally some kinds |
+| MCP `kb.search` | One workspace or all; a job token only its own workspace |
 
 ## From producer sessions and MCP clients
 
-Producer sessions get a job token for the project of their job. A chat turn may search and read
+Producer sessions get a job token for the workspace of their job. A chat turn may search and read
 the knowledge base and save brainstorms, decisions and references; a reference analysis may only
 read it. Any MCP client with an access token uses the same tools. The tools, scopes and errors
 are in [mcp.md](mcp.md#knowledge-base-tools).
@@ -97,10 +97,10 @@ All routes need a signed-in session; unsafe methods also need the app's `Origin`
 
 | Route | Purpose |
 |---|---|
-| `GET /api/projects/:projectId/kb` | List entries, newest first, by kind or tag, cursor-paginated |
-| `POST /api/projects/:projectId/kb` | Create an entry of any kind but a session summary |
-| `POST /api/projects/:projectId/kb/capture` | Copy chat messages into a new brainstorm or note |
-| `GET /api/projects/:projectId/kb/tags` | Tags in use in the project |
+| `GET /api/workspaces/:workspaceId/kb` | List entries, newest first, by kind or tag, cursor-paginated |
+| `POST /api/workspaces/:workspaceId/kb` | Create an entry of any kind but a session summary |
+| `POST /api/workspaces/:workspaceId/kb/capture` | Copy chat messages into a new brainstorm or note |
+| `GET /api/workspaces/:workspaceId/kb/tags` | Tags in use in the workspace |
 | `GET /api/kb/search` | Search |
 | `GET /api/kb/:id` | One entry with its details |
 | `PATCH /api/kb/:id` | Update; `expectedUpdatedAt` guards against overwriting a newer change (`409`) |

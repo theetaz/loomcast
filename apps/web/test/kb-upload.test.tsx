@@ -21,7 +21,7 @@ import { overallShare } from "@/features/kb/ReferenceMediaUpload";
 import type { MockDb } from "@/mocks/db";
 import { createHandlers } from "@/mocks/handlers";
 import { mockUploads } from "@/mocks/uploads";
-import { kbSetup, PROJECT_SLUG, recordRequests } from "./support/kb";
+import { kbSetup, recordRequests, WORKSPACE_SLUG } from "./support/kb";
 import { fakeStream } from "./support/live";
 import { renderApp } from "./support/render";
 import { server } from "./support/server";
@@ -246,7 +246,7 @@ describe("uploading reference media", () => {
 
     const create = requests.find((request) => request.path === "/api/assets/uploads");
     expect(create?.body).toEqual({
-      projectId: reference.projectId,
+      workspaceId: reference.workspaceId,
       kind: "reference_media",
       filename: "reference.mp4",
       mime: "video/mp4",
@@ -286,7 +286,7 @@ describe("uploading reference media", () => {
     expect(overall.at(-1)).toBe(1);
   });
 
-  it("skips the PUT when the project already has the same file", async () => {
+  it("skips the PUT when the workspace already has the same file", async () => {
     const { reference } = setup();
     const first = await uploadReferenceMedia(mediaFile(), reference, { createXhr });
     const again = await uploadReferenceMedia(mediaFile(), first.entry, { createXhr });
@@ -334,7 +334,7 @@ describe("reference media upload on the reference page", () => {
       release = () => xhr.complete();
     };
     const stream = fakeStream(db);
-    const { user, container } = renderApp(`/projects/${PROJECT_SLUG}/kb/${reference.id}`, db, [], {
+    const { user, container } = renderApp(`/w/${WORKSPACE_SLUG}/kb/${reference.id}`, db, [], {
       createEventSource: stream.factory,
     });
 
@@ -362,7 +362,7 @@ describe("reference media upload on the reference page", () => {
   it("says why a file can't be uploaded", async () => {
     const { db, reference } = kbSetup();
     vi.stubGlobal("XMLHttpRequest", FakeXhr);
-    const { container } = renderApp(`/projects/${PROJECT_SLUG}/kb/${reference.id}`, db);
+    const { container } = renderApp(`/w/${WORKSPACE_SLUG}/kb/${reference.id}`, db);
     const media = await screen.findByRole("region", { name: "Media" }, { timeout: 5000 });
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     if (!input) throw new Error("No file input");
@@ -386,7 +386,7 @@ describe("reference media upload on the reference page", () => {
     const override = http.post(`*${routes["kb.analyze"].path}`, () =>
       HttpResponse.json({ error: { code: "internal", message: "unexpected" } }, { status: 500 }),
     );
-    const { user, container } = renderApp(`/projects/${PROJECT_SLUG}/kb/${reference.id}`, db, [
+    const { user, container } = renderApp(`/w/${WORKSPACE_SLUG}/kb/${reference.id}`, db, [
       override,
     ]);
     const media = await screen.findByRole("region", { name: "Media" }, { timeout: 5000 });

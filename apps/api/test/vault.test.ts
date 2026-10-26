@@ -23,7 +23,7 @@ import {
   VaultError,
   type VaultKeyring,
 } from "../src/lib/vault";
-import { createTestApp, testPassword } from "./support";
+import { createTestApp, defaultWorkspace, testPassword } from "./support";
 
 /** A fresh 32-byte key per call; no key material lives in the suite. */
 function newKey(): Buffer {
@@ -242,6 +242,7 @@ describe("vault in the app", () => {
       .insert(channels)
       .values({
         id,
+        workspaceId: await defaultWorkspace(testDb.db),
         platform: "instagram",
         displayName: `Channel ${id.slice(0, 8)}`,
         status: "active",
@@ -301,7 +302,11 @@ describe("vault in the app", () => {
     const current = await insertChannel(v2);
     const empty = await testDb.db
       .insert(channels)
-      .values({ platform: "threads", displayName: "Disconnected" })
+      .values({
+        workspaceId: await defaultWorkspace(testDb.db),
+        platform: "threads",
+        displayName: "Disconnected",
+      })
       .returning();
 
     const dry = await rotateVault(testDb.db, v2, { dryRun: true });

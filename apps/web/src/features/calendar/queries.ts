@@ -35,17 +35,27 @@ export const calendarKeys = {
 };
 
 export const formatKeys = {
-  list: (projectId: string) => ["formats", "list", projectId] as const,
+  list: (workspaceId: string) => ["formats", "list", workspaceId] as const,
 };
 
-/** A query key with its ids sorted, so the same filter always hits the same cache entry. */
+/**
+ * A query key with its ids sorted, so the same filter always hits the same cache entry. It names
+ * the workspace, so one workspace's calendar never shows another's cache.
+ */
 export function calendarQueryKey(
   from: string,
   to: string,
   channelIds: readonly string[],
   seriesIds: readonly string[],
+  workspaceId?: string,
 ): CalendarQueryKey {
-  return { from, to, channelIds: [...channelIds].sort(), seriesIds: [...seriesIds].sort() };
+  return {
+    ...(workspaceId ? { workspaceId } : {}),
+    from,
+    to,
+    channelIds: [...channelIds].sort(),
+    seriesIds: [...seriesIds].sort(),
+  };
 }
 
 export function calendarQueryOptions(key: CalendarQueryKey) {
@@ -54,6 +64,7 @@ export function calendarQueryOptions(key: CalendarQueryKey) {
     queryFn: ({ signal }) =>
       api.request("calendar.get", {
         query: {
+          ...(key.workspaceId ? { workspaceId: key.workspaceId } : {}),
           from: key.from,
           to: key.to,
           ...(key.channelIds.length > 0 ? { channelIds: key.channelIds.join(",") } : {}),
@@ -64,10 +75,10 @@ export function calendarQueryOptions(key: CalendarQueryKey) {
   });
 }
 
-function formatsQueryOptions(projectId: string) {
+function formatsQueryOptions(workspaceId: string) {
   return queryOptions({
-    queryKey: formatKeys.list(projectId),
-    queryFn: ({ signal }) => api.request("formats.list", { params: { projectId }, signal }),
+    queryKey: formatKeys.list(workspaceId),
+    queryFn: ({ signal }) => api.request("formats.list", { params: { workspaceId }, signal }),
     staleTime: 60_000,
   });
 }
@@ -84,10 +95,10 @@ export function approvedItemsQueryOptions(seriesId: string) {
   });
 }
 
-/** The cadence time zone of each format, by format id, for the given projects. */
-export function useFormatZones(projectIds: readonly string[]): Map<string, string> {
+/** The cadence time zone of each format, by format id, for the given workspaces. */
+export function useFormatZones(workspaceIds: readonly string[]): Map<string, string> {
   const lists = useQueries({
-    queries: projectIds.map((id) => formatsQueryOptions(id)),
+    queries: workspaceIds.map((id) => formatsQueryOptions(id)),
     combine: (results) => results.map((result) => result.data),
   });
   return useMemo(() => {

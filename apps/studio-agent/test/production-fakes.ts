@@ -172,7 +172,7 @@ export function rules(overrides: Partial<FormatRules> = {}): FormatRules {
 export function contentItem(overrides: Partial<ContentItem> = {}): ContentItem {
   return {
     id: itemId,
-    projectId: ids.project,
+    workspaceId: ids.workspace,
     seriesId: null,
     title: "Why your build is slow",
     pitch: "Explain cache keys in builds.",
@@ -273,7 +273,7 @@ export class FakePlatform implements PlatformClient {
     const id = randomUUID();
     const asset: AssetDetail = {
       id,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       itemId: input.itemId,
       kind: input.kind,
       status: "pending",
@@ -381,7 +381,7 @@ export class FakePlatform implements PlatformClient {
       bytes,
       asset: {
         id,
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         itemId,
         kind,
         status: "ready",
@@ -643,7 +643,7 @@ export function jobContext<T extends JobType>(
     job: {
       id: ids.job,
       type,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       attempt: 1,
       payload,
     } as JobContext<T>["job"],

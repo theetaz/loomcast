@@ -22,7 +22,7 @@ export type ProducerTool = (typeof PRODUCER_TOOLS)[number];
 
 /**
  * The built-in tools of each job type's session. A reference analysis reads an untrusted
- * transcript, so its session can only read and search inside the project workspace: it can neither
+ * transcript, so its session can only read and search inside the workspace folder: it can neither
  * write files nor reach the web, which leaves an injected instruction no way to send data out. A
  * competitor report reads a competitor's captions and analyses, so it gets the same tools.
  * Production steps read knowledge-base entries, which are untrusted too, and return their work as
@@ -47,7 +47,7 @@ const SESSION_LABELS: Record<ProducerJobType, string> = {
   "content.revise": "revision session, which is read-only",
 };
 
-/** Sessions whose reads and searches may not leave the project workspace. */
+/** Sessions whose reads and searches may not leave the workspace folder. */
 const CONFINED_READ_JOBS: ReadonlySet<ProducerJobType> = new Set<ProducerJobType>([
   "kb.analyze_reference",
   "kb.competitor_report",
@@ -59,13 +59,13 @@ const CONFINED_READ_JOBS: ReadonlySet<ProducerJobType> = new Set<ProducerJobType
 /** The longest a guarded command may run, in milliseconds. */
 export const COMMAND_TIMEOUT_MS = 120_000;
 
-/** Tools whose target path must resolve inside the project workspace. */
+/** Tools whose target path must resolve inside the workspace folder. */
 const WRITE_TOOLS: ReadonlySet<string> = new Set<ProducerTool>(["Write", "Edit"]);
 /** Tools that read the filesystem; they may not look inside protected directories. */
 const READ_TOOLS: ReadonlySet<string> = new Set<ProducerTool>(["Read", "Glob", "Grep"]);
 
 export interface ToolGuardOptions {
-  /** `<workspaceRoot>/projects/<projectId>`: the only place writes and edits may land. */
+  /** `<workspaceRoot>/projects/<workspaceId>`: the only place writes and edits may land. */
   readonly workspaceDir: string;
   /**
    * Directories no tool may read, such as the agent's state directory, which holds the device
@@ -113,7 +113,7 @@ export function deniedBuiltinTools(jobType: ProducerJobType): ProducerTool[] {
  *   new file the deepest existing ancestor is resolved, so a symlinked parent cannot escape, and
  *   paths with `..` segments or dangling symlinks are refused outright.
  * - Read, Glob and Grep may not touch the protected directories. In a reference analysis and in
- *   production steps they may not leave the project workspace at all.
+ *   production steps they may not leave the workspace folder at all.
  * - Bash runs only in a storyboard session and only the allow-listed commands
  *   (`command-guard.ts`); the allowed command is replaced by its rewritten, absolute form.
  */
@@ -203,9 +203,9 @@ async function checkWrite(
   input: Record<string, unknown>,
 ): Promise<PermissionResult> {
   const path = input.file_path;
-  const outside = `${tool} is allowed only inside the project workspace ${options.workspaceDir}.`;
+  const outside = `${tool} is allowed only inside the workspace folder ${options.workspaceDir}.`;
   if (!isUsablePath(path)) {
-    return deny(`${tool} needs a file path inside the project workspace.`);
+    return deny(`${tool} needs a file path inside the workspace folder.`);
   }
   if (hasParentSegment(path)) {
     return deny(`${outside} Paths with ".." segments are not allowed.`);
@@ -262,7 +262,7 @@ async function checkConfinedRead(
   tool: string,
   input: Record<string, unknown>,
 ): Promise<PermissionResult> {
-  const outside = `${tool} is allowed only inside the project workspace ${options.workspaceDir}.`;
+  const outside = `${tool} is allowed only inside the workspace folder ${options.workspaceDir}.`;
   const path = tool === "Read" ? input.file_path : input.path;
   for (const key of ["pattern", "glob"]) {
     const pattern = tool === "Read" ? undefined : input[key];

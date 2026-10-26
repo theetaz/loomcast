@@ -14,27 +14,27 @@ export function createCalendarTools(deps: CalendarToolsDeps): ToolDefinition[] {
   const { db, series } = deps;
 
   const getSlots = defineTool(calendarTools["calendar.get_slots"], {
-    async resolveProject(input) {
-      if (input.projectId !== undefined) {
-        return input.projectId;
+    async resolveWorkspace(input) {
+      if (input.workspaceId !== undefined) {
+        return input.workspaceId;
       }
       if (input.seriesId !== undefined) {
-        return (await series.get(input.seriesId))?.projectId ?? null;
+        return (await series.get(input.seriesId))?.workspaceId ?? null;
       }
       return undefined;
     },
     async handler(input, ctx) {
-      const named = input.projectId !== undefined || input.seriesId !== undefined;
-      if (named && ctx.projectId === null) {
+      const named = input.workspaceId !== undefined || input.seriesId !== undefined;
+      if (named && ctx.workspaceId === null) {
         throw new McpToolError(
           "not_found",
-          input.seriesId === undefined ? "No project has that id." : "No series has that id.",
+          input.seriesId === undefined ? "No workspace has that id." : "No series has that id.",
         );
       }
       const slots = await listSlots(db, {
         from: new Date(input.from),
         to: new Date(input.to),
-        ...(ctx.projectId === null ? {} : { projectId: ctx.projectId }),
+        ...(ctx.workspaceId === null ? {} : { workspaceId: ctx.workspaceId }),
         ...(input.seriesId === undefined ? {} : { seriesIds: [input.seriesId] }),
         ...(input.channelId === undefined ? {} : { channelIds: [input.channelId] }),
       });

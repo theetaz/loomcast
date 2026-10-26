@@ -11,7 +11,7 @@ export function seriesSetup() {
   const { db, rust, agents, series } = setup;
 
   const ownership = mockFormat(
-    { id: series.ownership.formatId, projectId: rust.id, name: "Ownership basics" },
+    { id: series.ownership.formatId, workspaceId: rust.id, name: "Ownership basics" },
     [
       mockRules(),
       mockRules((rules) => {
@@ -30,7 +30,7 @@ export function seriesSetup() {
     at(0),
   );
   const errors = mockFormat(
-    { id: series.errors.formatId, projectId: rust.id, name: "Error handling" },
+    { id: series.errors.formatId, workspaceId: rust.id, name: "Error handling" },
     [
       mockRules((rules) => {
         rules.cadence = { days: ["tue", "thu"], slots: ["12:30"], tz: "UTC", leadTimeHours: 24 };
@@ -40,7 +40,7 @@ export function seriesSetup() {
     at(0),
   );
   const patterns = mockFormat(
-    { id: series.patterns.formatId, projectId: agents.id, name: "Agent patterns" },
+    { id: series.patterns.formatId, workspaceId: agents.id, name: "Agent patterns" },
     [
       mockRules((rules) => {
         rules.cadence = { ...rules.cadence, days: [], slots: [] };

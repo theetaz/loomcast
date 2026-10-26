@@ -88,7 +88,7 @@ const serverDrafts: { [T in ServerToAgentType]: Extract<ServerToAgentDraft, { ty
         type: "producer.chat",
         attempt: 1,
         payload: { text: "Hi" },
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         conversationId: ids.conversation,
       },
       leaseMs: 600_000,
@@ -331,7 +331,39 @@ describe("job.assign credentials", () => {
     expect(token).toMatch(JOB_TOKEN_RE);
     expect(parsed.ok && parsed.message.type === "job.assign" && parsed.message.payload).toEqual({
       ...assign.payload,
+      job: { ...assign.payload.job, projectId: assign.payload.job.workspaceId },
       credentials,
+    });
+  });
+
+  it("sends the workspace as projectId too, for agents built before the rename", () => {
+    const frame = JSON.parse(encode({ type: "job.assign", payload: assign.payload }, now));
+    expect(frame.payload.job.projectId).toBe(assign.payload.job.workspaceId);
+  });
+
+  it("accepts a job from a server built before the rename, which names only projectId", () => {
+    const frame = JSON.stringify({
+      v: 1,
+      id: createUlid(),
+      type: "job.assign",
+      ts: at,
+      payload: {
+        job: {
+          id: ids.job,
+          type: "producer.chat",
+          attempt: 1,
+          payload: { conversationId: ids.conversation, projectId: ids.workspace, text: "Hi" },
+          projectId: ids.workspace,
+        },
+        leaseMs: 600_000,
+      },
+    });
+    const parsed = parseServerMessage(frame);
+    expect(
+      parsed.ok && parsed.message.type === "job.assign" && parsed.message.payload.job,
+    ).toMatchObject({
+      workspaceId: ids.workspace,
+      payload: { workspaceId: ids.workspace },
     });
   });
 
@@ -342,7 +374,13 @@ describe("job.assign credentials", () => {
       type: "job.assign",
       ts: at,
       payload: {
-        job: { id: ids.job, type: "system.ping", attempt: 1, payload: {}, projectId: ids.project },
+        job: {
+          id: ids.job,
+          type: "system.ping",
+          attempt: 1,
+          payload: {},
+          workspaceId: ids.workspace,
+        },
         leaseMs: 600_000,
       },
     });
@@ -380,14 +418,14 @@ describe("job.assign credentials", () => {
           type: "kb.analyze_reference",
           attempt: 1,
           payload: {
-            projectId: ids.project,
+            workspaceId: ids.workspace,
             entryId: ids.job,
             url: `https://example.com/${"a".repeat(2_000)}`,
             platform: "other",
             transcript: "€".repeat(MAX_TRANSCRIPT_LENGTH),
             likedReason: "€".repeat(2_000),
           },
-          projectId: ids.project,
+          workspaceId: ids.workspace,
         },
         leaseMs: 600_000,
         credentials,

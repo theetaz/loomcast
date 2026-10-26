@@ -26,7 +26,7 @@ const PRODUCTION_READS = [
   "format.get_rules",
   "kb.search",
   "kb.get",
-  "project.get",
+  "workspace.get",
 ] as const satisfies readonly McpToolName[];
 
 /**
@@ -44,10 +44,10 @@ export const MCP_TOOL_ALLOW_LIST = {
     "kb.save_brainstorm",
     "kb.add_decision",
     "kb.add_reference",
-    "project.get",
+    "workspace.get",
   ],
-  "kb.analyze_reference": ["kb.search", "kb.get", "project.get"],
-  "kb.competitor_report": ["kb.search", "kb.get", "project.get"],
+  "kb.analyze_reference": ["kb.search", "kb.get", "workspace.get"],
+  "kb.competitor_report": ["kb.search", "kb.get", "workspace.get"],
   "content.write_script": PRODUCTION_READS,
   "content.storyboard": PRODUCTION_READS,
   "content.revise": PRODUCTION_READS,

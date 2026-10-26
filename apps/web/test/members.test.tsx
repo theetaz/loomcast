@@ -81,7 +81,7 @@ describe("members list", () => {
       within(ownerTabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Devices", "Access tokens", "API clients", "Members", "Channels", "Scheduler"]);
+    ).toEqual(["Devices", "Access tokens", "Members", "Scheduler"]);
     owner.unmount();
 
     const requests: string[] = [];
@@ -95,7 +95,7 @@ describe("members list", () => {
       within(tabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Devices", "Access tokens", "Channels", "Scheduler"]);
+    ).toEqual(["Devices", "Access tokens", "Scheduler"]);
     expect(requests).not.toContain("/api/users");
   });
 

@@ -48,7 +48,7 @@ export type PostItem = z.infer<typeof PostItemSchema>;
 /** One item on one channel at one time. */
 export const ScheduledPostSchema = z.object({
   id: IdSchema,
-  projectId: IdSchema,
+  workspaceId: IdSchema,
   itemId: IdSchema,
   /** The approved version it publishes; null while the post is only `planned`. */
   versionId: IdSchema.nullable(),
@@ -109,7 +109,7 @@ export const CalendarQuerySchema = z
   .object({
     from: TimestampSchema,
     to: TimestampSchema,
-    projectId: IdSchema.optional(),
+    workspaceId: IdSchema.optional(),
     seriesIds: csvIdsQuerySchema(MAX_CALENDAR_FILTER_IDS).optional(),
     channelIds: csvIdsQuerySchema(MAX_CALENDAR_FILTER_IDS).optional(),
   })
@@ -138,9 +138,9 @@ export const CalendarResponseSchema = z.object({
 });
 export type CalendarResponse = z.infer<typeof CalendarResponseSchema>;
 
-/** `GET /api/approvals`, optionally for one project. */
+/** `GET /api/approvals`, optionally for one workspace. */
 export const ApprovalsQuerySchema = z.object({
-  projectId: IdSchema.optional(),
+  workspaceId: IdSchema.optional(),
 });
 export type ApprovalsQuery = z.infer<typeof ApprovalsQuerySchema>;
 

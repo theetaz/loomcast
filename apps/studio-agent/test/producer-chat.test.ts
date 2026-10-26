@@ -16,7 +16,7 @@ import {
   producerNotAuthenticated,
 } from "../src/producer/runtime";
 import { ProducerSessions } from "../src/producer/sessions";
-import { ensureProjectWorkspace, PROJECT_FILE } from "../src/producer/workspace";
+import { ensureWorkspaceWorkspace, WORKSPACE_FILE } from "../src/producer/workspace";
 import { ids, tempAgentPaths, testJobToken } from "./helpers";
 
 const conversationId = "3e9f5cab-b07d-4f4b-8c6e-5d4a7b8c9da3";
@@ -73,11 +73,11 @@ function chatContext(
       id: ids.job,
       type: "producer.chat",
       attempt: 1,
-      projectId: ids.project,
+      workspaceId: ids.workspace,
       conversationId,
       payload: {
         conversationId,
-        projectId: ids.project,
+        workspaceId: ids.workspace,
         messageId,
         text: "Reply with the word ready",
         ...payload,
@@ -95,7 +95,7 @@ function chatContext(
 }
 
 describe("producer.chat handler", () => {
-  it("runs a new session in the project workspace and returns the registry result", async () => {
+  it("runs a new session in the workspace folder and returns the registry result", async () => {
     const paths = tempAgentPaths();
     const runtime = fakeRuntime((input) => {
       input.onEvent({ kind: "session", data: { sessionId: NEW_SESSION } });
@@ -120,7 +120,7 @@ describe("producer.chat handler", () => {
     const input = runtime.inputs[0];
     expect(input?.resumeId).toBeUndefined();
     expect(input?.prompt).toBe("Reply with the word ready");
-    expect(input?.cwd).toBe(realpathSync(join(root, "projects", ids.project)));
+    expect(input?.cwd).toBe(realpathSync(join(root, "projects", ids.workspace)));
     expect(input?.signal).toBe(ctx.signal);
     expect(events.map((event) => event.kind)).toEqual(["status", "session", "assistant.message"]);
     expect(events[0]?.data).toEqual({ state: "starting" });
@@ -128,7 +128,7 @@ describe("producer.chat handler", () => {
     expect(sessions.get(conversationId)).toBe(NEW_SESSION);
   });
 
-  it("gives the session the job's MCP access and the project's chat brief", async () => {
+  it("gives the session the job's MCP access and the workspace's chat brief", async () => {
     const runtime = fakeRuntime(() => okResult(NEW_SESSION));
     const handler = producerChatHandler({
       runtime,
@@ -146,8 +146,8 @@ describe("producer.chat handler", () => {
 
     expect(runtime.inputs[0]?.jobType).toBe("producer.chat");
     expect(runtime.inputs[0]?.mcp).toBe(mcp);
-    expect(runtime.inputs[0]?.brief).toBe(chatBrief(ids.project));
-    expect(runtime.inputs[0]?.brief).toContain(ids.project);
+    expect(runtime.inputs[0]?.brief).toBe(chatBrief(ids.workspace));
+    expect(runtime.inputs[0]?.brief).toContain(ids.workspace);
     expect(runtime.inputs[0]?.brief).toContain("mcp__loomcast__kb_save_brainstorm");
     expect(runtime.inputs[1]?.mcp).toBeUndefined();
   });
@@ -239,7 +239,7 @@ describe("producer.chat handler", () => {
     await expect(running).rejects.toThrow("cancelled");
   });
 
-  it("rejects a payload whose project differs from the job's", async () => {
+  it("rejects a payload whose workspace differs from the job's", async () => {
     const runtime = fakeRuntime(() => okResult(NEW_SESSION));
     const handler = producerChatHandler({
       runtime,
@@ -248,27 +248,27 @@ describe("producer.chat handler", () => {
     });
 
     await expect(
-      handler(chatContext({ projectId: "5ab17ecd-d29f-4b6d-ae80-7f6c9daebfc5" }).ctx),
+      handler(chatContext({ workspaceId: "5ab17ecd-d29f-4b6d-ae80-7f6c9daebfc5" }).ctx),
     ).rejects.toMatchObject({ code: "invalid_payload" });
     expect(runtime.inputs).toHaveLength(0);
   });
 });
 
-describe("project workspace", () => {
+describe("workspace folder", () => {
   it("creates the directory and a PROJECT.md stub once", async () => {
-    const first = await ensureProjectWorkspace(root, ids.project, "Launch teaser");
+    const first = await ensureWorkspaceWorkspace(root, ids.workspace, "Launch teaser");
     expect(first.created).toBe(true);
-    expect(first.dir).toBe(realpathSync(join(root, "projects", ids.project)));
-    expect(readFileSync(join(first.dir, PROJECT_FILE), "utf8")).toContain("# Launch teaser");
+    expect(first.dir).toBe(realpathSync(join(root, "projects", ids.workspace)));
+    expect(readFileSync(join(first.dir, WORKSPACE_FILE), "utf8")).toContain("# Launch teaser");
 
-    writeFileSync(join(first.dir, PROJECT_FILE), "my notes");
-    const second = await ensureProjectWorkspace(root, ids.project, "Renamed");
+    writeFileSync(join(first.dir, WORKSPACE_FILE), "my notes");
+    const second = await ensureWorkspaceWorkspace(root, ids.workspace, "Renamed");
     expect(second.created).toBe(false);
-    expect(readFileSync(join(second.dir, PROJECT_FILE), "utf8")).toBe("my notes");
+    expect(readFileSync(join(second.dir, WORKSPACE_FILE), "utf8")).toBe("my notes");
   });
 
-  it("only accepts a project id as the directory name", async () => {
-    await expect(ensureProjectWorkspace(root, "../escape")).rejects.toThrow();
+  it("only accepts a workspace id as the directory name", async () => {
+    await expect(ensureWorkspaceWorkspace(root, "../escape")).rejects.toThrow();
   });
 });
 

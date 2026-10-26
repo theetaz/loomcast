@@ -6,8 +6,11 @@ import { z } from "zod";
 export const CALENDAR_VIEWS = ["week", "month"] as const;
 export type CalendarView = (typeof CALENDAR_VIEWS)[number];
 
-/** Which clock the grid follows: the browser's, or the time zone of the filtered series. */
-export const CALENDAR_ZONES = ["local", "series"] as const;
+/**
+ * Which clock the grid follows: the workspace's time zone (the default, left out of the address),
+ * the browser's, or the time zone of the filtered series.
+ */
+export const CALENDAR_ZONES = ["workspace", "local", "series"] as const;
 export type CalendarZoneMode = (typeof CALENDAR_ZONES)[number];
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;

@@ -4,6 +4,7 @@ import {
   ChannelSchema,
   ConnectionCandidatesSchema,
   connectionPicturePath,
+  OAUTH_CONNECT_PAGE_PATH,
   OAUTH_CONNECTION_TTL_MS,
   OAUTH_STATE_TTL_MS,
 } from "@loomcast/contracts";
@@ -28,7 +29,7 @@ import {
   type OAuthHarness,
   type SeenRequest,
 } from "./oauth-support";
-import { errorCode, send } from "./support";
+import { errorCode, insertWorkspace, send } from "./support";
 
 let h: OAuthHarness;
 
@@ -79,7 +80,7 @@ function callback(params: Record<string, string>, cookie = h.cookie): Promise<Re
 function outcome(response: Response): Record<string, string> {
   expect(response.status).toBe(302);
   const location = response.headers.get("location") ?? "";
-  expect(location.startsWith("/settings/channels/connect?")).toBe(true);
+  expect(location.startsWith(`${OAUTH_CONNECT_PAGE_PATH}?`)).toBe(true);
   return Object.fromEntries(new URL(location, "https://app.invalid").searchParams);
 }
 
@@ -204,10 +205,15 @@ async function signIn(pages: Page[]): Promise<{ connection: string; exchange: Ex
   return { connection: result.connection, exchange };
 }
 
-function accept(connection: string, accountIds: string[], cookie = h.cookie): Promise<Response> {
+function accept(
+  connection: string,
+  accountIds: string[],
+  cookie = h.cookie,
+  workspaceId = h.workspaceId,
+): Promise<Response> {
   return send(h.t.app, "POST", `/api/oauth/connections/${connection}/accept`, {
     cookie,
-    body: { accountIds },
+    body: { workspaceId, accountIds },
   });
 }
 
@@ -368,7 +374,9 @@ describe("meta sign-in", () => {
       .where(eq(channels.id, fb?.id ?? ""));
     expect((await get(`/api/channels/${fb?.id}/picture`)).status).toBe(404);
     const [listed] = (
-      (await (await get("/api/channels")).json()) as { items: Channel[] }
+      (await (await get(`/api/workspaces/${h.workspaceId}/channels`)).json()) as {
+        items: Channel[];
+      }
     ).items.filter((channel) => channel.id === fb?.id);
     expect(listed?.pictureUrl).toBeNull();
   });
@@ -386,6 +394,9 @@ describe("meta sign-in", () => {
       "instagram",
     ]);
     const [fb, ig] = created;
+    // The Page comes with its Instagram account, into the workspace the user chose.
+    expect(fb?.workspaceId).toBe(h.workspaceId);
+    expect(ig?.workspaceId).toBe(h.workspaceId);
     expect(fb).toMatchObject({
       externalId: page.id,
       displayName: page.name,
@@ -576,6 +587,77 @@ describe("meta sign-in", () => {
       error: "no_accounts",
       provider: "meta",
     });
+  });
+
+  it("connects accepted accounts into the given workspace only", async () => {
+    const other = await insertWorkspace(h.db, { createdBy: h.userId, name: "Second brand" });
+    const page = fakePage(false);
+    const { connection } = await signIn([page]);
+    const response = await accept(connection, [`facebook:${page.id}`], h.cookie, other);
+    expect(response.status).toBe(200);
+    const { channels: created } = (await response.json()) as { channels: Channel[] };
+    expect(created.map((channel) => channel.workspaceId)).toEqual([other]);
+    expect((await channelRow(created[0]?.id ?? "")).workspaceId).toBe(other);
+    const listed = async (workspaceId: string) =>
+      (
+        (await (await get(`/api/workspaces/${workspaceId}/channels`)).json()) as {
+          items: Channel[];
+        }
+      ).items.map((channel) => channel.id);
+    expect(await listed(other)).toContain(created[0]?.id);
+    expect(await listed(h.workspaceId)).not.toContain(created[0]?.id);
+  });
+
+  it("refuses to connect an account that is a channel of another workspace", async () => {
+    const page = fakePage(false);
+    const first = await signIn([page]);
+    const created = (await (await accept(first.connection, [`facebook:${page.id}`])).json()) as {
+      channels: Channel[];
+    };
+    const channelId = created.channels[0]?.id ?? "";
+
+    const other = await insertWorkspace(h.db, { createdBy: h.userId, name: "Elsewhere" });
+    page.token = fakeCredential("page");
+    const second = await signIn([page]);
+    const refused = await accept(second.connection, [`facebook:${page.id}`], h.cookie, other);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: {
+        code: "channel_in_other_workspace",
+        message: expect.stringContaining('"Channels"'),
+        details: { workspaceId: h.workspaceId, workspaceName: "Channels" },
+      },
+    });
+    // Nothing moved, and the sign-in may still reconnect the account where it is.
+    expect((await channelRow(channelId)).workspaceId).toBe(h.workspaceId);
+    const reconnected = await accept(second.connection, [`facebook:${page.id}`]);
+    expect(reconnected.status).toBe(200);
+    const { channels: after } = (await reconnected.json()) as { channels: Channel[] };
+    expect(after.map((channel) => [channel.id, channel.workspaceId])).toEqual([
+      [channelId, h.workspaceId],
+    ]);
+  });
+
+  it("refuses an archived or unknown workspace without using up the connection", async () => {
+    const archived = await insertWorkspace(h.db, { createdBy: h.userId, status: "archived" });
+    const page = fakePage(false);
+    const { connection } = await signIn([page]);
+    const intoArchived = await accept(connection, [`facebook:${page.id}`], h.cookie, archived);
+    expect(intoArchived.status).toBe(409);
+    expect(await intoArchived.json()).toMatchObject({ error: { details: { reason: "archived" } } });
+    const intoUnknown = await accept(
+      connection,
+      [`facebook:${page.id}`],
+      h.cookie,
+      "00000000-0000-4000-8000-000000000000",
+    );
+    expect(intoUnknown.status).toBe(404);
+    const missing = await send(h.t.app, "POST", `/api/oauth/connections/${connection}/accept`, {
+      cookie: h.cookie,
+      body: { accountIds: [`facebook:${page.id}`] },
+    });
+    expect(await errorCode(missing)).toBe("validation_failed");
+    expect((await accept(connection, [`facebook:${page.id}`])).status).toBe(200);
   });
 
   it("validates accepted account ids and expires pending connections", async () => {

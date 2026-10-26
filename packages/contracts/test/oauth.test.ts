@@ -160,15 +160,18 @@ describe("connection candidates", () => {
 });
 
 describe("accepting a connection", () => {
-  it("takes one or more distinct account ids", () => {
-    expect(AcceptConnectionSchema.parse({ accountIds: [instagram.id] })).toEqual({
+  it("takes a workspace and one or more distinct account ids", () => {
+    const workspaceId = ids.workspace;
+    expect(AcceptConnectionSchema.parse({ workspaceId, accountIds: [instagram.id] })).toEqual({
+      workspaceId,
       accountIds: [instagram.id],
     });
-    expect(AcceptConnectionSchema.safeParse({ accountIds: [] }).success).toBe(false);
-    expect(AcceptConnectionSchema.safeParse({ accountIds: [page.id, page.id] }).success).toBe(
-      false,
-    );
-    expect(AcceptConnectionSchema.safeParse({ accountIds: [""] }).success).toBe(false);
+    expect(AcceptConnectionSchema.safeParse({ accountIds: [instagram.id] }).success).toBe(false);
+    expect(AcceptConnectionSchema.safeParse({ workspaceId, accountIds: [] }).success).toBe(false);
+    expect(
+      AcceptConnectionSchema.safeParse({ workspaceId, accountIds: [page.id, page.id] }).success,
+    ).toBe(false);
+    expect(AcceptConnectionSchema.safeParse({ workspaceId, accountIds: [""] }).success).toBe(false);
   });
 
   it("answers with channels, without credentials", () => {
