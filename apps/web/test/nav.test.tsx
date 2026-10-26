@@ -39,6 +39,13 @@ function sidebar() {
   return screen.findByRole("navigation", { name: "Workspace" });
 }
 
+/** The sidebar once the open workspace has loaded and its pages are linked. */
+async function workspaceSidebar() {
+  const nav = await sidebar();
+  await within(nav).findByRole("link", { name: "Overview" });
+  return nav;
+}
+
 describe("sidebar navigation registry", () => {
   it("loads every item file once, sorted by order within its section", () => {
     const ids = navItems.map((item) => item.id);
@@ -94,7 +101,7 @@ describe("app sidebar", () => {
   it("links the open workspace's pages, its studio and the account", async () => {
     const { db } = workspacesDb();
     renderApp(`/w/${RUST}`, db);
-    const nav = await sidebar();
+    const nav = await workspaceSidebar();
 
     const href = (name: string) => within(nav).getByRole("link", { name }).getAttribute("href");
     expect(href("Overview")).toBe(`/w/${RUST}`);
@@ -136,7 +143,7 @@ describe("app sidebar", () => {
     );
     renderApp(`/w/${RUST}`, db);
     const nav = await sidebar();
-    const channels = within(nav).getByRole("list", { name: "Channels" });
+    const channels = await within(nav).findByRole("list", { name: "Channels" });
     expect(await within(channels).findByRole("link", { name: "Add a channel" })).toHaveAttribute(
       "href",
       `/w/${RUST}/settings/channels`,
@@ -171,7 +178,7 @@ describe("app sidebar", () => {
     db.channels.push(threads, x, facebook, elsewhere);
     renderApp(`/w/${RUST}`, db);
     const nav = await sidebar();
-    const channels = within(nav).getByRole("list", { name: "Channels" });
+    const channels = await within(nav).findByRole("list", { name: "Channels" });
     await within(channels).findByRole("link", { name: /Rust Page/ });
     expect(
       within(channels)
@@ -204,7 +211,7 @@ describe("app sidebar", () => {
       db.contentVersions.push(...versions);
     }
     renderApp(`/w/${RUST}`, db);
-    const nav = await sidebar();
+    const nav = await workspaceSidebar();
 
     const review = within(nav).getByRole("link", { name: "Review" }).closest("li");
     await waitFor(() => expect(review).toHaveTextContent("Review, 2 waiting for review"));
@@ -216,7 +223,7 @@ describe("app sidebar", () => {
     const { db } = workspacesDb();
     const { user, router } = renderApp(`/w/${RUST}`, db);
     const nav = await sidebar();
-    await user.click(within(nav).getByRole("link", { name: "Library" }));
+    await user.click(await within(nav).findByRole("link", { name: "Library" }));
 
     await screen.findByRole("heading", { name: "Library", level: 1 });
     expect(router.state.location.pathname).toBe(`/w/${RUST}/library`);

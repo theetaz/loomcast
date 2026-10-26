@@ -154,7 +154,9 @@ auditConfig:
 ```
 
 There are no exceptions today: `pnpm audit --prod --audit-level high` reports no known
-vulnerabilities (2026-10-13). The full audit lists two moderate advisories in `sprintf-js`, reached
+vulnerabilities (2026-10-26). Two transitive packages of `@modelcontextprotocol/sdk` are pinned to
+patched releases with `overrides` in `pnpm-workspace.yaml` (`body-parser` 2.4.0 and `fast-uri`
+3.1.9); remove them once the SDK depends on fixed versions. The full audit lists two moderate advisories in `sprintf-js`, reached
 only through the `studio` workspace's development tooling (`hyperframes` → `onnxruntime-node` →
 `global-agent`), which never ships in the api image.
 
