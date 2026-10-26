@@ -47,3 +47,10 @@ catalog:
 
 minimumReleaseAgeExclude:
   - zod@4.6.7
+
+# Patched transitive dependencies of @modelcontextprotocol/sdk (through the producer SDK):
+# GHSA advisories against body-parser <2.4.0 (denial of service via trailing bytes after a
+# compressed body) and fast-uri <3.1.9 (URI parsing). Remove once the SDK depends on fixed releases.
+overrides:
+  "body-parser@>=2.0.0 <2.4.0": ^2.4.0
+  "fast-uri@<3.1.9": ^3.1.9
