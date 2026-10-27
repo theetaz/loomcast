@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { researchAccounts, researchVideoSnapshots, researchVideos } from "../src/schema";
 import { createTestDb, type TestDb } from "../src/testing";
-import { insertWorkspace, insertUser, PG, pgError } from "./fixtures";
+import { insertUser, insertWorkspace, PG, pgError } from "./fixtures";
 
 let testDb: TestDb;
 let workspaceId: string;

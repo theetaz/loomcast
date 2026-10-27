@@ -19,9 +19,9 @@ import {
   jobs,
   kbEntries,
   kbReferences,
-  workspaces,
   researchAccounts,
   researchVideos,
+  workspaces,
 } from "@loomcast/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";

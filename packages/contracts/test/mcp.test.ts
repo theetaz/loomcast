@@ -15,8 +15,8 @@ import {
   pipelineTools,
   postFormatCatalog,
   postTools,
-  workspaceTools,
   researchTools,
+  workspaceTools,
 } from "../src";
 import {
   alignment,

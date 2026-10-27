@@ -13,8 +13,8 @@ import {
   contentItems,
   contentVersions,
   postMetrics,
-  workspaces,
   scheduledPosts,
+  workspaces,
 } from "@loomcast/db";
 import { createTestDb, type TestDb } from "@loomcast/db/testing";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -186,7 +186,12 @@ describe("research tools", () => {
     expect(hits.map((video) => video.externalId)).toEqual(["AA3", "BB3", "CC3"]);
 
     const untagged = ResearchListVideosOutputSchema.parse(
-      ok(await call(reader, "research.list_videos", { workspace: workspaceA.id, untaggedOnly: true })),
+      ok(
+        await call(reader, "research.list_videos", {
+          workspace: workspaceA.id,
+          untaggedOnly: true,
+        }),
+      ),
     );
     expect(untagged.videos).toHaveLength(8);
     expect(untagged.videos[0]?.url).toBe("https://instagram.com/reel/AA3/");
@@ -295,9 +300,13 @@ describe("research tools", () => {
     expect(textOf(write)).toMatch(/^forbidden: .*mcp:admin/);
 
     const job = await jobClient(workspaceB.id);
-    expect(ok(await call(job, "research.list_accounts", { workspace: workspaceB.slug }))).toBeTruthy();
+    expect(
+      ok(await call(job, "research.list_accounts", { workspace: workspaceB.slug })),
+    ).toBeTruthy();
     const foreign = await call(job, "research.list_videos", { workspace: workspaceA.slug });
-    expect(textOf(foreign)).toMatch(/^forbidden: This token can only be used with its own workspace/);
+    expect(textOf(foreign)).toMatch(
+      /^forbidden: This token can only be used with its own workspace/,
+    );
     const tag = await call(job, "research.tag_video", {
       videoIds: [randomUUID()],
       topic: "x",

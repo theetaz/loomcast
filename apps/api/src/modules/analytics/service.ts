@@ -248,7 +248,9 @@ export function createAnalyticsService(db: Database): AnalyticsService {
             eq(scheduledPosts.status, "published"),
             eq(scheduledPosts.dryRun, false),
             isNotNull(scheduledPosts.publishedAt),
-            ...(query.workspaceId === undefined ? [] : [eq(contentItems.workspaceId, query.workspaceId)]),
+            ...(query.workspaceId === undefined
+              ? []
+              : [eq(contentItems.workspaceId, query.workspaceId)]),
             ...inRange({ from: query.since }),
           ),
         )

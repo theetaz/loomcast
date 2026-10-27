@@ -4,8 +4,8 @@ import {
   type ResearchVideo,
   researchTools,
 } from "@loomcast/contracts";
-import type { WorkspacesService } from "../../workspaces/service";
 import type { ResearchService } from "../../research/service";
+import type { WorkspacesService } from "../../workspaces/service";
 import { ownerActor } from "./owner";
 import { defineTool, McpToolError, type ToolContext, type ToolDefinition } from "./registry";
 

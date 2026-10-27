@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { JsonObject, ResearchVideoInput } from "@loomcast/contracts";
-import { workspaces, researchVideoSnapshots, researchVideos } from "@loomcast/db";
+import { researchVideoSnapshots, researchVideos, workspaces } from "@loomcast/db";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type ResearchService, researchServiceFor } from "../src/modules/research";
