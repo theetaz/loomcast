@@ -34,8 +34,8 @@ function sseAnswer(sent: Sent, result: unknown): Response {
 const TOOLS = [
   {
     name: "research.top_topics",
-    description: "The topic leaderboard of a project's research: tagged videos. More text.",
-    inputSchema: { type: "object", properties: { project: { type: "string" } } },
+    description: "The topic leaderboard of a workspace's research: tagged videos. More text.",
+    inputSchema: { type: "object", properties: { workspace: { type: "string" } } },
     annotations: { readOnlyHint: true },
   },
   {
@@ -72,7 +72,7 @@ function harness(
     env: options.env ?? { LOOMCAST_TOKEN: TOKEN, LOOMCAST_URL: "https://loomcast.test" },
     readTokenFile: async () => options.file ?? null,
     readFile: async (path) => {
-      if (path === "args.json") return '{"project":"from-file"}';
+      if (path === "args.json") return '{"workspace":"from-file"}';
       throw new Error(`no file ${path}`);
     },
     readStdin: async () => options.stdin ?? null,
@@ -124,8 +124,8 @@ describe("command line", () => {
   });
 
   it("shortens descriptions to their first sentence", () => {
-    expect(oneLine("List projects, optionally filtered. More.")).toBe(
-      "List projects, optionally filtered.",
+    expect(oneLine("List workspaces, optionally filtered. More.")).toBe(
+      "List workspaces, optionally filtered.",
     );
     expect(oneLine("Owner only. Cancel a post. Details.")).toBe("Owner only. Cancel a post.");
     expect(oneLine(`${"x".repeat(150)}.`)).toHaveLength(100);
@@ -157,15 +157,15 @@ describe("configuration", () => {
       url: DEFAULT_URL,
       token: TOKEN,
       adminToken: ADMIN_TOKEN,
-      project: null,
+      workspace: null,
     });
     expect(resolveConfig({ env: {}, file, admin: true })).toMatchObject({
       token: ADMIN_TOKEN,
       adminToken: null,
     });
     expect(
-      resolveConfig({ env: { LOOMCAST_TOKEN: "env-token", LOOMCAST_PROJECT: "unfolded" }, file }),
-    ).toMatchObject({ token: "env-token", adminToken: null, project: "unfolded" });
+      resolveConfig({ env: { LOOMCAST_TOKEN: "env-token", LOOMCAST_WORKSPACE: "unfolded" }, file }),
+    ).toMatchObject({ token: "env-token", adminToken: null, workspace: "unfolded" });
     expect(
       resolveConfig({ env: {}, file: `LOOMCAST_MCP_ADMIN_TOKEN=${ADMIN_TOKEN}` }),
     ).toMatchObject({ token: ADMIN_TOKEN });
@@ -233,12 +233,12 @@ describe("commands", () => {
     expect(await h.run("tools")).toBe(EXIT.ok);
     expect(h.stdout()).toBe(
       "research.add_videos  Owner only. Store up to 100 videos found elsewhere.\n" +
-        "research.top_topics  The topic leaderboard of a project's research: tagged videos.\n",
+        "research.top_topics  The topic leaderboard of a workspace's research: tagged videos.\n",
     );
     const d = harness();
     expect(await d.run("describe", "research.top_topics")).toBe(EXIT.ok);
     expect(d.stdout()).toContain("research.top_topics (read-only)");
-    expect(d.stdout()).toContain('"project"');
+    expect(d.stdout()).toContain('"workspace"');
     expect(await d.run("describe", "nope.tool")).toBe(EXIT.failed);
   });
 
@@ -255,11 +255,11 @@ describe("commands", () => {
     expect(
       await file.run("call", "research.top_topics", "--args-file", "args.json", "--json"),
     ).toBe(EXIT.ok);
-    expect(JSON.parse(file.stdout())).toEqual({ echo: { project: "from-file" } });
+    expect(JSON.parse(file.stdout())).toEqual({ echo: { workspace: "from-file" } });
 
-    const piped = harness({ stdin: '{"project":"piped"}\n' });
+    const piped = harness({ stdin: '{"workspace":"piped"}\n' });
     await piped.run("call", "research.top_topics");
-    expect(piped.sent[0]?.body.params?.arguments).toEqual({ project: "piped" });
+    expect(piped.sent[0]?.body.params?.arguments).toEqual({ workspace: "piped" });
 
     const bad = harness();
     expect(await bad.run("call", "kb.search", "--args", "[1]")).toBe(EXIT.usage);
@@ -271,12 +271,12 @@ describe("commands", () => {
     const h = harness({
       answer: (sent) =>
         jsonAnswer(sent, {
-          content: [{ type: "text", text: "not_found: No project." }],
+          content: [{ type: "text", text: "not_found: No workspace." }],
           isError: true,
         }),
     });
-    expect(await h.run("topics", "--project", "nope")).toBe(EXIT.failed);
-    expect(h.stderr()).toBe("not_found: No project.\n");
+    expect(await h.run("topics", "--workspace", "nope")).toBe(EXIT.failed);
+    expect(h.stderr()).toBe("not_found: No workspace.\n");
   });
 
   it("retries once with the owner token when a tool needs mcp:admin", async () => {
@@ -300,7 +300,7 @@ describe("commands", () => {
             }),
     });
     expect(
-      await h.run("call", "research.add_videos", "--args", '{"project":"p","videos":[]}'),
+      await h.run("call", "research.add_videos", "--args", '{"workspace":"p","videos":[]}'),
     ).toBe(EXIT.ok);
     expect(h.sent.map((sent) => sent.authorization)).toEqual([
       `Bearer ${TOKEN}`,
@@ -310,31 +310,31 @@ describe("commands", () => {
   });
 
   it("maps the shortcuts to their tools", async () => {
-    const h = harness({ env: { LOOMCAST_TOKEN: TOKEN, LOOMCAST_PROJECT: "unfolded" } });
+    const h = harness({ env: { LOOMCAST_TOKEN: TOKEN, LOOMCAST_WORKSPACE: "unfolded" } });
     await h.run("topics", "--days", "30", "--min-hits", "2");
     await h.run("videos", "--untagged", "--since", "7d", "--min-outlier", "4.5", "--sort", "views");
-    await h.run("accounts", "--project", "other");
+    await h.run("accounts", "--workspace", "other");
     await h.run("posts", "--limit", "5");
     expect(h.sent.map((sent) => [sent.body.params?.name, sent.body.params?.arguments])).toEqual([
-      ["research.top_topics", { project: "unfolded", windowDays: 30, minHitCreators: 2 }],
+      ["research.top_topics", { workspace: "unfolded", windowDays: 30, minHitCreators: 2 }],
       [
         "research.list_videos",
         {
-          project: "unfolded",
+          workspace: "unfolded",
           untaggedOnly: true,
           minOutlier: 4.5,
           since: "2026-10-12T00:00:00.000Z",
           sort: "views",
         },
       ],
-      ["research.list_accounts", { project: "other" }],
-      ["analytics.list_posts", { project: "unfolded", limit: 5 }],
+      ["research.list_accounts", { workspace: "other" }],
+      ["analytics.list_posts", { workspace: "unfolded", limit: 5 }],
     ]);
 
-    const noProject = harness();
-    expect(await noProject.run("topics")).toBe(EXIT.usage);
-    expect(noProject.stderr()).toContain("--project");
-    expect(await noProject.run("topics", "--project", "p", "--days", "many")).toBe(EXIT.usage);
+    const noWorkspace = harness();
+    expect(await noWorkspace.run("topics")).toBe(EXIT.usage);
+    expect(noWorkspace.stderr()).toContain("--workspace");
+    expect(await noWorkspace.run("topics", "--workspace", "p", "--days", "many")).toBe(EXIT.usage);
   });
 
   it("never prints the token, even when the server refuses it", async () => {

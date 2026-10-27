@@ -2,7 +2,7 @@
 
 `loomcast` calls the tools of a Loomcast MCP server from a shell. It speaks the same JSON-RPC over
 HTTP as any MCP client (plain JSON and `text/event-stream` answers both work), so people and
-agents that can only run commands get every tool the server offers: projects, the knowledge
+agents that can only run commands get every tool the server offers: workspaces, the knowledge
 base, the production pipeline, the research data and our own post analytics. It has no runtime
 dependencies.
 
@@ -12,7 +12,7 @@ From the repository:
 
 ```bash
 pnpm -s loomcast tools          # -s keeps pnpm's own lines out of the output
-pnpm -s loomcast topics --project unfolded
+pnpm -s loomcast topics --workspace unfolded
 ```
 
 As a command of its own: `pnpm --filter @loomcast/cli build`, then run
@@ -26,14 +26,14 @@ As a command of its own: `pnpm --filter @loomcast/cli build`, then run
 | Server | `--url`, else `LOOMCAST_URL`, else `LOOMCAST_URL` in the token file, else `https://loomcast.prabhavalabs.com` |
 | Token | `LOOMCAST_TOKEN`, else the token file's `LOOMCAST_MCP_TOKEN` |
 | Owner token | The token file's `LOOMCAST_MCP_ADMIN_TOKEN`, used with `--admin`, or for one retry when a tool refuses the first token for lacking `mcp:admin` |
-| Default project | `LOOMCAST_PROJECT` (environment or token file), for `topics`, `videos`, `accounts` and `posts` |
+| Default workspace | `LOOMCAST_WORKSPACE` (environment or token file), for `topics`, `videos`, `accounts` and `posts` |
 
 The token file is `~/.config/loomcast/mcp.env`, with `KEY=value` lines:
 
 ```bash
 LOOMCAST_MCP_TOKEN=lc_mcp_...
 LOOMCAST_MCP_ADMIN_TOKEN=lc_mcp_...
-LOOMCAST_PROJECT=unfolded
+LOOMCAST_WORKSPACE=unfolded
 ```
 
 Keep it readable by you only (`chmod 600`). Create tokens in the web app under
@@ -49,10 +49,10 @@ and the CLI never prints them.
 | `loomcast tools [--json]` | Lists the tools with the first sentence of each description |
 | `loomcast describe <tool> [--json]` | Prints a tool's description and input schema |
 | `loomcast call <tool> [--args '<json>' \| --args-file <file>] [--json]` | Calls any tool; arguments may also be piped on stdin |
-| `loomcast topics [--project p] [--days 90] [--min-hits n] [--limit n]` | `research.top_topics` |
-| `loomcast videos [--project p] [--untagged] [--topic t] [--handle h] [--platform p] [--min-outlier n] [--min-views n] [--since 30d] [--sort outlier\|views\|recent] [--limit n] [--cursor c]` | `research.list_videos` |
-| `loomcast accounts [--project p] [--platform p]` | `research.list_accounts` |
-| `loomcast posts [--project p] [--since 30d] [--limit n]` | `analytics.list_posts` |
+| `loomcast topics [--workspace p] [--days 90] [--min-hits n] [--limit n]` | `research.top_topics` |
+| `loomcast videos [--workspace p] [--untagged] [--topic t] [--handle h] [--platform p] [--min-outlier n] [--min-views n] [--since 30d] [--sort outlier\|views\|recent] [--limit n] [--cursor c]` | `research.list_videos` |
+| `loomcast accounts [--workspace p] [--platform p]` | `research.list_accounts` |
+| `loomcast posts [--workspace p] [--since 30d] [--limit n]` | `analytics.list_posts` |
 
 Every command takes `--help`, `--url`, `--admin` and `--json`. Text output is the tool's summary;
 `--json` prints its structured result. The exit code is 0 on success, 1 when the tool or the

@@ -55,7 +55,7 @@ Configuration:
   LOOMCAST_TOKEN         Access token; else LOOMCAST_MCP_TOKEN and LOOMCAST_MCP_ADMIN_TOKEN
                          from ~/${TOKEN_FILE}. A call refused for lacking mcp:admin is
                          retried once with the owner token when there is one.
-  LOOMCAST_PROJECT       Default project (id or slug) for topics, videos, accounts and posts
+  LOOMCAST_WORKSPACE     Default workspace (id or slug) for topics, videos, accounts and posts
 `;
 
 const COMMAND_USAGE: Record<string, string> = {
@@ -76,16 +76,16 @@ without any, the tool is called with {}. Prints the tool's text result, or with 
 structured result. Exits with 1 when the tool reports an error.
 
 Examples:
-  loomcast call project.list
-  loomcast call research.list_videos --args '{"project":"unfolded","untaggedOnly":true}'
-  echo '{"project":"unfolded"}' | loomcast call research.top_topics --json
+  loomcast call workspace.list
+  loomcast call research.list_videos --args '{"workspace":"unfolded","untaggedOnly":true}'
+  echo '{"workspace":"unfolded"}' | loomcast call research.top_topics --json
 `,
-  topics: `Usage: loomcast topics [--project <id|slug>] [--days <n>] [--min-hits <n>] [--limit <n>] [--json]
+  topics: `Usage: loomcast topics [--workspace <id|slug>] [--days <n>] [--min-hits <n>] [--limit <n>] [--json]
 
 The topic leaderboard: tagged research videos of the last --days (default 90) grouped by topic,
 best first. --min-hits leaves out topics with fewer creators who had a hit.
 `,
-  videos: `Usage: loomcast videos [--project <id|slug>] [filters] [--json]
+  videos: `Usage: loomcast videos [--workspace <id|slug>] [filters] [--json]
 
 Filters:
   --platform <name>      instagram, tiktok, youtube, facebook or threads
@@ -99,11 +99,11 @@ Filters:
   --limit <n>            At most n videos (default 50, at most 200)
   --cursor <cursor>      The next page, from the previous answer
 `,
-  accounts: `Usage: loomcast accounts [--project <id|slug>] [--platform <name>] [--json]
+  accounts: `Usage: loomcast accounts [--workspace <id|slug>] [--platform <name>] [--json]
 
-The accounts in a project's research with followers, median views and video counts.
+The accounts in a workspace's research with followers, median views and video counts.
 `,
-  posts: `Usage: loomcast posts [--project <id|slug>] [--since <when>] [--limit <n>] [--json]
+  posts: `Usage: loomcast posts [--workspace <id|slug>] [--since <when>] [--limit <n>] [--json]
 
 Our published posts, newest first, with their latest views, reach, likes, comments, shares,
 saves and average watch time. --since takes an ISO time or a number of days such as 30d.
@@ -122,13 +122,13 @@ const COMMAND_OPTIONS = {
   describe: {},
   call: { args: { type: "string" }, "args-file": { type: "string" } },
   topics: {
-    project: { type: "string" },
+    workspace: { type: "string" },
     days: { type: "string" },
     "min-hits": { type: "string" },
     limit: { type: "string" },
   },
   videos: {
-    project: { type: "string" },
+    workspace: { type: "string" },
     platform: { type: "string" },
     handle: { type: "string" },
     topic: { type: "string" },
@@ -140,8 +140,8 @@ const COMMAND_OPTIONS = {
     limit: { type: "string" },
     cursor: { type: "string" },
   },
-  accounts: { project: { type: "string" }, platform: { type: "string" } },
-  posts: { project: { type: "string" }, since: { type: "string" }, limit: { type: "string" } },
+  accounts: { workspace: { type: "string" }, platform: { type: "string" } },
+  posts: { workspace: { type: "string" }, since: { type: "string" }, limit: { type: "string" } },
 } as const satisfies Record<string, NonNullable<ParseArgsConfig["options"]>>;
 
 type Command = keyof typeof COMMAND_OPTIONS;
@@ -332,10 +332,12 @@ async function run(
   const asJson = values.json === true;
   const now = io.now?.() ?? new Date();
 
-  const project = (): string => {
-    const value = stringOption(values, "project") ?? config.project;
+  const workspace = (): string => {
+    const value = stringOption(values, "workspace") ?? config.workspace;
     if (value === null || value === undefined) {
-      throw new UsageError("Name the project with --project <id|slug>, or set LOOMCAST_PROJECT.");
+      throw new UsageError(
+        "Name the workspace with --workspace <id|slug>, or set LOOMCAST_WORKSPACE.",
+      );
     }
     return value;
   };
@@ -412,7 +414,7 @@ async function run(
       return callTool(
         "research.top_topics",
         defined({
-          project: project(),
+          workspace: workspace(),
           windowDays: integerOption(values, "days"),
           minHitCreators: integerOption(values, "min-hits"),
           limit: integerOption(values, "limit"),
@@ -422,7 +424,7 @@ async function run(
       return callTool(
         "research.list_videos",
         defined({
-          project: project(),
+          workspace: workspace(),
           platform: stringOption(values, "platform"),
           handle: stringOption(values, "handle"),
           topic: stringOption(values, "topic"),
@@ -438,13 +440,13 @@ async function run(
     case "accounts":
       return callTool(
         "research.list_accounts",
-        defined({ project: project(), platform: stringOption(values, "platform") }),
+        defined({ workspace: workspace(), platform: stringOption(values, "platform") }),
       );
     case "posts":
       return callTool(
         "analytics.list_posts",
         defined({
-          project: stringOption(values, "project") ?? config.project ?? undefined,
+          workspace: stringOption(values, "workspace") ?? config.workspace ?? undefined,
           since: sinceOption(stringOption(values, "since"), now),
           limit: integerOption(values, "limit"),
         }),

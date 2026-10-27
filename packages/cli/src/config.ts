@@ -17,8 +17,8 @@ export interface Config {
    * Null when there is none, or when `token` already is it.
    */
   adminToken: string | null;
-  /** Default project for the shortcuts (`LOOMCAST_PROJECT`), if any. */
-  project: string | null;
+  /** Default workspace for the shortcuts (`LOOMCAST_WORKSPACE`), if any. */
+  workspace: string | null;
 }
 
 export class ConfigError extends Error {
@@ -81,13 +81,13 @@ export function resolveConfig(input: {
   if (!/^https?:\/\//.test(url)) {
     throw new ConfigError(`The server URL must start with http:// or https:// (got ${url}).`);
   }
-  const project = nonEmpty(input.env.LOOMCAST_PROJECT) ?? nonEmpty(file.LOOMCAST_PROJECT);
+  const workspace = nonEmpty(input.env.LOOMCAST_WORKSPACE) ?? nonEmpty(file.LOOMCAST_WORKSPACE);
 
   const envToken = nonEmpty(input.env.LOOMCAST_TOKEN);
   const fileToken = nonEmpty(file.LOOMCAST_MCP_TOKEN);
   const adminToken = nonEmpty(file.LOOMCAST_MCP_ADMIN_TOKEN);
   if (envToken !== null) {
-    return { url, token: envToken, adminToken: null, project };
+    return { url, token: envToken, adminToken: null, workspace };
   }
   if (input.admin === true) {
     if (adminToken === null) {
@@ -95,13 +95,13 @@ export function resolveConfig(input: {
         `--admin needs LOOMCAST_MCP_ADMIN_TOKEN in ~/${TOKEN_FILE}, or an owner token in LOOMCAST_TOKEN.`,
       );
     }
-    return { url, token: adminToken, adminToken: null, project };
+    return { url, token: adminToken, adminToken: null, workspace };
   }
   if (fileToken !== null) {
-    return { url, token: fileToken, adminToken, project };
+    return { url, token: fileToken, adminToken, workspace };
   }
   if (adminToken !== null) {
-    return { url, token: adminToken, adminToken: null, project };
+    return { url, token: adminToken, adminToken: null, workspace };
   }
   throw new ConfigError(
     `No access token. Set LOOMCAST_TOKEN, or put LOOMCAST_MCP_TOKEN (and optionally ` +
