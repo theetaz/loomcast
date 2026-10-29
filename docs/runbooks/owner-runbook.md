@@ -156,7 +156,7 @@ backup alert fires, or deploys fail to pull.
 4. Once there is room: `dc up -d --wait`, check `/readyz`, check that the next backup succeeds,
    and resume publishing.
 5. If the Postgres volume itself is what grew, find the cause before it recurs
-   (`dc exec postgres psql -U loomcast -d loomcast -c '\dt+'`) and plan more disk.
+   (`docker exec platform-postgres psql -U postgres -d loomcast -c '\dt+'`) and plan more disk.
 
 ## 7. A lost or stolen Mac
 

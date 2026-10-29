@@ -5,14 +5,17 @@
 | Service | Image | Notes |
 |---|---|---|
 | `api` | `ghcr.io/theetaz/loomcast:<tag>` | Serves the API, the bridge WebSocket (`/bridge/v1`), MCP (`/mcp`), the event stream (`/api/stream`) and the built web app on one port. Published on `127.0.0.1:${LOOMCAST_HTTP_PORT}` only; the host's reverse proxy terminates TLS in front of it. Mounts `${LOOMCAST_BACKUP_DIR}` read-only at `/backups` to report the last backup. |
-| `postgres` | `postgres:17-alpine` | No published ports. Data in the `loomcast_pgdata` volume. |
 | `backup` | `ghcr.io/theetaz/loomcast-backup:<tag>` | Nightly `pg_dump` with local rotation and an optional encrypted copy to object storage. No published ports; writes only to `${LOOMCAST_BACKUP_DIR}`. See `docs/runbooks/backup-and-restore.md`. |
 
-The host runs other applications, so both services are memory-capped (api `640m` by default,
-postgres `512m`), CPU- and process-limited, and run as non-root users with a read-only root
-filesystem, a `/tmp` tmpfs, every capability dropped and `no-new-privileges`. Logs use the
-`json-file` driver, rotated at 10 MB with 5 files kept. `postgres` sits only on the internal
-`backend` network; the api also joins `egress` for outbound calls.
+The database is not part of this project. It is the `loomcast` database on the host's shared
+Postgres 18 server, `platform-postgres`, on the external `platform` Docker network. The server's
+`/opt/platform` stack runs it for every application on the host and dumps each database nightly.
+The api and backup services join `platform` to reach it and `egress` for outbound calls.
+
+The host runs other applications, so both services are memory-capped (api `640m` by default),
+CPU- and process-limited, and run as non-root users with a read-only root filesystem, a `/tmp`
+tmpfs, every capability dropped and `no-new-privileges`. Logs use the `json-file` driver,
+rotated at 10 MB with 5 files kept.
 
 ## Environment files
 
@@ -23,7 +26,7 @@ only; secrets are left empty in them on purpose.
 |---|---|---|
 | `/opt/loomcast/env/compose.env` | `env/compose.env.example` | Interpolation (`--env-file`): image tag, loopback port, memory caps, where the other files live |
 | `/opt/loomcast/env/api.env` | `env/api.env.example` | The api's settings (`env_file`) |
-| `/opt/loomcast/env/postgres.env` | `env/postgres.env.example` | The database user, name and password, read when the volume is first initialised |
+| `/opt/loomcast/env/postgres.env` | `env/postgres.env.example` | The database user, name and password on the shared server, read by the backup service |
 | `/opt/loomcast/env/backup.env` | `env/backup.env.example` | Backup schedule, rotation, object storage credentials for the backups bucket and the encryption recipient |
 
 Set them up once, as root:
@@ -35,9 +38,12 @@ chmod 0600 /opt/loomcast/env/*.env
 ```
 
 Then, in `compose.env`, set `LOOMCAST_ENV_DIR=/opt/loomcast/env`, empty `LOOMCAST_ENV_SUFFIX`
-and choose a free `LOOMCAST_HTTP_PORT`. In `postgres.env`, generate `POSTGRES_PASSWORD` on the
-server (`openssl rand -hex 32`). In `api.env`, build `DATABASE_URL` from the same user, password
-and database with host `postgres` and port `5432`, and fill in `PUBLIC_BASE_URL`.
+and choose a free `LOOMCAST_HTTP_PORT`. Create the `loomcast` role and database on the shared
+server with `/opt/platform/bin/pg-new-app.sh loomcast` (it creates the extension-free database
+owned by the role and writes the password to `/opt/platform/env/apps/loomcast.pg.env`), then
+create `pg_trgm` in it as the platform superuser. Copy the user, password and database into
+`postgres.env`. In `api.env`, build `DATABASE_URL` from them with host `platform-postgres` and
+port `5432`, and fill in `PUBLIC_BASE_URL`.
 
 Notes:
 

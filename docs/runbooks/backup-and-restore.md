@@ -13,7 +13,7 @@ into git.
 
 | Item | Where | Notes |
 |---|---|---|
-| Image | `ghcr.io/theetaz/loomcast-backup:<tag>` | Built from `infra/backup/` on `postgres:17-alpine`, so `pg_dump` matches the server. Adds the S3 command line client, `age`, `jq` and `curl`. Runs as uid 70. |
+| Image | `ghcr.io/theetaz/loomcast-backup:<tag>` | Built from `infra/backup/` on `postgres:18-alpine`, the major version of the host's shared Postgres (`platform-postgres`), so `pg_dump` is never older than the server. Adds the S3 command line client, `age`, `jq` and `curl`. Runs as uid 70. |
 | Service | `backup` in the `loomcast` compose project | 128 MiB memory cap (no swap), half a CPU, 64 processes, read-only root filesystem, 32 MiB `/tmp`, no capabilities, `no-new-privileges`. Networks: `backend` (postgres) and `egress` (R2 and the alert webhook). |
 | Local backups | `/opt/loomcast/backups` on the host, `/backups` in the container | `daily/` and `weekly/` hold `loomcast-<UTC stamp>.dump` plus `.sha256`; `last-success.json` and `last-failure.json` describe the latest run. |
 | Off-site copies | `s3://loomcast-backups/daily/` and `weekly/` | `loomcast-<stamp>.dump.age` plus `.age.sha256`. Removed after 90 days by the bucket's lifecycle rule, never by the script. |
@@ -173,11 +173,12 @@ Without `--drop-after` the scratch database (`loomcast_restore_<stamp>`) is kept
 inspection. Drop it when done:
 
 ```bash
-dc exec postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "drop database loomcast_restore_<stamp>"'
+docker exec platform-postgres psql -U postgres -c "drop database loomcast_restore_<stamp>"
 ```
 
 A scratch restore needs free disk space for a second copy of the database and runs inside the
-same Postgres, so do it outside the backup window.
+host's shared Postgres, so do it outside the backup window. Restores create and rename databases,
+so the `loomcast` role has `CREATEDB` on the shared server (`alter role loomcast createdb`).
 
 ### Restore from the bucket (encrypted copy)
 
@@ -233,18 +234,19 @@ Rollback, while `loomcast_pre_restore_<stamp>` still exists:
 
 ```bash
 dc stop api
-dc exec postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -1 \
+docker exec platform-postgres psql -U postgres -1 \
   -c "alter database loomcast rename to loomcast_failed_restore" \
-  -c "alter database loomcast_pre_restore_<stamp> rename to loomcast"'
+  -c "alter database loomcast_pre_restore_<stamp> rename to loomcast"
 dc up -d --wait api
 ```
 
 ### A new server
 
-Set up the env files and the backup directory as above, start only the database
-(`dc up -d --wait postgres`), restore with `--into-production --yes-i-understand` (the empty
-database created on first start is kept as `loomcast_pre_restore_<stamp>`; drop it), then
-`dc up -d --wait`.
+Set up the host's shared Postgres (`/opt/platform`), the env files and the backup directory as
+above. Create the role and an empty database with `/opt/platform/bin/pg-new-app.sh loomcast`,
+then `alter role loomcast createdb` and `create extension pg_trgm` in it as the platform
+superuser. Restore with `--into-production --yes-i-understand` (the empty database is kept as
+`loomcast_pre_restore_<stamp>`; drop it), then `dc up -d --wait`.
 
 ## The drill
 
