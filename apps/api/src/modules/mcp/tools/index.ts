@@ -1,15 +1,18 @@
 import type { ModuleDeps } from "../../../deps";
+import { createAnalyticsService } from "../../analytics/service";
 import { createPasswordTokensService } from "../../auth/password-tokens";
 import { createUsersService } from "../../auth/users";
 import { calendarServiceFor } from "../../calendar";
 import { listChannels } from "../../channels/mappers";
 import { contentServiceFor } from "../../content";
 import { formatsServiceFor } from "../../formats";
+import { researchServiceFor } from "../../research";
 import { reviewsServiceFor } from "../../reviews";
 import { seriesServiceFor } from "../../series";
 import { skillsServiceFor } from "../../skills";
 import { createWorkspacesService } from "../../workspaces/service";
 import { createAdminTools } from "./admin";
+import { createAnalyticsTools } from "./analytics";
 import { createAssetTools } from "./assets";
 import { createCalendarTools } from "./calendar";
 import { createKbTools } from "./kb";
@@ -17,10 +20,12 @@ import { createOwnerTools } from "./owner";
 import { createPipelineTools } from "./pipeline";
 import { createPostTools } from "./posts";
 import type { ToolDefinition } from "./registry";
+import { createResearchTools } from "./research";
 import { createSkillTools } from "./skills";
 import { createWorkspaceTools } from "./workspaces";
 
 export { type AdminToolsDeps, createAdminTools } from "./admin";
+export { type AnalyticsToolsDeps, createAnalyticsTools } from "./analytics";
 export { type AssetToolsDeps, createAssetTools } from "./assets";
 export { type CalendarToolsDeps, createCalendarTools } from "./calendar";
 export { createKbTools, type KbToolsDeps, kbEntryUrl, workspaceIdFromCwd } from "./kb";
@@ -38,6 +43,7 @@ export {
   type ToolDefinition,
   type ToolImplementation,
 } from "./registry";
+export { createResearchTools, type ResearchToolsDeps } from "./research";
 export { createSkillTools, type SkillToolsDeps } from "./skills";
 export { createWorkspaceTools, type WorkspaceToolsDeps, workspaceUrl } from "./workspaces";
 
@@ -77,5 +83,7 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
       calendar: calendarServiceFor(deps),
       assets: deps.assets,
     }),
+    ...createResearchTools({ research: researchServiceFor(deps), workspaces }),
+    ...createAnalyticsTools({ analytics: createAnalyticsService(db), workspaces }),
   ];
 }

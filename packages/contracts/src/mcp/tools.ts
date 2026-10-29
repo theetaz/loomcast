@@ -1,10 +1,12 @@
 import { adminTools } from "./admin-tools";
+import { analyticsTools } from "./analytics-tools";
 import { calendarTools } from "./calendar-tools";
 import type { McpToolContract } from "./contract";
 import { kbTools } from "./kb-tools";
 import { ownerTools } from "./owner-tools";
 import { pipelineTools } from "./pipeline-tools";
 import { postTools } from "./post-tools";
+import { researchTools } from "./research-tools";
 import { workspaceTools } from "./workspace-tools";
 
 /** Every MCP tool the server registers, by name. */
@@ -16,6 +18,8 @@ export const mcpTools = {
   ...calendarTools,
   ...ownerTools,
   ...postTools,
+  ...researchTools,
+  ...analyticsTools,
 } as const satisfies Record<string, McpToolContract>;
 
 export type McpTools = typeof mcpTools;

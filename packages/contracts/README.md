@@ -39,6 +39,8 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/mcp/calendar-tools.ts` | `calendarTools`: `calendar.get_slots` |
 | `src/mcp/owner-tools.ts` | `ownerTools`: the owner's `content.review`, `channel.list` and `calendar.*` post tools |
 | `src/mcp/post-tools.ts` | `postTools`: `post.formats` and the owner's `post.create`, `post.compose` and `post.schedule` for composed posts, with `postFormatCatalog` and `POST_OPTION_FIELDS` |
+| `src/mcp/research-tools.ts` | `researchTools`: the `research.*` tools, and `McpWorkspaceRefSchema` (a workspace by id or slug) |
+| `src/mcp/analytics-tools.ts` | `analyticsTools`: `analytics.list_posts` and `analytics.post_history` |
 | `src/mcp/tools.ts` | `mcpTools`, every tool by name |
 | `src/pipeline/transitions.ts` | `PIPELINE_TRANSITIONS`, the pipeline state machine, with `canTransition`, `findTransition`, `allowedActions`, `stageForArtifacts` and `nextProductionStep` |
 | `src/pipeline/format-rules.ts` | `FormatRulesSchema`, the rules of a format version, and `DEFAULT_FORMAT_RULES` |
@@ -50,6 +52,7 @@ Enumerations are `as const` arrays (`JOB_TYPES`), a zod enum (`JobTypeSchema`) a
 | `src/publishing/request.ts` | `PublishRequestSchema` and `PublishErrorSchema`, what an adapter is asked to publish and how it fails, and dry-run permalinks |
 | `src/publishing/policy.ts` | `effectivePublishMode` |
 | `src/analytics/metrics.ts` | `PostMetricsSchema`, one capture of a post's insights; `aggregatePosts` and `insightsSchedule` |
+| `src/research/research.ts` | Research platforms, sources and limits, the account, video and topic shapes, `normalizeResearchHandle`, `normalizeTopic`, `researchExternalIdFromUrl` and `researchTopicScore` |
 | `src/kb/analysis.ts` | `ReferenceAnalysisSchema`, the structured analysis of a reference video, and its caps |
 | `src/util/reference-url.ts` | `normalizeReferenceUrl` and `detectReferencePlatform`: pure link cleaning and platform detection |
 | `src/util/slug.ts` | `slugify`, `SLUG_RE` and `SlugSchema` |
@@ -317,7 +320,7 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 
 ## MCP tools
 
-`mcpTools` (the union of `workspaceTools`, `kbTools`, `adminTools`, `pipelineTools`, `calendarTools` and `ownerTools`) describes each tool's name, required token scope, job-token policy, workspace binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
+`mcpTools` (the union of `workspaceTools`, `kbTools`, `adminTools`, `pipelineTools`, `calendarTools`, `ownerTools`, `postTools`, `researchTools` and `analyticsTools`) describes each tool's name, required token scope, job-token policy, workspace binding, description and zod input and output. The MCP server on `/mcp` (`MCP_PATH`) registers handlers against these contracts and returns each output as `structuredContent`.
 
 - `jobTokens`: whether a job token (`lc_job_…`, handed to a producer session for one job) may call the tool. User MCP tokens are governed by `scope` alone.
 - `workspaceBinding: "input"`: the input names one workspace, directly or through a record that belongs to one (an entry, series, item or asset). The server refuses a job token for any workspace other than its job's, and binds an omitted optional `workspaceId` to the job's workspace.
@@ -351,12 +354,22 @@ Adding a job type takes a migration for the pg enum, a value in `JOB_TYPES` and 
 | `calendar.schedule_post` | `mcp:admin` | deny | input | `{itemId, channelId, scheduledAt}` | `{post}` |
 | `calendar.reschedule_post` | `mcp:admin` | deny | none | `{postId, scheduledAt, expectedUpdatedAt}` | `{post}` |
 | `calendar.cancel_post` | `mcp:admin` | deny | none | `{postId}` | `{post}` |
+| `research.track_account` | `mcp:admin` | deny | input | `{workspace, platform, handle, notes?, sync?}` | `{account, sync: {status, videos, message}}` |
+| `research.sync_account` | `mcp:admin` | deny | input | `{accountId}` | `{account, sync}` |
+| `research.add_videos` | `mcp:admin` | deny | input | `{workspace, videos: [{platform, handle, url? \| externalId?, caption?, views?, likes?, comments?, shares?, followers?, displayName?, postedAt?, durationS?, topic?, tags?, hook?, format?, notes?, source?}]}` (at most 100) | `{created, updated, snapshots, videos}` |
+| `research.tag_video` | `mcp:admin` | deny | none | `{videoIds, topic?, tags?, hook?, format?, notes?}` (at least one label) | `{updated, missing}` |
+| `research.list_videos` | `mcp:read` | allow | input | `{workspace, platform?, handle?, topic?, untaggedOnly?, minOutlier?, minViews?, since?, sort?, limit?, cursor?}` | `{videos: ResearchVideo[], nextCursor}` |
+| `research.top_topics` | `mcp:read` | allow | input | `{workspace, windowDays?, minHitCreators?, limit?}` | `{windowDays, from, topics: ResearchTopic[], untagged}` |
+| `research.list_accounts` | `mcp:read` | allow | input | `{workspace, platform?, source?}` | `{accounts: ResearchAccount[]}` |
+| `analytics.list_posts` | `mcp:read` | allow | input | `{workspace?, since?, limit?}` | `{posts: AnalyticsPost[]}` |
+| `analytics.post_history` | `mcp:read` | allow | input | `{postId}` | `PostAnalytics` |
 
 - `content.submit_for_review` moves the item to the stage its artifacts reach (`stageForArtifacts`); a token never approves. With `baseVersionId`, a stale base is refused instead of overwritten.
 - The `ownerTools` act for the owner: the server checks that the token's user is the owner and records the move as that user's, so the transition table never lets a token approve or schedule.
 - `content.upload_asset` follows the rules of `assets.createUpload`; `upload` is null when an identical ready asset exists, and then no finalize is needed.
 - `skill.publish` with unchanged files returns the latest version with `created: false`. Job tokens cannot publish skills.
 - The API also serves `project.create`, `project.get` and `project.list`, deprecated aliases of the `workspace.*` tools for clients built before projects were renamed workspaces. They are not part of `mcpTools`.
+- The `research.*` tools name a workspace by id or slug (`workspace`, `McpWorkspaceRefSchema`). Their shapes, limits and helpers live in `research/research.ts`: `normalizeResearchHandle`, `normalizeTopic` (how topics group), `researchExternalIdFromUrl` (how videos are keyed) and `researchTopicScore` (the leaderboard's ranking). Captions, hooks and notes in their results are untrusted third-party text.
 
 ## Calendar and publishing
 

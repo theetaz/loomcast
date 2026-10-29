@@ -12,6 +12,7 @@ import {
   competitorTag,
   IdSchema,
   KB_TITLE_MAX_LENGTH,
+  normalizeResearchHandle,
   parseCompetitorUrl,
   type UpdateCompetitorRequest,
 } from "@loomcast/contracts";
@@ -32,6 +33,7 @@ import { conflict, HttpError, validationFailed } from "../../lib/errors";
 import type { JobLifecycle } from "../jobs/lifecycle";
 import type { JobsService } from "../jobs/service";
 import { auditActor, type KbActor, type KbService, requireActiveWorkspace } from "../kb/service";
+import { storeInstagramDiscovery } from "../research/store";
 import {
   type Discovery,
   type DiscoveryDeps,
@@ -649,6 +651,19 @@ export function createCompetitorsService(deps: CompetitorsServiceDeps): Competit
                 mediaCount: discovery.account.mediaCount,
               })
               .where(eq(competitors.id, locked.id));
+            // Every video the API read goes into the research data, not only the ones analysed.
+            const handle = normalizeResearchHandle(locked.handle);
+            if (handle !== null) {
+              await storeInstagramDiscovery(tx, {
+                workspaceId: locked.workspaceId,
+                handle,
+                displayName: discovery.account.displayName,
+                followers: discovery.account.followersCount,
+                media: discovery.media,
+                competitorId: locked.id,
+                syncedAt: new Date(),
+              });
+            }
           }
           const [scan] = await tx
             .insert(competitorScans)

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   adminTools,
+  analyticsTools,
   calendarTools,
   DEFAULT_FORMAT_RULES,
   kbTools,
@@ -14,6 +15,7 @@ import {
   pipelineTools,
   postFormatCatalog,
   postTools,
+  researchTools,
   workspaceTools,
 } from "../src";
 import {
@@ -44,6 +46,8 @@ describe("mcp tool contracts", () => {
       calendarTools,
       ownerTools,
       postTools,
+      researchTools,
+      analyticsTools,
     ].flatMap((group) => Object.keys(group));
 
     expect(new Set(names).size).toBe(names.length);
@@ -70,6 +74,8 @@ describe("mcp tool contracts", () => {
       .sort();
 
     expect(allowed).toEqual([
+      "analytics.list_posts",
+      "analytics.post_history",
       "asset.get_url",
       "calendar.get_slots",
       "content.create_idea",
@@ -84,6 +90,9 @@ describe("mcp tool contracts", () => {
       "kb.save_brainstorm",
       "kb.search",
       "post.formats",
+      "research.list_accounts",
+      "research.list_videos",
+      "research.top_topics",
       "skill.pull",
       "workspace.get",
       "workspace.list",
@@ -100,9 +109,16 @@ describe("mcp tool contracts", () => {
         "seriesId",
         "itemId",
         "assetId",
+        "workspace",
+        "accountId",
       ].some((field) => fields.includes(field));
+      // Read tools that name a post are held to the post's project; the owner's post tools are not.
+      const namesPost = fields.includes("postId") && tool.scope === "mcp:read";
 
-      expect([name, tool.workspaceBinding]).toEqual([name, namesWorkspace ? "input" : "none"]);
+      expect([name, tool.workspaceBinding]).toEqual([
+        name,
+        namesWorkspace || namesPost ? "input" : "none",
+      ]);
     }
   });
 

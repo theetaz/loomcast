@@ -260,6 +260,31 @@ connection whose `expires_at` has passed, used or not, through `oauth_states_exp
 `oauth_connections_expires_at_idx`, and returns the counts. `provider` is the `oauth_provider` enum,
 built from `OAUTH_PROVIDERS`.
 
+## Research data
+
+Competitor research the MCP tools read and write (`research.*`), per workspace. The API's
+`modules/research` service is the only writer; it keeps the derived columns in step.
+
+- **Accounts** (`research_accounts`): one row per workspace, platform and handle
+  (`research_accounts_workspace_id_platform_handle_uq`). The handle is stored lowercased without `@`
+  (`research_accounts_handle_ck`); normalise it with `normalizeResearchHandle` first. `source` is
+  `tracked` or `discovered`, `competitor_id` links the followed competitor it mirrors (set null
+  when that is deleted), and `median_views` is derived (below).
+- **Videos** (`research_videos`): one row per workspace, platform and `external_id`
+  (`research_videos_workspace_id_platform_external_id_uq`), the platform's id of the video from
+  `researchExternalIdFromUrl` (the Instagram shortcode, not the Graph media id, so a video stored
+  from a scan and from an MCP client is the same row). The counts are the latest known totals and
+  `topic` is stored normalised (`normalizeTopic`). Captions, hooks and notes are third-party text.
+- **Snapshots** (`research_video_snapshots`): the counts each time they changed, through
+  `research_video_snapshots_video_id_captured_at_idx`.
+- **Derived columns.** After any write to an account's videos the service sets `median_views` to
+  the median views of its `RESEARCH_MEDIAN_VIDEOS` most recent videos with views, and each
+  video's `outlier_score` to `views / median_views` (null when either is unknown or the median is
+  0).
+
+Counts are `bigint` and never negative (`*_counts_ck`). Deleting a workspace or an account deletes
+its videos and their snapshots.
+
 ## Knowledge-base search
 
 `kb_entries.search` is a stored generated `tsvector`: title (weight A), tags (B), body (C) and

@@ -14,6 +14,7 @@ import { HttpError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import {
   BUSINESS_DISCOVERY_NOT_FOUND_SUBCODE,
+  type BusinessDiscoveryResult,
   businessDiscovery,
   createMetaGraphClient,
   type DiscoveredMedia,
@@ -45,6 +46,8 @@ export interface Discovery {
   account: CompetitorAccount;
   /** The Instagram channel whose token was used. */
   channelId: string;
+  /** Every post Business Discovery read, newest first, ranked or not. */
+  media: DiscoveredMedia[];
 }
 
 const PLATFORM_LABELS: Readonly<Record<CompetitorPlatform, string>> = {
@@ -112,7 +115,8 @@ export function linkedVideos(
   return videos;
 }
 
-function isVideo(media: DiscoveredMedia): boolean {
+/** Reels and other videos; images and carousels are left out. */
+export function isVideo(media: DiscoveredMedia): boolean {
   return media.mediaProductType === "REELS" || media.mediaType === "VIDEO";
 }
 
@@ -238,16 +242,24 @@ async function instagramChannel(
   return { id: row.id, igUserId: row.externalId, accessToken };
 }
 
+/** An Instagram professional account as Business Discovery read it. */
+export interface InstagramLookup {
+  result: BusinessDiscoveryResult;
+  /** The Instagram channel whose token was used. */
+  channelId: string;
+}
+
 /**
- * Ranks an Instagram competitor's videos through Business Discovery and returns the top `topN`
- * with the account's public numbers. `422 not_professional_account` when the account is unknown
- * or is not a business or creator account; `422 no_videos` when it has no video to analyse;
- * `502 platform_error` when the Graph API refuses the call for another reason.
+ * Reads an Instagram business or creator account and its most recent posts (at most
+ * `COMPETITOR_DISCOVERY_MAX_POSTS`) through Business Discovery. `422 not_professional_account`
+ * when the account is unknown or is not a business or creator account; `422
+ * no_instagram_channel` without a connected Instagram channel; `502 platform_error` when the
+ * Graph API refuses the call for another reason.
  */
-export async function discoverInstagramVideos(
+export async function lookupInstagramAccount(
   deps: DiscoveryDeps,
-  input: { workspaceId: string; handle: string; topN: number; channelId?: string | undefined },
-): Promise<Discovery> {
+  input: { workspaceId: string; handle: string; channelId?: string | undefined },
+): Promise<InstagramLookup> {
   if (!COMPETITOR_HANDLE_RE.test(input.handle)) {
     throw unprocessable("not_professional_account", "The handle cannot be looked up.");
   }
@@ -256,14 +268,14 @@ export async function discoverInstagramVideos(
   }
   const channel = await instagramChannel(deps, input.workspaceId, input.channelId);
   const client = deps.graph?.() ?? createMetaGraphClient(deps.platforms);
-  let result: Awaited<ReturnType<typeof businessDiscovery>>;
   try {
-    result = await businessDiscovery(client, {
+    const result = await businessDiscovery(client, {
       igUserId: channel.igUserId,
       handle: input.handle,
       accessToken: channel.accessToken,
       maxPosts: COMPETITOR_DISCOVERY_MAX_POSTS,
     });
+    return { result, channelId: channel.id };
   } catch (error) {
     if (!(error instanceof MetaGraphError)) {
       throw error;
@@ -282,6 +294,18 @@ export async function discoverInstagramVideos(
       reason: error.code,
     });
   }
+}
+
+/**
+ * Ranks an Instagram competitor's videos through Business Discovery and returns the top `topN`
+ * with the account's public numbers and every post it read (for the research data). Fails as
+ * `lookupInstagramAccount` does, and with `422 no_videos` when the account has no video to analyse.
+ */
+export async function discoverInstagramVideos(
+  deps: DiscoveryDeps,
+  input: { workspaceId: string; handle: string; topN: number; channelId?: string | undefined },
+): Promise<Discovery> {
+  const { result, channelId } = await lookupInstagramAccount(deps, input);
   const videos = rankVideos(result.media, input.topN);
   if (videos.length === 0) {
     throw unprocessable(
@@ -296,6 +320,7 @@ export async function discoverInstagramVideos(
       followersCount: result.followersCount,
       mediaCount: result.mediaCount,
     },
-    channelId: channel.id,
+    channelId,
+    media: result.media,
   };
 }
