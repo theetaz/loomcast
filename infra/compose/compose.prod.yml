@@ -5,8 +5,10 @@
 #   docker compose -p loomcast -f compose.prod.yml --env-file /opt/loomcast/env/compose.env up -d --wait
 #
 # Interpolation variables come from compose.env (see env/compose.env.example). Service settings
-# come from api.env, postgres.env and backup.env in LOOMCAST_ENV_DIR. The README next to this
-# file explains each file; docs/runbooks/backup-and-restore.md covers the backup service.
+# come from api.env, postgres.env and backup.env in LOOMCAST_ENV_DIR. The database is the host's
+# shared Postgres (platform-postgres on the external "platform" network), not part of this
+# project. The README next to this file explains each file; docs/runbooks/backup-and-restore.md
+# covers the backup service.
 
 name: loomcast
 
@@ -68,48 +70,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
-      - backend
       - egress
-
-  postgres:
-    <<: *hardening
-    image: postgres:17-alpine
-    # The image's postgres user (uid 70) owns the data directory, so no root step is needed.
-    user: postgres
-    env_file:
-      - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/postgres.env${LOOMCAST_ENV_SUFFIX:-}
-    command:
-      - postgres
-      - -c
-      - shared_buffers=128MB
-      - -c
-      - max_connections=40
-      - -c
-      - work_mem=4MB
-    shm_size: 128m
-    tmpfs:
-      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
-      - /var/run/postgresql:size=1m,mode=1777,nosuid,nodev
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    mem_limit: 512m
-    memswap_limit: 512m
-    cpus: 1.0
-    pids_limit: 128
-    stop_grace_period: 60s
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
-    # No ports: only the api reaches it, over the internal backend network.
-    networks:
-      - backend
+      - platform
 
   # Nightly pg_dump of the Loomcast database into LOOMCAST_BACKUP_DIR (default
   # /opt/loomcast/backups), with local rotation and an off-site copy in the private backups
@@ -126,7 +89,7 @@ services:
       - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/postgres.env${LOOMCAST_ENV_SUFFIX:-}
       - path: ${LOOMCAST_ENV_DIR:-/opt/loomcast/env}/backup.env${LOOMCAST_ENV_SUFFIX:-}
     environment:
-      PGHOST: postgres
+      PGHOST: ${LOOMCAST_PGHOST:-platform-postgres}
       PGPORT: "5432"
       BACKUP_DIR: /backups
     volumes:
@@ -144,20 +107,16 @@ services:
     pids_limit: 64
     # Lets a dump in progress finish on a redeploy.
     stop_grace_period: 60s
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # backend reaches postgres; egress is for object storage and the alert webhook.
+    # platform reaches the shared Postgres; egress is for object storage and the alert webhook.
     networks:
-      - backend
       - egress
+      - platform
 
 networks:
-  # No route out of the host: postgres lives only here.
-  backend:
-    internal: true
   # Outbound access for the api (object storage, publishing APIs, alert webhooks).
   egress: {}
-
-volumes:
-  pgdata:
+  # The host's shared data services (/opt/platform): one Postgres for every app on the host
+  # (platform-postgres:5432), created outside this project.
+  platform:
+    name: ${LOOMCAST_PLATFORM_NETWORK:-platform}
+    external: true

@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
-# Backup image for the Loomcast production compose project: the Postgres 17 client tools (from
-# the same image as the database, so pg_dump always matches the server), the S3 command line
+# Backup image for the Loomcast production compose project: the Postgres 18 client tools (the
+# major version of the host's shared Postgres, which pg_dump must not be older than), the S3 command line
 # client, age for encryption, and the backup scripts. Build context: this directory.
 #
 #   docker build -t loomcast-backup:local infra/backup
-FROM postgres:17-alpine
+FROM postgres:18-alpine
 
 RUN apk add --no-cache age aws-cli bash curl jq
 
