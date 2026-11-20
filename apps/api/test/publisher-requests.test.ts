@@ -19,7 +19,9 @@ import {
   buildXPublish,
   captionLength,
   FACEBOOK_PHOTO_LIMITS,
+  FACEBOOK_THUMBNAIL_LIMITS,
   FACEBOOK_VIDEO_STORY_LIMITS,
+  facebookThumbnailIssue,
   itemContainerPlaceholder,
   limitCaption,
   PLACEHOLDERS,
@@ -116,6 +118,37 @@ describe("request builders", () => {
     });
   });
 
+  it("ends a Facebook Reel with a poster with its cover, sent as multipart", () => {
+    const input = request("facebook", { posterUrl: "https://media.example.test/p/poster.jpg" });
+    const plan = buildFacebookPublish({ request: input, media, accessToken: token });
+    expect(plan.pending).toBe(true);
+    expect(plan.steps.map((step) => step.step)).toEqual([
+      "start_upload",
+      "upload",
+      "finish_upload",
+      "set_thumbnail",
+    ]);
+    expect(plan.steps[3]).toEqual({
+      step: "set_thumbnail",
+      method: "POST",
+      api: "graph",
+      path: `/${PLACEHOLDERS.videoId}/thumbnails`,
+      headers: { Authorization: `Bearer ${token}` },
+      bodyEncoding: "multipart",
+      body: { is_preferred: true },
+      files: { source: { url: input.posterUrl } },
+    });
+    // Other formats and Reels without a poster have no cover step.
+    const plain = buildFacebookPublish({ request: request("facebook"), media, accessToken: token });
+    expect(plain.steps.map((step) => step.step)).not.toContain("set_thumbnail");
+    const video = buildFacebookPublish({
+      request: request("facebook", { format: "video", posterUrl: input.posterUrl }),
+      media,
+      accessToken: token,
+    });
+    expect(video.steps.map((step) => step.step)).toEqual(["upload_video"]);
+  });
+
   it("sends a multipart step only with the bytes of its files", () => {
     const step: PlatformRequest = {
       step: "set_thumbnail",
@@ -148,6 +181,16 @@ describe("request builders", () => {
       ...step,
       headers: { Authorization: `Bearer ${REDACTED}` },
     });
+  });
+
+  it("checks a Facebook Reel cover against the thumbnail limits", () => {
+    expect(FACEBOOK_THUMBNAIL_LIMITS.maxBytes).toBe(10 * 1_048_576);
+    expect(facebookThumbnailIssue({ bytes: 200_000, mime: "image/jpeg" })).toBeNull();
+    expect(facebookThumbnailIssue({ bytes: 10 * 1_048_576, mime: "image/png" })).toBeNull();
+    expect(facebookThumbnailIssue({ bytes: 10 * 1_048_576 + 1, mime: "image/jpeg" })).toMatch(
+      /larger than 10 MB/,
+    );
+    expect(facebookThumbnailIssue({ bytes: 200_000, mime: "image/webp" })).toMatch(/JPEG or PNG/);
   });
 
   it("builds Threads video containers with the token as a parameter", () => {

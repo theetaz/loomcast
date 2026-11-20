@@ -209,6 +209,20 @@ platform that accepts a video and processes it later leaves the post `publishing
 `post.check_status` polls. Once a post is live, its insights are pulled on a decaying schedule for
 analytics.
 
+When the approved version has a poster (a studio render comes with one), Instagram and Facebook
+Reels both use it as their cover. Instagram fetches the poster's public copy itself
+(`cover_url`). Facebook takes a cover only as an uploaded file on a published video, so right
+after the Reel's `finish` succeeds the adapter reads the poster's public copy and uploads it to
+`POST /{video-id}/thumbnails` with `is_preferred=true`. The Facebook cover is best-effort, because
+the Reel is already live: a poster that is not a JPEG or PNG or is larger than 10 MB, or a cover
+call that is refused or fails, leaves the Reel published without the cover. The adapter logs a
+warning and records `cover: "skipped"` or `cover: "failed"`, with `cover_error`, on the attempt. It
+never fails or retries the post for a missing cover, since a retry would upload the Reel again.
+The cover call needs the `pages_manage_engagement` and `pages_read_user_content` permissions; Pages
+connected before they were added must be reconnected first (see the
+[Meta app runbook](runbooks/meta-app-setup.md), step 4). Without a poster, Facebook picks the cover
+itself; `instagram.thumbOffsetMs` chooses the frame on Instagram only.
+
 Channels whose credentials the platform refuses turn `needs_reauth`; the channel settings show a
 **Reconnect** banner, and their posts fail with an `auth` error until the account is connected
 again. **Disconnect** removes a channel's credentials and switches it back to dry-run; its series

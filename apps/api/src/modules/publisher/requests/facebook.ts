@@ -28,7 +28,8 @@ import {
 // 2026-10-18:
 // - Page Reels (`reel`): start an upload session on `/{page-id}/video_reels`, let the upload host
 //   fetch the public video URL, then finish with `video_state: PUBLISHED`. The video processes
-//   afterwards, so the post is pending until `status` reports it published.
+//   afterwards, so the post is pending until `status` reports it published. A post with a poster
+//   then sets it as the Reel's cover (see `thumbnail` below).
 // - Videos (`video`): `POST /{page-id}/videos {file_url, description, title}` returns `{id}`; the
 //   video then processes and reports the same `status` phases as a Reel (pending).
 //   https://developers.facebook.com/docs/graph-api/reference/page/videos/
@@ -50,7 +51,8 @@ import {
 // Feed and photo posts publish synchronously; the post's permalink then comes from
 // `GET /{post-id}?fields=permalink_url` (or, for a story, from the Page's stories).
 // Every call takes a Page token of someone with the CREATE_CONTENT task and `pages_manage_posts`,
-// `pages_read_engagement` and `pages_show_list`.
+// `pages_read_engagement` and `pages_show_list`; a Reel cover also needs `pages_manage_engagement`
+// and `pages_read_user_content`.
 
 /**
  * Page Reels limits from the platform's guide: 3 to 90 s, 9:16, at least 540×960. The guide gives
@@ -102,6 +104,31 @@ export const FACEBOOK_PHOTO_LIMITS = {
   maxBytes: 4 * MB,
   mimes: ["image/jpeg", "image/png"],
 } as const;
+
+/**
+ * Reel cover limits from the Video Thumbnails reference: an image file of at most 10 MB, best at
+ * the video's aspect ratio. The reference names no types; JPEG and PNG, the photo types the Page
+ * Photos reference shares with posters, are sent, and other posters (WebP) are left out.
+ */
+export const FACEBOOK_THUMBNAIL_LIMITS = {
+  maxBytes: 10 * MB,
+  mimes: ["image/jpeg", "image/png"],
+} as const;
+
+/**
+ * Why Facebook would refuse `poster` as a Reel cover; null when it would take it. The poster's
+ * facts are known only once its bytes are read, so the adapter checks it then and publishes the
+ * Reel without a cover rather than failing it.
+ */
+export function facebookThumbnailIssue(poster: MediaFacts): string | null {
+  if (!(FACEBOOK_THUMBNAIL_LIMITS.mimes as readonly string[]).includes(poster.mime)) {
+    return `Facebook does not take ${poster.mime} covers; use a JPEG or PNG poster.`;
+  }
+  if (poster.bytes > FACEBOOK_THUMBNAIL_LIMITS.maxBytes) {
+    return `The poster is larger than ${FACEBOOK_THUMBNAIL_LIMITS.maxBytes / MB} MB, Facebook's cover limit.`;
+  }
+  return null;
+}
 
 function auth(options: BuildOptions): Record<string, string> {
   return { Authorization: bearer(options.accessToken) };
@@ -186,6 +213,26 @@ export const facebookRequests = {
       headers: auth(options),
       bodyEncoding: "json",
       body: { upload_phase: "finish", video_id: videoId },
+    };
+  },
+
+  /**
+   * `POST /{video-id}/thumbnails` (multipart: `source`, the image file, and `is_preferred: true`)
+   * → `{success}`: sets the poster as the Reel's cover. The Reels publishing guide has no cover
+   * parameter and points to this edge, which takes a file only (no URL), at most 10 MB, on a
+   * video already associated with a Page, so it is sent once the finish succeeded.
+   * https://developers.facebook.com/docs/graph-api/reference/video/thumbnails/
+   */
+  thumbnail(videoId: string, posterUrl: string, options: BuildOptions): PlatformRequest {
+    return {
+      step: "set_thumbnail",
+      method: "POST",
+      api: "graph",
+      path: `/${segment(videoId)}/thumbnails`,
+      headers: auth(options),
+      bodyEncoding: "multipart",
+      body: { is_preferred: true },
+      files: { source: { url: posterUrl } },
     };
   },
 
@@ -343,7 +390,8 @@ function storyItem(request: MediaPublishRequest): PublishMediaItem {
 
 /**
  * What `publish` sends, by format. Ids the platform returns appear as `PLACEHOLDERS` (photos of a
- * multi-photo post as `photoPlaceholder(n)`). Reels, videos and video stories then wait for
+ * multi-photo post as `photoPlaceholder(n)`). A Reel with a poster ends with its cover
+ * (`set_thumbnail`), sent on a best-effort basis. Reels, videos and video stories then wait for
  * processing (pending); photo, multi-photo, text posts and photo stories publish at once.
  */
 export function buildFacebookPublish(plan: PlanInput): PublishPlan {
@@ -359,6 +407,9 @@ export function buildFacebookPublish(plan: PlanInput): PublishPlan {
           facebookRequests.startUpload(pageId, input),
           facebookRequests.uploadFromUrl(PLACEHOLDERS.videoId, input.request.videoUrl, input),
           facebookRequests.finishUpload(input.request, PLACEHOLDERS.videoId, input),
+          ...(input.request.posterUrl === undefined
+            ? []
+            : [facebookRequests.thumbnail(PLACEHOLDERS.videoId, input.request.posterUrl, input)]),
         ],
       };
     }

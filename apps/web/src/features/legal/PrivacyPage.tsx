@@ -73,8 +73,10 @@ export function PrivacyPage() {
           <li>
             <strong>Facebook Pages:</strong> <code>pages_show_list</code>,{" "}
             <code>pages_read_engagement</code>, <code>pages_manage_posts</code>,{" "}
+            <code>pages_manage_engagement</code>, <code>pages_read_user_content</code>,{" "}
             <code>read_insights</code> and <code>business_management</code>, to list the Pages you
-            manage, publish videos to the Page you choose and read the insights of those posts.
+            manage, publish videos to the Page you choose, set the cover of the Reels you publish
+            and read the insights of those posts.
           </li>
           <li>
             <strong>Instagram:</strong> <code>instagram_basic</code>,{" "}

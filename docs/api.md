@@ -283,7 +283,7 @@ A file appears once per post (by `sha256`).
 | `instagram.shareToFeed` | boolean | `reel` | Also show the Reel in the profile grid. Defaults to true |
 | `instagram.collaborators` | up to 3 usernames | `reel`, `image`, `carousel` | Invited as collaborators |
 | `instagram.locationId` | digits | `reel`, `image`, `carousel` | A Facebook Page id used as the location |
-| `instagram.thumbOffsetMs` | integer | `reel` | The cover frame, in ms from the start |
+| `instagram.thumbOffsetMs` | integer | `reel` | The cover frame, in ms from the start. Ignored when the version has a poster, which Instagram and Facebook Reels both use as their cover |
 | `facebook.link` | http(s) URL | `text` | Shown as a link preview card |
 | `facebook.title` | string, up to 255 | `video` | Shown above the video |
 

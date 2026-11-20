@@ -15,8 +15,10 @@ import { PublishFailure } from "../../errors";
 import { videoFacts, videoOf } from "../../media";
 import {
   buildFacebookPublish,
+  FACEBOOK_THUMBNAIL_LIMITS,
   facebookMessage,
   facebookRequests,
+  facebookThumbnailIssue,
   validateFacebookRequest,
 } from "../../requests/facebook";
 import { isVideoRequest, type PlatformRequest } from "../../requests/types";
@@ -35,6 +37,7 @@ import {
   metaCall,
   toGraphRequest,
 } from "./meta-call";
+import { PosterReadError, readPoster } from "./poster";
 import {
   type FacebookFeedPost,
   FacebookFeedSchema,
@@ -60,7 +63,9 @@ import {
 //   `POST rupload.facebook.com/video-upload/<version>/{video-id}` with `Authorization: OAuth` and
 //   `file_url` (the public copy of the render), so the upload host fetches the video;
 //   `POST /{page-id}/video_reels {upload_phase: "finish", video_id, video_state: "PUBLISHED",
-//   description}`. Pending until processed.
+//   description}`. Pending until processed. With a poster, the Reel's cover is then set:
+//   `POST /{video-id}/thumbnails` (multipart: the poster's bytes as `source`, `is_preferred`),
+//   best-effort, since the Reel is already live (`setCover`).
 // - Video: `POST /{page-id}/videos {file_url, description, title}` → `{id}`. Pending.
 // - Photo: `POST /{page-id}/photos {url, caption, alt_text_custom}` → `{id, post_id}`, then
 //   `GET /{post-id}?fields=permalink_url`. Published at once.
@@ -281,6 +286,75 @@ export function createFacebookAdapter(options: MetaAdapterOptions): PublisherAda
     return facebookPostPermalink(postId, story?.url);
   }
 
+  /**
+   * Sets the poster at `posterUrl` as the cover of the published Reel `videoId`: reads the
+   * poster's public copy and uploads it to `POST /{video-id}/thumbnails` with `is_preferred`.
+   * Best-effort: the Reel is already live, so every failure (an unreadable or unsuitable poster, a
+   * refusal, a timeout, even an abort) is logged and returned as the outcome, never thrown; a
+   * retry of the publish would upload the Reel again. A refused permission does not flag the
+   * channel for reconnecting either: covers need permissions publishing does not
+   * (`pages_manage_engagement`, `pages_read_user_content`), and the Reel went out without them.
+   */
+  async function setCover(
+    context: PublishContext,
+    videoId: string,
+    posterUrl: string,
+    accessToken: string,
+  ): Promise<JsonObject> {
+    const step = facebookRequests.thumbnail(videoId, posterUrl, { accessToken });
+    const stopped = {
+      cover: "failed",
+      cover_error: "The publish stopped before the cover was set.",
+    };
+    if (context.signal.aborted) {
+      return stopped;
+    }
+    try {
+      const poster = await readPoster(posterUrl, {
+        maxBytes: FACEBOOK_THUMBNAIL_LIMITS.maxBytes,
+        signal: context.signal,
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      });
+      const issue = facebookThumbnailIssue({ bytes: poster.size, mime: poster.mime });
+      if (issue !== null || poster.file === null) {
+        context.logger.warn(
+          { videoId, step: step.step, bytes: poster.size, mime: poster.mime },
+          "the Reel was published without its cover: the poster does not fit",
+        );
+        return { cover: "skipped", cover_error: issue ?? "The poster is too large for a cover." };
+      }
+      const answer = parseGraph(
+        SuccessSchema,
+        await graph.request(
+          toGraphRequest(step, accessToken, context.signal, { source: poster.file }),
+        ),
+        "the Reel cover",
+      );
+      if (answer.success !== true) {
+        context.logger.warn({ videoId, step: step.step }, "the platform did not confirm the cover");
+        return { cover: "failed", cover_error: "The platform did not confirm the cover." };
+      }
+      return { cover: "set" };
+    } catch (error) {
+      if (context.signal.aborted) {
+        return stopped;
+      }
+      context.logger.warn(
+        { ...(error instanceof MetaGraphError ? error.toLog() : {}), videoId, step: step.step },
+        "could not set the Reel cover",
+      );
+      return {
+        cover: "failed",
+        cover_error:
+          error instanceof MetaGraphError
+            ? error.error.message
+            : error instanceof PosterReadError
+              ? error.message
+              : "The cover could not be set.",
+      };
+    }
+  }
+
   async function publishReel(
     context: PublishContext,
     request: VideoPublishRequest,
@@ -310,7 +384,12 @@ export function createFacebookAdapter(options: MetaAdapterOptions): PublisherAda
         throw error;
       }
     }
-    context.record({ response: { video_id: videoId, upload: "complete", finish: "accepted" } });
+    const finished = { video_id: videoId, upload: "complete", finish: "accepted" };
+    context.record({ response: finished });
+    if (request.posterUrl !== undefined) {
+      const cover = await setCover(context, videoId, request.posterUrl, accessToken);
+      context.record({ response: { ...finished, ...cover } });
+    }
     return { pending: true, containerId: videoId, externalId: videoId };
   }
 

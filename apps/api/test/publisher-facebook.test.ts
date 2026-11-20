@@ -10,13 +10,18 @@ import { channels } from "@loomcast/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { flagNeedsReauth } from "../src/modules/channels/reauth";
-import { FACEBOOK_REELS_LIMITS, PublishFailure } from "../src/modules/publisher";
+import {
+  FACEBOOK_REELS_LIMITS,
+  FACEBOOK_THUMBNAIL_LIMITS,
+  PublishFailure,
+} from "../src/modules/publisher";
 import {
   type CredentialsRefusal,
   createFacebookAdapter,
   findSentPost,
   graphTimeMs,
   type MetaAdapterOptions,
+  sniffImageType,
 } from "../src/modules/publisher/adapters/facebook";
 import {
   dryRunParity,
@@ -230,6 +235,209 @@ describe("facebook publish", () => {
       error: { code: "rate_limited", retryable: true },
     });
     expect(refusals).toEqual([]);
+  });
+});
+
+describe("facebook reel covers", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+  const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+
+  function posterContext() {
+    const posterUrl = `https://media.example.test/p/${randomUUID()}/poster.jpg`;
+    return {
+      context: fakeContext("facebook", { posterUrl }),
+      posterPath: new URL(posterUrl).pathname,
+    };
+  }
+
+  const thumbnailsPath = (videoId: string) => `${V}/${videoId}/thumbnails`;
+
+  it("recognises poster types by their first bytes", () => {
+    expect(sniffImageType(JPEG)).toBe("image/jpeg");
+    expect(sniffImageType(PNG)).toBe("image/png");
+    expect(sniffImageType(WEBP)).toBe("image/webp");
+    expect(sniffImageType(new Uint8Array([1, 2, 3]))).toBeNull();
+  });
+
+  it("uploads the poster as the cover after the finish, as multipart with is_preferred", async () => {
+    const fake = scriptedFetch();
+    const { adapter, refusals } = adapterWith(fake);
+    const { context, posterPath } = posterContext();
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    fake
+      .on("GET", posterPath, { raw: { bytes: JPEG, type: "binary/octet-stream" } })
+      .on("POST", thumbnailsPath(videoId), { body: { success: true } });
+
+    const result = await adapter.publish(context);
+    expect(result).toEqual({ pending: true, containerId: videoId, externalId: videoId });
+    expect(fake.pending()).toEqual([]);
+    expect(fake.calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual([
+      `POST ${reelsPath(context)}`,
+      `POST ${uploadPath(videoId)}`,
+      `POST ${reelsPath(context)}`,
+      `GET ${posterPath}`,
+      `POST ${thumbnailsPath(videoId)}`,
+    ]);
+
+    const thumbnail = fake.calls[4];
+    expect(thumbnail?.headers.get("authorization")).toBe(`Bearer ${context.token}`);
+    expect(thumbnail?.url.searchParams.get("appsecret_proof")).toMatch(/^[0-9a-f]{64}$/);
+    expect(thumbnail?.multipart?.get("is_preferred")).toBe("true");
+    const source = thumbnail?.multipart?.get("source");
+    expect(source).toBeInstanceOf(Blob);
+    expect((source as File).type).toBe("image/jpeg");
+    expect((source as File).name).toBe("poster.jpg");
+    expect(new Uint8Array(await (source as File).arrayBuffer())).toEqual(JPEG);
+    // The poster read carries no credentials.
+    expect(fake.calls[3]?.headers.get("authorization")).toBeNull();
+
+    expect(context.recorded.response).toEqual({
+      video_id: videoId,
+      upload: "complete",
+      finish: "accepted",
+      cover: "set",
+    });
+    expect(refusals).toEqual([]);
+  });
+
+  it("sends no cover step for a Reel without a poster", async () => {
+    const fake = scriptedFetch();
+    const { adapter } = adapterWith(fake);
+    const context = fakeContext("facebook");
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    await adapter.publish(context);
+    expect(fake.calls).toHaveLength(3);
+    expect(fake.calls.some((call) => call.url.pathname.endsWith("/thumbnails"))).toBe(false);
+    expect(context.recorded.response).not.toHaveProperty("cover");
+  });
+
+  it("records the cover step in the plan the dry run records too", async () => {
+    const fake = scriptedFetch();
+    const { adapter } = adapterWith(fake);
+    const { context, posterPath } = posterContext();
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    fake
+      .on("GET", posterPath, { raw: { bytes: JPEG, type: "image/jpeg" } })
+      .on("POST", thumbnailsPath(videoId), { body: { success: true } });
+    await adapter.publish(context);
+
+    const { dryRun, live } = await dryRunParity(context);
+    expect(live).toEqual(dryRun);
+    const steps = (live?.steps ?? []) as Array<Record<string, unknown>>;
+    expect(steps.at(-1)).toMatchObject({
+      step: "set_thumbnail",
+      bodyEncoding: "multipart",
+      body: { is_preferred: true },
+      files: { source: { url: context.request.posterUrl } },
+    });
+    expect(JSON.stringify(live)).not.toContain(context.token);
+  });
+
+  it("keeps the published Reel when the platform refuses the cover", async () => {
+    const fake = scriptedFetch();
+    const { adapter, refusals } = adapterWith(fake);
+    const { context, posterPath } = posterContext();
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    fake
+      .on("GET", posterPath, { raw: { bytes: PNG, type: "image/png" } })
+      .on("POST", thumbnailsPath(videoId), {
+        status: 403,
+        body: graphErrorBody(200, "Permissions error"),
+      });
+
+    expect(await adapter.publish(context)).toEqual({
+      pending: true,
+      containerId: videoId,
+      externalId: videoId,
+    });
+    expect(context.recorded.response).toMatchObject({
+      video_id: videoId,
+      finish: "accepted",
+      cover: "failed",
+      cover_error: "Permissions error",
+    });
+    // The Reel went out: a missing cover permission does not flag the channel for reconnecting.
+    expect(refusals).toEqual([]);
+    expect(JSON.stringify(context.recorded.response)).not.toContain(context.token);
+  });
+
+  it("keeps the published Reel when the cover call fails in transit", async () => {
+    const fake = scriptedFetch();
+    const { adapter } = adapterWith(fake);
+    const { context, posterPath } = posterContext();
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    fake
+      .on("GET", posterPath, { raw: { bytes: JPEG, type: "image/jpeg" } })
+      .on("POST", thumbnailsPath(videoId), { status: 503, body: { error: { code: 2 } } });
+
+    expect(await adapter.publish(context)).toMatchObject({ pending: true, externalId: videoId });
+    expect(context.recorded.response).toMatchObject({ cover: "failed" });
+    // A POST is never retried: one thumbnails call only.
+    expect(fake.calls.filter((call) => call.url.pathname.endsWith("/thumbnails"))).toHaveLength(1);
+  });
+
+  it("publishes without a cover when the poster cannot be read", async () => {
+    const fake = scriptedFetch();
+    const { adapter } = adapterWith(fake);
+    const { context, posterPath } = posterContext();
+    const videoId = fakeId();
+    scriptUpload(fake, context, videoId);
+    fake.on("GET", posterPath, { status: 404, body: null });
+
+    expect(await adapter.publish(context)).toMatchObject({ pending: true, externalId: videoId });
+    expect(context.recorded.response).toMatchObject({
+      cover: "failed",
+      cover_error: "The poster could not be read (HTTP 404).",
+    });
+    expect(fake.calls.some((call) => call.url.pathname.endsWith("/thumbnails"))).toBe(false);
+  });
+
+  it("skips a poster Facebook would refuse: WebP, or larger than 10 MB", async () => {
+    for (const bytes of [
+      WEBP,
+      (() => {
+        const large = new Uint8Array(FACEBOOK_THUMBNAIL_LIMITS.maxBytes + 1);
+        large.set(JPEG);
+        return large;
+      })(),
+    ]) {
+      const fake = scriptedFetch();
+      const { adapter } = adapterWith(fake);
+      const { context, posterPath } = posterContext();
+      const videoId = fakeId();
+      scriptUpload(fake, context, videoId);
+      fake.on("GET", posterPath, { raw: { bytes, type: "image/webp" } });
+
+      expect(await adapter.publish(context)).toMatchObject({ pending: true, externalId: videoId });
+      expect(context.recorded.response).toMatchObject({ cover: "skipped" });
+      expect(fake.calls.some((call) => call.url.pathname.endsWith("/thumbnails"))).toBe(false);
+    }
+  });
+
+  it("keeps the published Reel and sets no cover when the publish stops after the finish", async () => {
+    const fake = scriptedFetch();
+    const { adapter } = adapterWith(fake);
+    const { context } = posterContext();
+    const controller = new AbortController();
+    const stopping = { ...context, signal: controller.signal };
+    const videoId = fakeId();
+    fake
+      .on("POST", reelsPath(context), { body: { video_id: videoId } })
+      .on("POST", uploadPath(videoId), { body: { success: true } })
+      .on("POST", reelsPath(context), () => {
+        controller.abort(new Error("lease lost"));
+        return { body: { success: true } };
+      });
+
+    expect(await adapter.publish(stopping)).toMatchObject({ pending: true, externalId: videoId });
+    expect(fake.calls).toHaveLength(3);
+    expect(context.recorded.response).toMatchObject({ finish: "accepted", cover: "failed" });
   });
 });
 

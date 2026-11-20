@@ -16,6 +16,7 @@ export {
   toGraphRequest,
   UNCONFIGURED_META_PLATFORMS,
 } from "./meta-call";
+export { type PosterRead, PosterReadError, readPoster, sniffImageType } from "./poster";
 export {
   attachedPhotoIds,
   type FacebookFeed,

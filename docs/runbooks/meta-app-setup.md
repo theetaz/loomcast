@@ -62,8 +62,18 @@ In the app dashboard, **Use cases → Add use cases**, and add:
 3. Select these permissions:
    - `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `read_insights`,
      `business_management`
+   - `pages_manage_engagement`, `pages_read_user_content` (Reel covers: Loomcast sets a Reel's
+     poster as its cover through `POST /{video-id}/thumbnails`, which needs both)
    - `instagram_basic`, `instagram_content_publish`, `instagram_manage_insights`
 4. Save, and record the **Configuration ID**. It becomes `META_LOGIN_CONFIG_ID`.
+
+> **Operator note: Facebook Reel covers.** `pages_manage_engagement` and `pages_read_user_content`
+> were added for Reel covers. On an app set up before them, edit the existing configuration
+> (**Facebook Login for Business → Configurations**), add both permissions and save; the
+> Configuration ID stays the same. Then reconnect every Facebook Page channel (**Workspace
+> settings → Channels → Connect**, signing in again) so its Page token carries them. Until both
+> are done, the cover call fails with a permissions error: the Reel still publishes, without its
+> cover, and the attempt records `cover: "failed"`. The channel is not marked for reconnecting.
 
 ## Step 5: redirect URIs
 
