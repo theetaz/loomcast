@@ -53,13 +53,26 @@ export interface GraphClientOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
+/** A file part of a multipart POST. */
+export interface GraphFile {
+  bytes: Uint8Array;
+  /** Its media type, such as `image/jpeg`. */
+  type: string;
+  filename: string;
+}
+
 export interface GraphRequest {
   method?: "GET" | "POST" | "DELETE";
   /** Path after the version, starting with `/`, such as `/me/accounts`. */
   path: string;
   query?: GraphParams;
-  /** Form fields of a POST (`application/x-www-form-urlencoded`). */
+  /** Form fields of a POST (`application/x-www-form-urlencoded`, or text parts with `files`). */
   form?: GraphParams;
+  /**
+   * File parts of a POST, by field name. With any, the POST goes as `multipart/form-data`: the
+   * `form` fields as text parts, then the files.
+   */
+  files?: Readonly<Record<string, GraphFile>>;
   /** The token the call is made with; it also gets an `appsecret_proof`. */
   accessToken?: string | null;
   /** False for the unversioned endpoints, such as the Threads token exchanges. */
@@ -213,7 +226,22 @@ export function createGraphClient(options: GraphClientOptions): GraphClient {
       }
     }
     const init: RequestInit = { method, headers, redirect: "error" };
-    if (method === "POST") {
+    const files = Object.entries(request.files ?? {});
+    if (method === "POST" && files.length > 0) {
+      // `fetch` sets the multipart Content-Type with its boundary.
+      const multipart = new FormData();
+      for (const [key, value] of form) {
+        multipart.append(key, value);
+      }
+      for (const [key, file] of files) {
+        multipart.append(
+          key,
+          new Blob([file.bytes as Uint8Array<ArrayBuffer>], { type: file.type }),
+          file.filename,
+        );
+      }
+      init.body = multipart;
+    } else if (method === "POST") {
       headers.set("Content-Type", "application/x-www-form-urlencoded");
       init.body = form.toString();
     }

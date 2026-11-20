@@ -8,6 +8,7 @@ export {
   type FetchLike,
   type GraphClient,
   type GraphClientOptions,
+  type GraphFile,
   type GraphParams,
   type GraphRequest,
   type GraphResponse,

@@ -210,6 +210,44 @@ describe("graph client", () => {
     expect(seen[1]?.query.has("access_token")).toBe(false);
   });
 
+  it("sends a POST with files as multipart, the form fields as text parts", async () => {
+    const secret = fakeCredential("secret");
+    const token = fakeCredential("token");
+    const seen: SeenRequest[] = [];
+    answer(graph(), "POST", `/${GRAPH_VERSION}/1/thumbnails`, { body: { success: true } }, seen);
+    const { client: graphClient } = client({ appSecret: secret });
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+    const response = await graphClient.request({
+      method: "POST",
+      path: "/1/thumbnails",
+      form: { is_preferred: true },
+      files: { source: { bytes, type: "image/jpeg", filename: "poster.jpg" } },
+      accessToken: token,
+    });
+    expect(response.data).toEqual({ success: true });
+    const [request] = seen;
+    if (request === undefined) {
+      throw new Error("the call was not made");
+    }
+    expect(request.headers.authorization).toBe(`Bearer ${token}`);
+    expect(request.query.get("appsecret_proof")).toBe(appSecretProof(token, secret));
+    const type = request.headers["content-type"] ?? "";
+    expect(type).toMatch(/^multipart\/form-data; boundary=/);
+    const chunks: Buffer[] = [];
+    for await (const chunk of request.body as AsyncIterable<Uint8Array | string>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const parts = await new Response(Buffer.concat(chunks), {
+      headers: { "content-type": type },
+    }).formData();
+    expect(parts.get("is_preferred")).toBe("true");
+    const source = parts.get("source") as File;
+    expect(source.name).toBe("poster.jpg");
+    expect(source.type).toBe("image/jpeg");
+    expect(new Uint8Array(await source.arrayBuffer())).toEqual(bytes);
+    expect(parts.has("access_token")).toBe(false);
+  });
+
   it("builds the Meta client from the platform settings", async () => {
     const app = fakeMetaApp();
     const token = fakeCredential("token");

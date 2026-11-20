@@ -24,6 +24,7 @@ import {
   limitCaption,
   PLACEHOLDERS,
   PLATFORM_CAPTION_LIMITS,
+  type PlatformRequest,
   photoPlaceholder,
   REDACTED,
   redactRequest,
@@ -32,6 +33,7 @@ import {
   X_SEGMENT_BYTES,
   xWeightedLength,
 } from "../src/modules/publisher";
+import { toGraphRequest } from "../src/modules/publisher/adapters/facebook";
 import { testPassword } from "./support";
 
 // Tokens are generated per run; the suite holds no credential-like literals.
@@ -111,6 +113,40 @@ describe("request builders", () => {
       video_id: PLACEHOLDERS.videoId,
       video_state: "PUBLISHED",
       description: input.caption,
+    });
+  });
+
+  it("sends a multipart step only with the bytes of its files", () => {
+    const step: PlatformRequest = {
+      step: "set_thumbnail",
+      method: "POST",
+      api: "graph",
+      path: "/1784140000000/thumbnails",
+      headers: { Authorization: `Bearer ${token}` },
+      bodyEncoding: "multipart",
+      body: { is_preferred: true },
+      files: { source: { url: "https://media.example.test/p/poster.jpg" } },
+    };
+    const signal = new AbortController().signal;
+    expect(() => toGraphRequest(step, token, signal)).toThrow(/bytes of its files/);
+    const source = {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff]),
+      type: "image/jpeg",
+      filename: "poster.jpg",
+    };
+    expect(toGraphRequest(step, token, signal, { source })).toEqual({
+      method: "POST",
+      path: "/1784140000000/thumbnails",
+      query: {},
+      form: { is_preferred: true },
+      files: { source },
+      accessToken: token,
+      signal,
+    });
+    // The plan names the file's link, never its bytes, and redacts like any other step.
+    expect(redactRequest(step as never)).toEqual({
+      ...step,
+      headers: { Authorization: `Bearer ${REDACTED}` },
     });
   });
 

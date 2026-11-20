@@ -27,6 +27,16 @@ export interface RequestFields {
   readonly [key: string]: RequestFieldValue;
 }
 
+/**
+ * A file a `multipart` request uploads, described by where its bytes come from: the sender reads
+ * them from `url` when it sends the request. A plan (and the dry run) shows the link, never the
+ * bytes.
+ */
+export interface RequestFile {
+  /** Public HTTPS link of the file, such as the poster's public copy. */
+  url: string;
+}
+
 /** One HTTP request to a platform. */
 export interface PlatformRequest {
   /** Stable name of the step, such as `create_container`. */
@@ -38,8 +48,13 @@ export interface PlatformRequest {
   query?: Record<string, string>;
   headers?: Record<string, string>;
   body?: RequestFields;
-  /** How `body` is sent. */
-  bodyEncoding?: "json" | "form";
+  /**
+   * How `body` is sent. `multipart` sends `body` as text parts and `files` as file parts
+   * (`multipart/form-data`).
+   */
+  bodyEncoding?: "json" | "form" | "multipart";
+  /** The file parts of a `multipart` request, by field name. */
+  files?: Readonly<Record<string, RequestFile>>;
 }
 
 /**
