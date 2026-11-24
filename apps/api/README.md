@@ -31,8 +31,8 @@ production the repository's `.env` is loaded first; variables already set win.
 | `LOG_LEVEL` | `info` | pino level |
 | `WEB_DIST_DIR` | unset | Built web app to serve in production |
 | `TRUST_PROXY` | `false` | Take the client address from the last `X-Forwarded-For` entry |
-| `S3_ENDPOINT` | required in production | S3 API endpoint: R2 in production, SeaweedFS locally |
-| `S3_REGION` | `auto` | Signing region (R2 expects `auto`) |
+| `S3_ENDPOINT` | required in production | S3 API endpoint: Garage in production, SeaweedFS locally |
+| `S3_REGION` | `auto` | Signing region (for Garage, its `s3_region`) |
 | `S3_FORCE_PATH_STYLE` | `true` | Path-style URLs (`<endpoint>/<bucket>/<key>`) |
 | `S3_BUCKET` | `loomcast-media` | Private bucket for every upload |
 | `S3_PUBLIC_BUCKET` | `loomcast-public` | Public-read bucket served at `PUBLIC_BASE_URL` |

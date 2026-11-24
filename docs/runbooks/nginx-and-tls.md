@@ -5,7 +5,7 @@ existing nginx terminates TLS with a Let's Encrypt certificate and forwards ever
 container on `127.0.0.1:${LOOMCAST_HTTP_PORT}`, which serves the REST api, the event stream
 (`/api/stream`), MCP (`/mcp`), the studio agent bridge (`/bridge/v1`) and the web app on one port.
 Cloudflare proxies the hostname; its side is in [cloudflare.md](cloudflare.md), object storage in
-[r2.md](r2.md).
+[object-storage.md](object-storage.md).
 
 ## Ground rules for the shared host
 

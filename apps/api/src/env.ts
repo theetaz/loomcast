@@ -228,14 +228,14 @@ const EnvSchema = z
      */
     TRUST_PROXY: z.stringbool().default(false),
     /**
-     * S3 API endpoint: Cloudflare R2 in production, SeaweedFS locally. With the two keys, required
+     * S3 API endpoint: self-hosted Garage in production, SeaweedFS locally. With the two keys, required
      * in production; elsewhere all three may be left out, and the endpoints that need object storage
      * answer 503.
      */
     S3_ENDPOINT: z.url({ protocol: /^https?$/ }).optional(),
-    /** Signing region; R2 expects `auto`. */
+    /** Signing region; for Garage, the `s3_region` in its `garage.toml`. */
     S3_REGION: z.string().min(1).default("auto"),
-    /** Path-style URLs (`<endpoint>/<bucket>/<key>`). R2 and SeaweedFS both accept them. */
+    /** Path-style URLs (`<endpoint>/<bucket>/<key>`). Garage and SeaweedFS both accept them. */
     S3_FORCE_PATH_STYLE: z.stringbool().default(true),
     /** Private bucket for every upload. */
     S3_BUCKET: z.string().min(3).max(63).default("loomcast-media"),

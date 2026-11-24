@@ -67,7 +67,7 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * Storage on any S3-compatible service: Cloudflare R2 in production, SeaweedFS locally. The client
+ * Storage on any S3-compatible service: self-hosted Garage in production, SeaweedFS locally. The client
  * sends checksums only where an operation requires them; the default CRC32 trailers of current
  * SDKs are not understood by every S3-compatible store.
  */

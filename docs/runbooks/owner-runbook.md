@@ -189,7 +189,7 @@ leaked. For a leak, revoke first and accept a short outage
 |---|---|---|
 | Encryption key of stored channel credentials | `api.env` `LOOMCAST_ENCRYPTION_KEY*`, password manager | 8.1 |
 | Meta and Threads app secrets (and X client secret) | `api.env`, the platforms' developer dashboards | 8.2 |
-| R2 keys (app and backups) | `api.env` `S3_*`, `backup.env` | 8.3 |
+| Object storage keys (app and backups) | `api.env` `S3_*`, `backup.env` | 8.3 |
 | Database password | `postgres.env`, `api.env` `DATABASE_URL` | 8.4 |
 | MCP tokens | Clients' configuration | 8.5 |
 | Device tokens | `~/.config/loomcast-agent/config.json` on the Mac | 8.6 |
@@ -245,19 +245,19 @@ the app secrets (8.2).
    `needs_reauth`.
 5. Resume publishing.
 
-### 8.3 R2 keys
+### 8.3 Object storage keys
 
-Follow [r2.md](r2.md#rotating-or-revoking-a-key) for the app token (`S3_ACCESS_KEY`,
+Follow [object-storage.md](object-storage.md#rotating-or-revoking-a-key) for the app key (`S3_ACCESS_KEY`,
 `S3_SECRET_KEY` in `api.env`) and [backup-and-restore.md](backup-and-restore.md) for the backups
-token in `backup.env`:
+key in `backup.env`:
 
-1. Create a new token with the same permissions and bucket scope.
+1. Create a new key with the same bucket permissions.
 2. Put the keys in the env file, then `dc up -d --force-recreate --wait api` (or `backup`).
 3. Check: `/readyz` shows `storage: ok`; for backups, `dc exec backup backup.sh once` or the next
    nightly run, and `last-success.json`.
-4. Delete the old token in the Cloudflare dashboard.
+4. Delete the old key (`garage key delete`).
 
-Presigned URLs already handed out stop working when their token is deleted; uploads in progress
+Presigned URLs already handed out stop working when their key is deleted; uploads in progress
 are retried by the web app or the studio agent.
 
 ### 8.4 Database password

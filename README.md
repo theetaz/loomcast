@@ -20,9 +20,9 @@ The platform is used by a few people, so there is no public sign-up. Accounts ar
 | `api` | Auth, scripts, render queue, scheduler, publisher, MCP endpoint, bridge to the studio | VPS |
 | `postgres` | Primary database | VPS |
 | Studio | Renders videos with HyperFrames / Remotion and pushes results through the bridge | Local workstation |
-| Object storage | Finished videos, served publicly for platform ingestion | Cloudflare R2 |
+| Object storage | Uploads and finished videos, served publicly for platform ingestion | Garage (self-hosted S3) on a Hetzner server |
 
-Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs with Docker Compose, and SeaweedFS stands in for Cloudflare R2.
+Production runs at `loomcast.prabhavalabs.com`. Locally, the same stack runs with Docker Compose, and SeaweedFS stands in for Garage.
 
 ## Repository layout
 

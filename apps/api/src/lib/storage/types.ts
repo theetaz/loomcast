@@ -1,10 +1,10 @@
 import type { Readable } from "node:stream";
 
-/** How the API reaches the S3-compatible object store (Cloudflare R2, or SeaweedFS locally). */
+/** How the API reaches the S3-compatible object store (Garage in production, SeaweedFS locally). */
 export interface StorageConfig {
   /** S3 API endpoint, for example `http://127.0.0.1:59000`. */
   endpoint: string;
-  /** Signing region. R2 expects `auto`. */
+  /** Signing region; for Garage, the `s3_region` in its `garage.toml`. */
   region: string;
   /** Path-style URLs (`<endpoint>/<bucket>/<key>`) instead of `<bucket>.<host>`. */
   forcePathStyle: boolean;

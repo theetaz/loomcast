@@ -2,7 +2,9 @@
 
 The `backup` service in `infra/compose/compose.prod.yml` takes a nightly dump of the Loomcast
 database, keeps rotated copies on the server, and uploads an encrypted copy to the private
-`loomcast-backups` bucket on Cloudflare R2. `restore.sh` restores a backup into a scratch
+`loomcast-backups` bucket in the object store named in `backup.env` (see
+[object-storage.md](object-storage.md#checked-on-the-server-2026-11-24): it must be on another machine to count as
+off-site). `restore.sh` restores a backup into a scratch
 database or, deliberately, into production. `infra/backup/test/drill.sh` proves the whole cycle
 on a development machine.
 
@@ -14,7 +16,7 @@ into git.
 | Item | Where | Notes |
 |---|---|---|
 | Image | `ghcr.io/theetaz/loomcast-backup:<tag>` | Built from `infra/backup/` on `postgres:18-alpine`, the major version of the host's shared Postgres (`platform-postgres`), so `pg_dump` is never older than the server. Adds the S3 command line client, `age`, `jq` and `curl`. Runs as uid 70. |
-| Service | `backup` in the `loomcast` compose project | 128 MiB memory cap (no swap), half a CPU, 64 processes, read-only root filesystem, 32 MiB `/tmp`, no capabilities, `no-new-privileges`. Networks: `backend` (postgres) and `egress` (R2 and the alert webhook). |
+| Service | `backup` in the `loomcast` compose project | 128 MiB memory cap (no swap), half a CPU, 64 processes, read-only root filesystem, 32 MiB `/tmp`, no capabilities, `no-new-privileges`. Networks: `backend` (postgres) and `egress` (object storage and the alert webhook). |
 | Local backups | `/opt/loomcast/backups` on the host, `/backups` in the container | `daily/` and `weekly/` hold `loomcast-<UTC stamp>.dump` plus `.sha256`; `last-success.json` and `last-failure.json` describe the latest run. |
 | Off-site copies | `s3://loomcast-backups/daily/` and `weekly/` | `loomcast-<stamp>.dump.age` plus `.age.sha256`. Removed after 90 days by the bucket's lifecycle rule, never by the script. |
 | Settings | `/opt/loomcast/env/backup.env` (mode 0600) | Template: `infra/compose/env/backup.env.example`. The database user, name and password come from `postgres.env`, which the service also reads. |
@@ -63,9 +65,9 @@ Only one backup runs at a time (a lock file in `/backups`); a second one fails a
 | `BACKUP_KEEP_WEEKLY` | `8` | Weekly backups kept on the server |
 | `BACKUP_WEEKLY_DAY` | `7` | ISO weekday of the weekly copy (1 Monday … 7 Sunday) |
 | `BACKUP_UPLOAD` | `auto` (template: `true`) | `true`: upload, and fail the run if the upload fails. `false`: server only. `auto`: upload when `BACKUP_S3_ENDPOINT` is set |
-| `BACKUP_S3_ENDPOINT` | — | `https://<account id>.r2.cloudflarestorage.com` |
+| `BACKUP_S3_ENDPOINT` | — | S3 API endpoint of the store holding `loomcast-backups` |
 | `BACKUP_S3_BUCKET` | `loomcast-backups` | Bucket for off-site copies |
-| `BACKUP_S3_REGION` | `auto` | Region for request signing (R2 uses `auto`) |
+| `BACKUP_S3_REGION` | `auto` | Region for request signing (Garage: its `s3_region`) |
 | `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | — | The scoped backups token (secret) |
 | `BACKUP_AGE_RECIPIENT` | — | age public key(s), comma-separated. Empty uploads unencrypted (a warning is logged) |
 | `ALERT_WEBHOOK_URL` | — | Called on a failed backup (secret) |
@@ -78,11 +80,12 @@ Only one backup runs at a time (a lock file in `/backups`); a second one fails a
 
 ### 1. Owner checkpoint: the backups bucket and its token
 
-Follow the R2 runbook to create the private `loomcast-backups` bucket with a 90-day lifecycle
-rule. Then create an R2 API token with **Object Read & Write** on **that bucket only** (not the
-media buckets, no admin rights). Note the access key ID, the secret access key and the account's
-S3 endpoint. Read access is needed for restores and for the size check after each upload; the
-token never needs delete rights because the lifecycle rule expires old objects.
+Create the private `loomcast-backups` bucket with a 90-day expiry rule, on a store that is not on
+the database server ([object-storage.md](object-storage.md)). Then create a key with **read and
+write** on **that bucket only** (not the media buckets, no admin rights). Note the access key ID,
+the secret access key and the store's S3 endpoint. Read access is needed for restores and for the
+size check after each upload; the key never needs delete rights because the expiry rule removes
+old objects.
 
 ### 2. Owner checkpoint: the age key pair
 
@@ -148,7 +151,7 @@ df -h /opt/loomcast/backups
 |---|---|---|
 | `pg_dump failed: … password authentication failed` | `postgres.env` and the database disagree | Update the password in `postgres.env` (see the compose README) |
 | `BACKUP_DIR '/backups' is not writable by uid 70` | Directory owner | `chown 70:70 /opt/loomcast/backups` |
-| `upload of … failed`, `could not read back …` | Token, endpoint or bucket wrong, or R2 unreachable | Check `backup.env`; the local backup is kept, rerun `backup.sh once` |
+| `upload of … failed`, `could not read back …` | Key, endpoint or bucket wrong, or the store unreachable | Check `backup.env`; the local backup is kept, rerun `backup.sh once` |
 | `another backup is running` | A manual run overlapped the schedule | Wait for it; nothing to fix |
 | Container restarts with exit 137 | Memory cap | Check `dc logs backup`; the upload concurrency is already low, so report it |
 
@@ -284,8 +287,8 @@ quarter, a restore from the bucket with the identity file. Record the date and t
 
 ## Owner checkpoints
 
-- [ ] R2: private `loomcast-backups` bucket with a 90-day lifecycle rule.
-- [ ] R2: API token with Object Read & Write on `loomcast-backups` only; values in
+- [ ] Storage: private `loomcast-backups` bucket with a 90-day expiry rule, off the database server.
+- [ ] Storage: key with read and write on `loomcast-backups` only; values in
   `/opt/loomcast/env/backup.env`.
 - [ ] age key pair generated off the server; identity in the password manager; public key in
   `BACKUP_AGE_RECIPIENT`.
