@@ -17,7 +17,7 @@ npm-debug.log*
 pnpm-debug.log*
 
 # ---------------------------------------------------------------------------
-# Video studio output and media (rendered locally, published via R2)
+# Video studio output and media (rendered locally, published through object storage)
 # ---------------------------------------------------------------------------
 studio/video-projects/
 studio/renders/

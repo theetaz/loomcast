@@ -27,7 +27,7 @@ Beautiful.
         └───────────────┘                │ Workstation                        │
                                          │ studio agent (daemon and CLI)      │
  Object storage (S3 API):                │   job allow-list → producer        │
- Cloudflare R2 in production,            │   sessions in ~/Loomcast/projects/ │
+ Garage (self-hosted) in production,     │   sessions in ~/Loomcast/projects/ │
  SeaweedFS locally                       │   studio/ rendering workspace      │
                                          └────────────────────────────────────┘
 ```

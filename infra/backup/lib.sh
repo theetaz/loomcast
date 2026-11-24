@@ -114,7 +114,7 @@ write_atomic() {
   chmod "$mode" "$target.tmp" && mv -f "$target.tmp" "$target"
 }
 
-# Object storage (Cloudflare R2 in production; any S3 API works). The scoped credentials come
+# Object storage (any S3 API works). The scoped credentials come
 # from BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY and are handed to the CLI through
 # its environment only.
 s3_env() {

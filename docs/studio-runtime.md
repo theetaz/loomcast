@@ -157,5 +157,5 @@ media in place of voice takes and renders.
 | A render fails with `render_tools_missing` | ffmpeg, ffprobe, the pinned HyperFrames CLI, GSAP or the render browser is missing. Run `hyperframes doctor` and `hyperframes browser path` as above, and `pnpm install` |
 | A render fails with `frame_too_long`, `frame_too_short` or `beyond_voice` | The storyboard does not fit its cards or the voice after re-timing. Request changes (or revise the storyboard) and render again |
 | The render's ffprobe check fails | The output is not 1080×1920 or does not match the voice length. Keep the smoke output (`--keep`) and inspect `render/` |
-| Upload fails with `transfer_failed` | The object store refused the PUT or could not be reached. Locally, check `pnpm stack:up`; in production, the R2 endpoint and its CORS rules |
+| Upload fails with `transfer_failed` | The object store refused the PUT or could not be reached. Locally, check `pnpm stack:up`; in production, the Garage endpoint and its CORS rule ([object storage](runbooks/object-storage.md)) |
 | Voice and render jobs stay queued while the device is online | The agent advertises a job type only when its handler loads, and these load the studio runtime. Check the agent's log, `LOOMCAST_STUDIO_ROOT` and `pnpm install` |

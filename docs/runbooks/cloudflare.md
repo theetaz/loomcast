@@ -1,8 +1,8 @@
 # Cloudflare for loomcast.prabhavalabs.com
 
 The `prabhavalabs.com` zone serves other production applications. Everything Loomcast needs is
-scoped to the hostname `loomcast.prabhavalabs.com` (and, for media, the public bucket's hostname in
-[r2.md](r2.md)):
+scoped to the hostname `loomcast.prabhavalabs.com` (the public media hostname, `loomcast-media.prabhavalabs.com`, is served straight from the storage
+server; see [object-storage.md](object-storage.md)):
 
 - **Never change zone-wide settings for Loomcast**: not the SSL/TLS encryption mode, Always Use
   HTTPS, the minimum TLS version, WAF or bot settings. Where Loomcast needs something different,
@@ -29,7 +29,7 @@ go-live and run only after the owner's go-ahead.
 | First certificate | HTTP-01 with the record DNS only, then proxied; or DNS-01 with a scoped API token | HTTP-01: no Cloudflare token on the server |
 | Bot Fight Mode (Security → Bots), if on for the zone | Leave, or accept that it may challenge the studio agent and MCP clients | Read the current state; see [Bots](#bots-and-non-browser-clients) |
 
-The public media hostname is decided in [r2.md](r2.md#owner-decisions-c4).
+The public media hostname is `loomcast-media.prabhavalabs.com` ([object-storage.md](object-storage.md#public-bucket)).
 
 ## 1. Read the current settings (C2)
 

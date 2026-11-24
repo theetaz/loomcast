@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 20
 
-  # Local stand-in for Cloudflare R2: S3 API served by SeaweedFS (master, volume, filer and S3 in one process).
+  # Local stand-in for the production Garage store: S3 API served by SeaweedFS (master, volume, filer and S3 in one process).
   s3:
     image: chrislusf/seaweedfs:4.48
     restart: unless-stopped

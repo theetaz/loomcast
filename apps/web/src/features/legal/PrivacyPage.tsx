@@ -115,12 +115,11 @@ export function PrivacyPage() {
       <LegalSection id="where-it-is-stored" title="Where it is stored and who handles it">
         <ul>
           <li>
-            <strong>Hetzner Online</strong> hosts the Loomcast server and its database in a data
-            centre in Nuremberg, Germany.
+            <strong>Hetzner Online</strong> hosts the Loomcast server, its database and the object
+            storage that holds videos and thumbnails, in data centres in Nuremberg, Germany.
           </li>
           <li>
-            <strong>Cloudflare</strong> stores videos, thumbnails and encrypted database backups in
-            its R2 object storage, and carries network traffic to the site.
+            <strong>Cloudflare</strong> carries network traffic to the site.
           </li>
           <li>
             <strong>Meta and X</strong> receive the posts you publish to their platforms and return

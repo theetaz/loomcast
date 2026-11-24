@@ -124,7 +124,7 @@ pnpm stack:down
 ```
 
 - Postgres 17 listens on `127.0.0.1:55434` with user and database `loomcast`. The `pgcrypto` and `pg_trgm` extensions are created on first start.
-- SeaweedFS provides the S3 API on `127.0.0.1:59000`. It stands in for Cloudflare R2 locally.
+- SeaweedFS provides the S3 API on `127.0.0.1:59000`. It stands in for the production Garage store locally.
 - The `s3-init` service creates the private `loomcast-media` bucket if it is missing, lists buckets and exits. It is safe to re-run with `docker compose run --rm s3-init`.
 - The S3 credentials in `infra/seaweedfs/s3.json` are for local development only. They match the values in `.env.example`.
 - Tests create their own databases through `TEST_DATABASE_ADMIN_URL`.

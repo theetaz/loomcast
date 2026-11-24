@@ -10,7 +10,7 @@ in [runbooks/incident-response.md](runbooks/incident-response.md).
 
 ```
 browser ──HTTPS──▶ Cloudflare ──HTTPS (origin pull)──▶ host nginx ──▶ 127.0.0.1:<port> api container ──▶ postgres (internal network)
-studio agent (Mac) ──WebSocket /bridge/v1, POST /api/bridge/pair──┘                               └──▶ R2, Meta, Threads, alert webhook (egress network)
+studio agent (Mac) ──WebSocket /bridge/v1, POST /api/bridge/pair──┘                               └──▶ object storage, Meta, Threads, alert webhook (egress network)
 producer session (Mac) ──POST /mcp (job token)──┘
 ```
 

@@ -132,7 +132,7 @@ Treat every secret in it as leaked.
 
 1. Pause publishing.
 2. Rotate, in this order: the encryption key, the platform tokens (disconnect and reconnect every
-   channel) and app secrets, the database password, the R2 keys, the alert webhook
+   channel) and app secrets, the database password, the object storage keys, the alert webhook
    ([owner-runbook.md](owner-runbook.md#8-rotating-secrets)).
 3. A database dump also holds password hashes and token hashes: reset every member's password
    and revoke every MCP token and device, then pair the devices again.

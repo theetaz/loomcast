@@ -222,7 +222,7 @@ Set `LOG_LEVEL=debug` in `api.env` only while investigating, then put it back to
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `/readyz`: `database` error | Postgres down or restarting, or the pool exhausted | `docker compose -p loomcast ps`, `logs postgres`; the api reconnects by itself once Postgres is healthy |
-| `/readyz`: `storage` error | R2 unreachable, token revoked or expired, bucket renamed | The detail on the ops status (`HEAD bucket ... failed: <name> (http <status>)`); `403` means the token, `404` the bucket name in `S3_BUCKET`. See [r2.md](r2.md) |
+| `/readyz`: `storage` error | Storage server unreachable, key revoked, bucket renamed | The detail on the ops status (`HEAD bucket ... failed: <name> (http <status>)`); `403` means the key, `404` the bucket name in `S3_BUCKET`. See [object-storage.md](object-storage.md) |
 | `/readyz`: `scheduler` error | No good tick for over a minute, usually database trouble | `scheduler.lastTickError` on the ops status and the api logs; it recovers on the next good tick |
 | Deploy rolled back because `/readyz` stayed red | One of the above in the new release's environment | `deploy.sh status`, then the api logs of the failed start |
 | Uptime issue opened but the site works | A short outage during a restart, or GitHub's runner could not reach Cloudflare | The issue closes itself on the next green run; check the run log |
