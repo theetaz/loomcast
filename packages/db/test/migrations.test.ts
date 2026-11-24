@@ -23,6 +23,7 @@ const TABLES = [
   "competitor_scans",
   "competitors",
   "content_items",
+  "content_progress",
   "content_versions",
   "conversations",
   "devices",

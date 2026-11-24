@@ -211,6 +211,24 @@ the `vertical-explainer` recipe in `studio/skills/`.
 A format may name a recipe (`rules.recipe`) to guide its producer steps. The MCP tools are
 documented in [mcp.md](mcp.md).
 
+## Production progress
+
+Content made outside Loomcast, such as Content Machine's reels, is produced on the owner's Mac
+rather than by the studio agent. The producer reports each item's progress with the MCP tool
+`progress.report` ([MCP server](mcp.md#progress-tools)): ten steps from idea to published, the
+skill and tool behind each step, check results and a preview. The workspace's **Production** page
+shows every reported item as a card in the column of its stage, and the item page shows the steps.
+
+- Progress never changes an item's state or versions; review, approval and scheduling work as
+  above.
+- A card sits under the first failed or running step, else under the furthest step that is
+  done: an idea under Idea, a scheduled post under Scheduled. It is marked when a step failed,
+  and when the producer guessed the steps from its files (`inferred`).
+- Reports carry a revision that only goes up, so a late or repeated report never replaces a
+  newer one.
+- The data lives in `content_progress`, one row per item, and `content.progress.updated` keeps
+  open pages current.
+
 ## Checking it
 
 `pnpm test:e2e` runs this whole flow with the fake studio agent (`tests/e2e/specs/pipeline.spec.ts`):

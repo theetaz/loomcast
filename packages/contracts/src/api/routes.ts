@@ -2,6 +2,7 @@ import { z } from "zod";
 import { IdSchema } from "../common";
 import { type OAuthProvider, OAuthProviderSchema } from "../enums";
 import { PostFormatsOutputSchema } from "../mcp/post-tools";
+import { ContentProgressSchema } from "../pipeline/progress";
 import { SkillNameSchema } from "../pipeline/skills";
 import {
   AnalyticsOverviewQuerySchema,
@@ -730,6 +731,24 @@ export const routes = {
     auth: "session",
     params: IdParamsSchema,
     response: ContentItemDetailSchema,
+    status: 200,
+  }),
+  /** The production progress reported for an item; 404 when none was reported. */
+  "progress.get": route({
+    method: "GET",
+    path: "/api/content/:id/progress",
+    auth: "session",
+    params: IdParamsSchema,
+    response: ContentProgressSchema,
+    status: 200,
+  }),
+  /** Every item of the workspace with reported progress, most recently updated first. */
+  "progress.list": route({
+    method: "GET",
+    path: "/api/workspaces/:workspaceId/progress",
+    auth: "session",
+    params: WorkspaceIdParamsSchema,
+    response: listSchema(ContentProgressSchema),
     status: 200,
   }),
   "content.update": route({

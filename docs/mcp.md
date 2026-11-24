@@ -345,6 +345,22 @@ The usual flows:
 4. **Facebook text or link post**: `post.create` with `format: "text"` and the caption, then
    `post.schedule` on Facebook channels with `options: {facebook: {link}}` for a link card.
 
+## Progress tools
+
+A producer that makes content outside Loomcast, such as Content Machine on the owner's Mac, reports
+how each item is being made, so the workspace's **Production** page can show it. Progress sits
+beside an item and never changes its pipeline state ([pipeline guide](pipeline.md#production-progress)).
+
+- **`progress.report`** (`mcp:write`, no job tokens) stores up to 50 items of one workspace. Each
+  report carries the item's ten steps (`idea`, `research`, `script`, `voice`, `visuals`, `render`,
+  `checks`, `ready`, `scheduled`, `published`; each `pending`, `active`, `done`, `failed` or
+  `skipped`, with the skill and tool used, times, a note and an error), its checks, an optional
+  preview (a ready asset of the item, uploaded first with `content.upload_asset`), the producer's
+  path and a `revision`. A report replaces what is stored only when its revision is higher; each
+  item comes back `stored`, `unchanged`, `stale`, `not_found` or `invalid_preview`.
+- **`progress.get`** and **`progress.list`** read one item's progress or every item of a workspace,
+  with the item's `stage` (the first failed or running step, else the furthest done) and `health` (`idle`, `active`, `failed` or `done`).
+
 ## Research tools
 
 Research keeps competitors' accounts and videos per workspace, with their numbers over time, so a
@@ -1626,6 +1642,119 @@ Owner only. Schedule an item on one or more channels at one time, at least two m
 | `posts[].item.posterAssetId` | string (uuid) \| null | yes |  |
 | `posts[].createdAt` | string (date-time) | yes |  |
 | `posts[].updatedAt` | string (date-time) | yes |  |
+
+### `progress.get`
+
+The production progress reported for one item (from progress.report), or null when none was reported.
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Workspace binding:** the input names the workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspace` | string | yes | 1 to 64 characters; The workspace's id or slug, as workspace.list shows it. |
+| `itemId` | string (uuid) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `progress` | object \| null | yes |  |
+
+### `progress.list`
+
+Every item of a workspace with reported production progress, most recently updated first, with each item's stage (the first failed or running step, else the furthest one done) and health (idle, active, failed or done).
+
+- **Scope:** `mcp:read`
+- **Job tokens:** allowed
+- **Workspace binding:** the input names the workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspace` | string | yes | 1 to 64 characters; The workspace's id or slug, as workspace.list shows it. |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `items` | object[] | yes |  |
+| `items[].itemId` | string (uuid) | yes |  |
+| `items[].workspaceId` | string (uuid) | yes |  |
+| `items[].title` | string | yes |  |
+| `items[].itemState` | "idea" \| "script" \| "storyboard" \| "voice" \| "render" \| "review" \| "approved" \| "scheduled" \| "published" \| "archived" | yes |  |
+| `items[].source` | string | yes |  |
+| `items[].path` | string | yes |  |
+| `items[].style` | string \| null | yes |  |
+| `items[].steps` | object[] | yes |  |
+| `items[].steps[].key` | "idea" \| "research" \| "script" \| "voice" \| "visuals" \| "render" \| "checks" \| "ready" \| "scheduled" \| "published" | yes |  |
+| `items[].steps[].status` | "pending" \| "active" \| "done" \| "failed" \| "skipped" | yes |  |
+| `items[].steps[].skill` | string \| null | yes | 1 to 80 characters |
+| `items[].steps[].tool` | string \| null | yes | 1 to 80 characters |
+| `items[].steps[].startedAt` | string (date-time) \| null | yes |  |
+| `items[].steps[].finishedAt` | string (date-time) \| null | yes |  |
+| `items[].steps[].note` | string \| null | yes | 1 to 500 characters |
+| `items[].steps[].error` | string \| null | yes | 1 to 1000 characters |
+| `items[].checks` | object[] | yes |  |
+| `items[].checks[].name` | string | yes | 1 to 80 characters |
+| `items[].checks[].status` | "pass" \| "warn" \| "fail" | yes |  |
+| `items[].checks[].detail` | string \| null | yes | 1 to 500 characters |
+| `items[].previewAssetId` | string (uuid) \| null | yes |  |
+| `items[].revision` | integer | yes | at least 0 |
+| `items[].inferred` | boolean | yes |  |
+| `items[].stage` | "idea" \| "research" \| "script" \| "voice" \| "visuals" \| "render" \| "checks" \| "ready" \| "scheduled" \| "published" | yes |  |
+| `items[].health` | "idle" \| "active" \| "failed" \| "done" | yes |  |
+| `items[].reportedAt` | string (date-time) | yes |  |
+| `items[].updatedAt` | string (date-time) | yes |  |
+
+### `progress.report`
+
+Report how up to 50 items of a workspace are being made outside Loomcast (for example by Content Machine): each item's steps (idea, research, script, voice, visuals, render, checks, ready, scheduled, published; each pending, active, done, failed or skipped, with the skill and tool used), its checks, a preview asset and the producer's path. A report replaces the item's stored progress only when its revision is higher; never changes the item's pipeline state. Upload a preview first with content.upload_asset (kind poster or render).
+
+- **Scope:** `mcp:write`
+- **Job tokens:** not allowed
+- **Workspace binding:** the input names the workspace
+
+**Input**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `workspace` | string | yes | 1 to 64 characters; The workspace's id or slug, as workspace.list shows it. |
+| `items` | object[] | yes | at least 1 items; at most 50 items |
+| `items[].itemId` | string (uuid) | yes |  |
+| `items[].source` | string | yes | 1 to 40 characters |
+| `items[].path` | string | yes | 1 to 300 characters |
+| `items[].style` | string \| null | no | 1 to 80 characters |
+| `items[].steps` | object[] | yes | at most 10 items |
+| `items[].steps[].key` | "idea" \| "research" \| "script" \| "voice" \| "visuals" \| "render" \| "checks" \| "ready" \| "scheduled" \| "published" | yes |  |
+| `items[].steps[].status` | "pending" \| "active" \| "done" \| "failed" \| "skipped" | yes |  |
+| `items[].steps[].skill` | string \| null | no | 1 to 80 characters |
+| `items[].steps[].tool` | string \| null | no | 1 to 80 characters |
+| `items[].steps[].startedAt` | string (date-time) \| null | no |  |
+| `items[].steps[].finishedAt` | string (date-time) \| null | no |  |
+| `items[].steps[].note` | string \| null | no | 1 to 500 characters |
+| `items[].steps[].error` | string \| null | no | 1 to 1000 characters |
+| `items[].checks` | object[] | no | at most 50 items |
+| `items[].checks[].name` | string | yes | 1 to 80 characters |
+| `items[].checks[].status` | "pass" \| "warn" \| "fail" | yes |  |
+| `items[].checks[].detail` | string \| null | no | 1 to 500 characters |
+| `items[].previewAssetId` | string (uuid) \| null | no |  |
+| `items[].revision` | integer | yes | at least 0 |
+| `items[].inferred` | boolean | no |  |
+| `items[].reportedAt` | string (date-time) | yes |  |
+
+**Output** (`structuredContent`)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `results` | object[] | yes |  |
+| `results[].itemId` | string (uuid) | yes |  |
+| `results[].outcome` | "stored" \| "unchanged" \| "stale" \| "not_found" \| "invalid_preview" | yes |  |
+| `results[].revision` | integer \| null | yes | at least 0 |
 
 ### `project.create`
 

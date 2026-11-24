@@ -13,6 +13,7 @@ import { SkillVersionSummarySchema } from "./api/skills";
 import { WorkspaceSchema } from "./api/workspaces";
 import { IdSchema, TimestampSchema } from "./common";
 import { PlatformSchema } from "./enums";
+import { ContentProgressSchema } from "./pipeline/progress";
 
 /** Server-sent events endpoint. Each event's `data` is one JSON-encoded `LiveEvent`. */
 export const LIVE_STREAM_PATH = "/api/stream";
@@ -70,6 +71,8 @@ export const LiveEventSchema = z.discriminatedUnion("type", [
     "content.version.created",
     z.object({ workspaceId: IdSchema, version: ContentVersionSummarySchema }),
   ),
+  /** An item's production progress was reported (`progress.report`). */
+  liveEvent("content.progress.updated", z.object({ progress: ContentProgressSchema })),
   /** An asset was created, finalized or failed verification. */
   liveEvent("asset.updated", z.object({ asset: AssetSchema })),
   liveEvent("review.created", z.object({ workspaceId: IdSchema, review: ReviewSchema })),

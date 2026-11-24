@@ -6,6 +6,7 @@ import { kbTools } from "./kb-tools";
 import { ownerTools } from "./owner-tools";
 import { pipelineTools } from "./pipeline-tools";
 import { postTools } from "./post-tools";
+import { progressTools } from "./progress-tools";
 import { researchTools } from "./research-tools";
 import { workspaceTools } from "./workspace-tools";
 
@@ -18,6 +19,7 @@ export const mcpTools = {
   ...calendarTools,
   ...ownerTools,
   ...postTools,
+  ...progressTools,
   ...researchTools,
   ...analyticsTools,
 } as const satisfies Record<string, McpToolContract>;
