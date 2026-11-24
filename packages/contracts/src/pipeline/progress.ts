@@ -109,7 +109,7 @@ export const ProgressReportSchema = z.object({
 export type ProgressReport = z.infer<typeof ProgressReportSchema>;
 export type ProgressReportInput = z.input<typeof ProgressReportSchema>;
 
-/** Where an item's card sits: the first step still to do, or the last one when all are done. */
+/** How an item's production is going; see `progressStage`. */
 export const ProgressHealthSchema = z.enum(["idle", "active", "failed", "done"]);
 export type ProgressHealth = z.infer<typeof ProgressHealthSchema>;
 
@@ -156,8 +156,9 @@ const settled = (status: ProgressStepStatus) => status === "done" || status === 
 
 /**
  * The step an item's card sits under and how it is going. The stage is the first failed or active
- * step, else the first pending one, else the last step. The health is `failed` when any step
- * failed, `active` when one is running, `done` when every step is done or skipped, else `idle`.
+ * step, else the furthest step that is done (an item with nothing done sits under `idea`). The
+ * health is `failed` when any step failed, `active` when one is running, `done` when every step is
+ * done or skipped, else `idle`.
  */
 export function progressStage(steps: readonly ProgressStep[]): {
   stage: ProgressStepKey;
@@ -167,7 +168,8 @@ export function progressStage(steps: readonly ProgressStep[]): {
   const failed = all.find((step) => step.status === "failed");
   const active = all.find((step) => step.status === "active");
   const pending = all.find((step) => !settled(step.status));
-  const stage = (failed ?? active ?? pending)?.key ?? "published";
+  const furthest = all.findLast((step) => step.status === "done");
+  const stage = (failed ?? active ?? furthest)?.key ?? "idea";
   const health: ProgressHealth = failed ? "failed" : active ? "active" : pending ? "idle" : "done";
   return { stage, health };
 }

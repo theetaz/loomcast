@@ -246,7 +246,7 @@ describe("progress MCP tools", () => {
 
     const listed = await reader.callTool({ name: "progress.list", arguments: { workspace } });
     const items = ProgressListOutputSchema.parse(listed.structuredContent).items;
-    expect(items.map((item) => [item.itemId, item.stage])).toEqual([[itemId, "research"]]);
+    expect(items.map((item) => [item.itemId, item.stage])).toEqual([[itemId, "idea"]]);
   });
 
   it("refuses a report from a read-only token or a job token", async () => {

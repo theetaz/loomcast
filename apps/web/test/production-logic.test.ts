@@ -41,7 +41,7 @@ const step = (key: "idea" | "research" | "script", status: "done" | "active" | "
 });
 
 describe("production board", () => {
-  it("puts each item under the step it is on and keeps every column", () => {
+  it("puts each item under its running or failed step, else its furthest done step", () => {
     const columns = groupByStage([
       progress("a", "build-ladder", [step("idea", "done")]),
       progress("b", "build-ladder", [step("idea", "done"), step("research", "failed")]),
@@ -52,10 +52,8 @@ describe("production board", () => {
       ]),
     ]);
     expect(columns).toHaveLength(10);
-    expect(columns.find((c) => c.key === "research")?.items.map((i) => i.itemId)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(columns.find((c) => c.key === "idea")?.items.map((i) => i.itemId)).toEqual(["a"]);
+    expect(columns.find((c) => c.key === "research")?.items.map((i) => i.itemId)).toEqual(["b"]);
     expect(columns.find((c) => c.key === "script")?.items.map((i) => i.itemId)).toEqual(["c"]);
   });
 

@@ -221,9 +221,9 @@ shows every reported item as a card in the column of its stage, and the item pag
 
 - Progress never changes an item's state or versions; review, approval and scheduling work as
   above.
-- The stage is the first failed or running step, else the first step still to do. A card is
-  marked when a step failed, and when the producer guessed the steps from its files
-  (`inferred`).
+- A card sits under the first failed or running step, else under the furthest step that is
+  done: an idea under Idea, a scheduled post under Scheduled. It is marked when a step failed,
+  and when the producer guessed the steps from its files (`inferred`).
 - Reports carry a revision that only goes up, so a late or repeated report never replaces a
   newer one.
 - The data lives in `content_progress`, one row per item, and `content.progress.updated` keeps

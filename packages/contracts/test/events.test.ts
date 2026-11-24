@@ -89,7 +89,7 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
         previewAssetId: null,
         revision: 1,
         inferred: false,
-        stage: "research",
+        stage: "idea",
         health: "idle",
         reportedAt: at,
         updatedAt: at,

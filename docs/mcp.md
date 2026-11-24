@@ -359,7 +359,7 @@ beside an item and never changes its pipeline state ([pipeline guide](pipeline.m
   path and a `revision`. A report replaces what is stored only when its revision is higher; each
   item comes back `stored`, `unchanged`, `stale`, `not_found` or `invalid_preview`.
 - **`progress.get`** and **`progress.list`** read one item's progress or every item of a workspace,
-  with the item's `stage` (the step it is on) and `health` (`idle`, `active`, `failed` or `done`).
+  with the item's `stage` (the first failed or running step, else the furthest done) and `health` (`idle`, `active`, `failed` or `done`).
 
 ## Research tools
 
@@ -1666,7 +1666,7 @@ The production progress reported for one item (from progress.report), or null wh
 
 ### `progress.list`
 
-Every item of a workspace with reported production progress, most recently updated first, with each item's stage (the step it is on) and health (idle, active, failed or done).
+Every item of a workspace with reported production progress, most recently updated first, with each item's stage (the first failed or running step, else the furthest one done) and health (idle, active, failed or done).
 
 - **Scope:** `mcp:read`
 - **Job tokens:** allowed

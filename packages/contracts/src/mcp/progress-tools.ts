@@ -74,7 +74,7 @@ export const progressTools = {
     jobTokens: "allow",
     workspaceBinding: "input",
     description:
-      "Every item of a workspace with reported production progress, most recently updated first, with each item's stage (the step it is on) and health (idle, active, failed or done).",
+      "Every item of a workspace with reported production progress, most recently updated first, with each item's stage (the first failed or running step, else the furthest one done) and health (idle, active, failed or done).",
     input: ProgressListInputSchema,
     output: ProgressListOutputSchema,
   },
