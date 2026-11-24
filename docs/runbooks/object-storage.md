@@ -20,19 +20,23 @@ storage keys.
 
 Keys and secrets never go into this repository, a chat, an issue or shell history.
 
-## Not yet confirmed
+## Checked on the server (2026-11-24)
 
-These were not checked when this page was corrected (2026-11-24). Confirm them on the storage
-server and update this page:
+- **Garage** v2.5.0 runs in the Docker container `platform-garage`, shared with other projects
+  on the same server. Its config is `/opt/platform/garage/garage.toml` (`s3_region = "garage"`),
+  and its data and metadata are in `/opt/platform/garage/{data,meta}` **on the server's root
+  disk** (150 GB, 63% used, about 55 GB free).
+- **Loomcast's use**: `loomcast-media` 7.4 GB in 1 793 objects; `loomcast-public` (also aliased
+  `loomcast-media.prabhavalabs.com`, website access on) 1.7 GB in 346 objects;
+  `loomcast-backups` empty.
+- **Backups are not off-site and not encrypted.** `backup.env` has `BACKUP_UPLOAD=false`, so the
+  nightly dumps stay in `/opt/loomcast/backups` on the database server (28 daily copies, 60 MB),
+  and `last-success.json` reports `"encrypted": false`. Losing the server loses the database,
+  its backups and every stored file together. Fix: an off-site bucket on another provider, the
+  age key pair, then `BACKUP_UPLOAD=true` ([backup-and-restore.md](backup-and-restore.md)).
 
-- [ ] **Where backups go.** `BACKUP_S3_ENDPOINT` in `/opt/loomcast/env/backup.env` names the
-  store. If it is the same Garage server, or the same machine as the database, the backups are
-  not off-site: losing that server loses both. Keep them on a second machine or provider.
-- [ ] Whether `loomcast-public` and `loomcast-backups` have the expiry rules below.
-- [ ] The CORS rule on `loomcast-media`.
-- [ ] Disk use: `garage bucket info <bucket>` for each bucket and `df -h` for the data disk.
-- [ ] How Garage runs (systemd or Docker) and where `garage.toml` lives, so the commands below
-  can be prefixed correctly.
+Not checked yet: the expiry rules on `loomcast-public` and `loomcast-backups`, and the CORS rule
+on `loomcast-media`.
 
 ## Api settings
 
@@ -51,10 +55,11 @@ Restart the api after a change: `dc up -d --force-recreate --wait api`.
 
 ## Inspecting the store
 
-Run on the storage server (prefix with `docker exec <container>` if Garage runs in Docker):
+Run on the storage server:
 
 ```bash
-garage status                        # nodes and their state
+garage() { docker exec platform-garage /garage "$@"; }
+garage status                        # nodes, capacity and free space
 garage bucket list
 garage bucket info loomcast-media    # size, object count, keys allowed
 garage bucket info loomcast-public

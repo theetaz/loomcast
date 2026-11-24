@@ -3,7 +3,7 @@
 The `backup` service in `infra/compose/compose.prod.yml` takes a nightly dump of the Loomcast
 database, keeps rotated copies on the server, and uploads an encrypted copy to the private
 `loomcast-backups` bucket in the object store named in `backup.env` (see
-[object-storage.md](object-storage.md#not-yet-confirmed): it must be on another machine to count as
+[object-storage.md](object-storage.md#checked-on-the-server-2026-11-24): it must be on another machine to count as
 off-site). `restore.sh` restores a backup into a scratch
 database or, deliberately, into production. `infra/backup/test/drill.sh` proves the whole cycle
 on a development machine.
