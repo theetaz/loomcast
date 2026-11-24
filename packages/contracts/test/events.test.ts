@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type LiveEvent, LiveEventSchema, type LiveEventType, parseLiveEvent } from "../src";
+import {
+  completeSteps,
+  type LiveEvent,
+  LiveEventSchema,
+  type LiveEventType,
+  parseLiveEvent,
+} from "../src";
 import {
   asset,
   at,
@@ -55,6 +61,40 @@ const samples: { [T in LiveEventType]: Extract<LiveEvent, { type: T }> } = {
   "content.version.created": {
     type: "content.version.created",
     payload: { workspaceId: ids.workspace, version: versionSummary },
+  },
+  "content.progress.updated": {
+    type: "content.progress.updated",
+    payload: {
+      progress: {
+        itemId: ids.item,
+        workspaceId: ids.workspace,
+        title: "How a QR code works",
+        itemState: "idea",
+        source: "content-machine",
+        path: "brands/unfolded/content/2026-12-05-qr-code",
+        style: "build-ladder",
+        steps: completeSteps([
+          {
+            key: "idea",
+            status: "done",
+            skill: null,
+            tool: null,
+            startedAt: null,
+            finishedAt: at,
+            note: null,
+            error: null,
+          },
+        ]),
+        checks: [],
+        previewAssetId: null,
+        revision: 1,
+        inferred: false,
+        stage: "research",
+        health: "idle",
+        reportedAt: at,
+        updatedAt: at,
+      },
+    },
   },
   "asset.updated": { type: "asset.updated", payload: { asset } },
   "review.created": { type: "review.created", payload: { workspaceId: ids.workspace, review } },

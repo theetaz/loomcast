@@ -15,6 +15,7 @@ import {
   pipelineTools,
   postFormatCatalog,
   postTools,
+  progressTools,
   researchTools,
   workspaceTools,
 } from "../src";
@@ -46,6 +47,7 @@ describe("mcp tool contracts", () => {
       calendarTools,
       ownerTools,
       postTools,
+      progressTools,
       researchTools,
       analyticsTools,
     ].flatMap((group) => Object.keys(group));
@@ -90,6 +92,8 @@ describe("mcp tool contracts", () => {
       "kb.save_brainstorm",
       "kb.search",
       "post.formats",
+      "progress.get",
+      "progress.list",
       "research.list_accounts",
       "research.list_videos",
       "research.top_topics",
@@ -138,6 +142,8 @@ describe("mcp tool contracts", () => {
     expect(pipelineTools["content.finalize_asset"].scope).toBe("mcp:write");
     expect(pipelineTools["skill.publish"].scope).toBe("mcp:write");
     expect(calendarTools["calendar.get_slots"].scope).toBe("mcp:read");
+    expect(progressTools["progress.report"].scope).toBe("mcp:write");
+    expect(progressTools["progress.list"].scope).toBe("mcp:read");
   });
 });
 

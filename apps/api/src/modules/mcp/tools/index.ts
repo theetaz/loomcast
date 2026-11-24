@@ -6,6 +6,7 @@ import { calendarServiceFor } from "../../calendar";
 import { listChannels } from "../../channels/mappers";
 import { contentServiceFor } from "../../content";
 import { formatsServiceFor } from "../../formats";
+import { progressServiceFor } from "../../progress";
 import { researchServiceFor } from "../../research";
 import { reviewsServiceFor } from "../../reviews";
 import { seriesServiceFor } from "../../series";
@@ -19,6 +20,7 @@ import { createKbTools } from "./kb";
 import { createOwnerTools } from "./owner";
 import { createPipelineTools } from "./pipeline";
 import { createPostTools } from "./posts";
+import { createProgressTools } from "./progress";
 import type { ToolDefinition } from "./registry";
 import { createResearchTools } from "./research";
 import { createSkillTools } from "./skills";
@@ -32,6 +34,7 @@ export { createKbTools, type KbToolsDeps, kbEntryUrl, workspaceIdFromCwd } from 
 export { createOwnerTools, type OwnerToolsDeps } from "./owner";
 export { createPipelineTools, type PipelineToolsDeps, tokenActor } from "./pipeline";
 export { createPostTools, type PostToolsDeps } from "./posts";
+export { createProgressTools, type ProgressToolsDeps } from "./progress";
 export {
   defineTool,
   McpToolError,
@@ -83,6 +86,7 @@ export function createMcpTools(deps: ModuleDeps): ToolDefinition[] {
       calendar: calendarServiceFor(deps),
       assets: deps.assets,
     }),
+    ...createProgressTools({ progress: progressServiceFor(deps), workspaces }),
     ...createResearchTools({ research: researchServiceFor(deps), workspaces }),
     ...createAnalyticsTools({ analytics: createAnalyticsService(db), workspaces }),
   ];

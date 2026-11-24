@@ -50,6 +50,7 @@ import {
   storageCheck,
 } from "./modules/ops";
 import { register as registerProduction } from "./modules/production";
+import { register as registerProgress } from "./modules/progress";
 import { register as registerPublisher } from "./modules/publisher";
 import { register as registerReviews } from "./modules/reviews";
 import { createScheduler, register as registerScheduler } from "./modules/scheduler";
@@ -325,6 +326,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}): Hono<A
   registerContent(app, moduleDeps);
   registerReviews(app, moduleDeps);
   registerProduction(app, moduleDeps);
+  registerProgress(app, moduleDeps);
   registerSkills(app, moduleDeps);
   registerChannels(app, moduleDeps);
   registerOAuth(app, moduleDeps);
