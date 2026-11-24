@@ -54,6 +54,7 @@ describe("sidebar navigation registry", () => {
       "overview",
       "calendar",
       "library",
+      "production",
       "review",
       "approvals",
       "analytics",
