@@ -20,11 +20,17 @@ import { appAccessToken } from "./proof";
 /** Host of the Facebook login dialog. */
 export const META_DIALOG_BASE_URL = "https://www.facebook.com";
 
-/** The permissions the Facebook Login for Business configuration grants (see the runbook). */
+/**
+ * The permissions the Facebook Login for Business configuration grants (see the runbook).
+ * `pages_manage_engagement` and `pages_read_user_content` are for Reel covers
+ * (`POST /{video-id}/thumbnails`).
+ */
 export const META_LOGIN_PERMISSIONS = [
   "pages_show_list",
   "pages_read_engagement",
   "pages_manage_posts",
+  "pages_manage_engagement",
+  "pages_read_user_content",
   "read_insights",
   "business_management",
   "instagram_basic",

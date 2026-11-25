@@ -8,6 +8,7 @@ import {
 import {
   type FetchLike,
   type GraphClientOptions,
+  type GraphFile,
   type GraphParams,
   type GraphRequest,
   MetaGraphError,
@@ -167,21 +168,33 @@ function withoutToken(fields: RequestFields | Record<string, string> | undefined
  * The Graph client call of a built `graph` or `threads` step. The token moves from the step's
  * `Authorization` header or `access_token` field to where the client puts it (with its
  * `appsecret_proof` on the Graph API); POST fields go form-encoded, which the Graph API reads the
- * same as JSON. POSTs are not retried by the client: one that timed out may have taken effect.
+ * same as JSON. A `multipart` step names its file parts (`step.files`) and the caller passes
+ * their bytes in `files`, read from each part's link. POSTs are not retried by the client: one
+ * that timed out may have taken effect.
  */
 export function toGraphRequest(
   step: PlatformRequest,
   accessToken: string,
   signal: AbortSignal,
+  files?: Readonly<Record<string, GraphFile>>,
 ): GraphRequest {
   if (step.api !== "graph" && step.api !== "threads") {
     throw new Error(`the ${step.step} step is not a Graph API call`);
+  }
+  const parts = Object.keys(step.files ?? {});
+  if (step.bodyEncoding === "multipart" || parts.length > 0) {
+    if (step.method !== "POST" || parts.some((name) => files?.[name] === undefined)) {
+      throw new Error(`the ${step.step} step needs the bytes of its files`);
+    }
   }
   return {
     method: step.method,
     path: step.path,
     query: withoutToken(step.query),
     ...(step.method === "POST" ? { form: withoutToken(step.body) } : {}),
+    ...(parts.length === 0 || files === undefined
+      ? {}
+      : { files: Object.fromEntries(parts.map((name) => [name, files[name] as GraphFile])) }),
     accessToken,
     signal,
   };

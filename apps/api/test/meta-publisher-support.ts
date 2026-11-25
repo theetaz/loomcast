@@ -35,11 +35,16 @@ export interface SeenCall {
   headers: Headers;
   /** The form fields of a POST (empty for other calls). */
   form: URLSearchParams;
+  /** The parts of a multipart POST; null for other calls. */
+  multipart: FormData | null;
 }
 
 export interface Reply {
   status?: number;
-  body: unknown;
+  /** Answered as JSON. */
+  body?: unknown;
+  /** Answered as these bytes with this type instead, such as a poster image. */
+  raw?: { bytes: Uint8Array; type: string };
 }
 
 interface Route {
@@ -60,6 +65,7 @@ export function scriptedFetch() {
       url,
       headers: new Headers(init.headers),
       form: new URLSearchParams(typeof init.body === "string" ? init.body : ""),
+      multipart: init.body instanceof FormData ? init.body : null,
     };
     calls.push(call);
     const index = routes.findIndex(
@@ -70,6 +76,12 @@ export function scriptedFetch() {
       throw new Error(`unexpected ${method} ${url.pathname}`);
     }
     const reply = typeof route.reply === "function" ? route.reply(call) : route.reply;
+    if (reply.raw !== undefined) {
+      return new Response(reply.raw.bytes as Uint8Array<ArrayBuffer>, {
+        status: reply.status ?? 200,
+        headers: { "content-type": reply.raw.type },
+      });
+    }
     return new Response(JSON.stringify(reply.body), {
       status: reply.status ?? 200,
       headers: { "content-type": "application/json" },
@@ -118,6 +130,8 @@ export interface ContextOptions {
   height?: number;
   bytes?: number;
   caption?: string;
+  /** The public URL of the version's poster; none by default. */
+  posterUrl?: string;
   /** Makes `secrets()` throw what the real context throws for unreadable credentials. */
   unreadableSecrets?: boolean;
 }
@@ -141,6 +155,7 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
       ? `https://dry-run.invalid/p/${postId}/render.mp4`
       : `https://media.example.test/p/${postId}/render.mp4`,
     caption: caption.text,
+    ...(options.posterUrl === undefined ? {} : { posterUrl: options.posterUrl }),
     durationMs: options.durationMs ?? 45_000,
     width: options.width ?? 1_080,
     height: options.height ?? 1_920,
@@ -186,7 +201,7 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
         mime: "video/mp4",
       },
       items: [],
-      posterAssetId: null,
+      posterAssetId: options.posterUrl === undefined ? null : randomUUID(),
     },
     async secrets() {
       if (options.unreadableSecrets === true) {
@@ -203,7 +218,7 @@ export function fakeContext(platform: Platform, options: ContextOptions = {}): F
       return [];
     },
     async getPublicPosterUrl() {
-      return null;
+      return request.posterUrl ?? null;
     },
     caption: () => caption,
     async publishRequest() {
