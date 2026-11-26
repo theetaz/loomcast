@@ -207,6 +207,10 @@ the `vertical-explainer` recipe in `studio/skills/`.
   `manifest.json`. Producer steps load synced skills whose files still match, and fall back to
   the bundled `studio/skills/` otherwise.
 - `GET /api/skills`, `GET /api/skills/:name` and `GET /api/skills/:name/versions` list them.
+- **Browse** them on the **Skills** page (`/skills`, in the sidebar footer): every skill and
+  recipe with its kind, latest version, last update and how many items used it. A skill's page
+  (`/skills/<name>`) shows its files at any version (`SKILL.md` as markdown), every version with
+  its changelog, publisher and date, and the items whose production used it.
 
 A format may name a recipe (`rules.recipe`) to guide its producer steps. The MCP tools are
 documented in [mcp.md](mcp.md).
@@ -228,6 +232,25 @@ shows every reported item as a card in the column of its stage, and the item pag
   newer one.
 - The data lives in `content_progress`, one row per item, and `content.progress.updated` keeps
   open pages current.
+
+### Skills and tools used
+
+The skill and tool names in reported steps are counted, so the owner can see what made what. Nothing
+is stored for it: the counts come from `content_progress` when they are asked for.
+
+- `GET /api/workspaces/:workspaceId/skills` gives, for each skill and each tool name in the
+  workspace's steps, the number of items, the steps it was used in and when it was last used (a
+  step's finish, else its start, else the item's report time). Skills carry their registry entry
+  (kind, description, latest version), or `null` when no version has been published. It also lists
+  the recipes the workspace's formats name (`rules.recipe`).
+- `GET /api/skill-usage` counts skill names across every workspace, and
+  `GET /api/skills/:name/usage` lists the items (with their workspace, title and current step) whose
+  steps used a skill.
+- The workspace's **Skills & tools** page (`/w/<slug>/skills`) shows both lists. On the Production
+  board and the item's Production card, a step's skill links to its catalogue page and its tool to
+  its row on that page. Only names that can be registry names (`SKILL_NAME_RE`) get a link.
+- Steps without a skill or tool are not counted. Names are counted as the producer reported them, so
+  a skill that was never published still shows, marked as not in the registry.
 
 ## Checking it
 
