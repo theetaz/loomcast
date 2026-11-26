@@ -129,8 +129,11 @@ import {
 import {
   GetSkillQuerySchema,
   SkillSummarySchema,
+  SkillUsageItemSchema,
+  SkillUsageSchema,
   SkillVersionDetailSchema,
   SkillVersionSummarySchema,
+  WorkspaceSkillsSchema,
 } from "./skills";
 import { SystemFeaturesSchema } from "./system";
 import { AccessTokenSchema, CreateTokenRequestSchema, CreateTokenResponseSchema } from "./tokens";
@@ -937,6 +940,32 @@ export const routes = {
     auth: "session",
     params: SkillNameParamsSchema,
     response: listSchema(SkillVersionSummarySchema),
+    status: 200,
+  }),
+  /** The items whose reported progress used the skill, in every workspace, most recent first. */
+  "skills.usage": route({
+    method: "GET",
+    path: "/api/skills/:name/usage",
+    auth: "session",
+    params: SkillNameParamsSchema,
+    response: listSchema(SkillUsageItemSchema),
+    status: 200,
+  }),
+  /** Every skill name used in reported progress, in every workspace, most recently used first. */
+  "skills.usageAll": route({
+    method: "GET",
+    path: "/api/skill-usage",
+    auth: "session",
+    response: listSchema(SkillUsageSchema),
+    status: 200,
+  }),
+  /** The skills and tools a workspace's reported progress used, and its formats' recipes. */
+  "skills.workspace": route({
+    method: "GET",
+    path: "/api/workspaces/:workspaceId/skills",
+    auth: "session",
+    params: WorkspaceIdParamsSchema,
+    response: WorkspaceSkillsSchema,
     status: 200,
   }),
 

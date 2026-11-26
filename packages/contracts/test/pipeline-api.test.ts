@@ -23,10 +23,12 @@ import {
   SKILL_MAX_FILES,
   SkillFilesSchema,
   SkillManifestSchema,
+  SkillUsageSchema,
   skillChecksumInput,
   UpdateContentItemRequestSchema,
   UpdateFormatRequestSchema,
   UpdateSeriesRequestSchema,
+  WorkspaceSkillsSchema,
 } from "../src";
 import { alignment, asset, at, contentItem, ids, job, script, version } from "./fixtures";
 
@@ -349,6 +351,48 @@ describe("skill files", () => {
 
     expect(skillChecksumInput([b, a])).toBe("a.md\u0000A\u0000b/c.md\u0000BC");
     expect(skillChecksumInput([a, b])).toBe(skillChecksumInput([b, a]));
+  });
+});
+
+describe("skill usage", () => {
+  const usage = {
+    name: "cm say",
+    items: 2,
+    steps: ["voice"],
+    lastUsedAt: at,
+  };
+
+  it("takes any reported name, and a registry entry only for registered skills", () => {
+    expect(
+      SkillUsageSchema.parse({ ...usage, name: "Not A Registry Name", registry: null }).name,
+    ).toBe("Not A Registry Name");
+    expect(
+      SkillUsageSchema.safeParse({
+        ...usage,
+        registry: { kind: "skill", description: null, latestVersion: 0 },
+      }).success,
+    ).toBe(false);
+    expect(
+      SkillUsageSchema.safeParse({ ...usage, steps: ["mixing"], registry: null }).success,
+    ).toBe(false);
+  });
+
+  it("lists a workspace's skills, tools and format recipes", () => {
+    const parsed = WorkspaceSkillsSchema.parse({
+      workspaceId: ids.workspace,
+      skills: [{ ...usage, name: "voiceover", registry: null }],
+      tools: [usage],
+      recipes: [
+        {
+          formatId: ids.format,
+          formatName: "Explainers",
+          name: "vertical-explainer",
+          version: null,
+          registry: { kind: "recipe", description: "A recipe.", latestVersion: 3 },
+        },
+      ],
+    });
+    expect(parsed.recipes[0]?.registry?.latestVersion).toBe(3);
   });
 });
 
