@@ -60,7 +60,7 @@ the scheduler's task list and retry (`db.tasks`, with a few dead and failed task
 
 | Path | Contents |
 |---|---|
-| `src/routes/` | File routes. `__root` (providers); `login`, `set-password`, `terms`, `privacy` and `data-deletion` (public); `_app` (auth guard and shell); `_app/index` (opens the last workspace); `_app/workspaces/index` (every workspace); `_app/w/$workspace/*` (every page of one workspace, its settings included); `_app/channels/connect` (where a platform sign-in returns); `_app/settings/*` (account settings); `_app/guide/*`. The old top-level addresses (`_app/calendar`, `library`, `review`, `approvals`, `analytics/*`, `content/$itemId`, `projects/$`, `workspaces/$`, `settings/channels/*`, `settings/api-clients`) only redirect into a workspace |
+| `src/routes/` | File routes. `__root` (providers); `login`, `set-password`, `terms`, `privacy` and `data-deletion` (public); `_app` (auth guard and shell); `_app/index` (opens the last workspace); `_app/workspaces/index` (every workspace); `_app/w/$workspace/*` (every page of one workspace, its settings included); `_app/channels/connect` (where a platform sign-in returns); `_app/settings/*` (account settings); `_app/guide/*`; `_app/skills/*` (the skills catalogue). The old top-level addresses (`_app/calendar`, `library`, `review`, `approvals`, `analytics/*`, `content/$itemId`, `projects/$`, `workspaces/$`, `settings/channels/*`, `settings/api-clients`) only redirect into a workspace |
 | `src/app/nav/` | The sidebar registry (`registry.ts`, `items/*.ts`) and the open workspace's Channels group |
 | `src/lib/api.ts` | Typed client over `routes` from the contracts, and `ApiError` |
 | `src/lib/live.ts` | The live event client and its hooks |

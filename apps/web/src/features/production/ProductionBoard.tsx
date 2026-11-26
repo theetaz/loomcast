@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { RelativeTime } from "@/components/RelativeTime";
 import { useWorkspaceParam } from "@/features/workspace/current";
 import { ProgressPreview } from "./ProgressPreview";
-import { StepStrip } from "./ProgressSteps";
+import { StepBy, StepStrip } from "./ProgressSteps";
 import { progressListQueryOptions, useProgressLive } from "./queries";
 
 const ALL_STYLES = "";
@@ -152,6 +152,7 @@ export function ProductionBoard({ workspaceId }: { workspaceId: string }) {
 function ProgressCard({ item }: { item: ContentProgress }) {
   const workspaceParam = useWorkspaceParam();
   const failedStep = item.steps.find((step) => step.status === "failed");
+  const stageStep = item.steps.find((step) => step.key === item.stage);
   return (
     <li
       data-item-id={item.itemId}
@@ -175,6 +176,10 @@ function ProgressCard({ item }: { item: ContentProgress }) {
           {item.title}
         </Link>
         <StepStrip steps={item.steps} />
+        {stageStep ? (
+          // Above the card's own link, so the skill and tool open the catalogue instead.
+          <StepBy step={stageStep} className="relative z-10 w-fit max-w-full" />
+        ) : null}
         <div className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
           {item.health === "failed" ? (
             <span

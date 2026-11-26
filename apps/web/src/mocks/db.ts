@@ -20,6 +20,7 @@ import {
   PAIRING_CODE_TTL_MS,
   type PairingCode,
   type PasswordTokenPurpose,
+  type ProgressStepKey,
   type PublisherStatus,
   type Review,
   type ScheduledPost,
@@ -52,11 +53,22 @@ export interface MockWorkspaceIcon {
 }
 
 /** In-memory state behind the mock API. Tests build one per case; the browser keeps one per tab. */
+/** One item's reported steps, for the skills usage routes (`content_progress` in the API). */
+export interface MockSkillUse {
+  itemId: string;
+  workspaceId: string;
+  title: string;
+  steps: { key: ProgressStepKey; skill: string | null; tool: string | null }[];
+  reportedAt: string;
+}
+
 export interface MockDb {
   user: Me;
   password: string;
   signedIn: boolean;
   workspaces: Workspace[];
+  /** Reported production steps the skills usage routes count; none unless a test adds them. */
+  skillUses?: MockSkillUse[];
   /** Workspace icons by workspace id. */
   workspaceIcons?: Record<string, MockWorkspaceIcon>;
   devices: Device[];

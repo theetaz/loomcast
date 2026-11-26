@@ -49,7 +49,7 @@ describe("channel settings", () => {
     expect(within(row(X)).getByText("Dry-run only")).toBeInTheDocument();
     expect(within(row(PLANNING)).getByText(/Planning channel/)).toBeInTheDocument();
 
-    expect(screen.getByRole("status")).toHaveTextContent(/^Dry-run mode\./);
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Dry-run mode\./);
     const connect = screen.getByRole("button", { name: "Connect" });
     expect(connect).not.toHaveAttribute("aria-disabled");
     expect(connect).toHaveAttribute("aria-haspopup", "menu");

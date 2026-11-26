@@ -64,10 +64,12 @@ describe("sidebar navigation registry", () => {
       "knowledge",
       "series",
       "competitors",
+      "workspace-skills",
     ]);
     expect(navSection(navItems, "footer").map((item) => item.id)).toEqual([
       "workspace-settings",
       "guide",
+      "skills",
       "settings",
     ]);
   });
@@ -115,8 +117,10 @@ describe("app sidebar", () => {
     expect(href("Knowledge")).toBe(`/w/${RUST}/kb`);
     expect(href("Series")).toBe(`/w/${RUST}/series`);
     expect(href("Competitors")).toBe(`/w/${RUST}/competitors`);
+    expect(href("Skills & tools")).toBe(`/w/${RUST}/skills`);
     expect(href("Workspace settings")).toBe(`/w/${RUST}/settings`);
     expect(href("Guide")).toBe("/guide");
+    expect(href("Skills")).toBe("/skills");
     expect(href("Account settings")).toBe("/settings");
     expect(within(nav).getByText("Loomcast")).toBeInTheDocument();
   });
