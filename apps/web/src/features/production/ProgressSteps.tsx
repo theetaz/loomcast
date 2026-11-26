@@ -16,6 +16,8 @@ import {
   XIcon,
 } from "lucide-react";
 import { RelativeTime } from "@/components/RelativeTime";
+import { SkillName, ToolName } from "@/features/skills/links";
+import { useOptionalWorkspaceParam } from "@/features/workspace/current";
 
 const STATUS_LABELS: Record<ProgressStepStatus, string> = {
   pending: "To do",
@@ -83,8 +85,27 @@ export function StepStrip({ steps }: { steps: readonly ProgressStep[] }) {
   );
 }
 
+/** The skill and tool behind a step, linked to the skills catalogue and the workspace's tools. */
+export function StepBy({ step, className }: { step: ProgressStep; className?: string }) {
+  const workspace = useOptionalWorkspaceParam();
+  if (step.skill === null && step.tool === null) return null;
+  const text = "text-[11px] text-muted-foreground";
+  return (
+    <p className={cn("flex min-w-0 items-baseline gap-1 truncate font-mono", text, className)}>
+      {step.skill !== null ? <SkillName name={step.skill} className={text} /> : null}
+      {step.skill !== null && step.tool !== null ? <span aria-hidden="true">·</span> : null}
+      {step.tool !== null ? (
+        workspace === null ? (
+          <span>{step.tool}</span>
+        ) : (
+          <ToolName name={step.tool} workspace={workspace} className={text} />
+        )
+      ) : null}
+    </p>
+  );
+}
+
 function StepRow({ step }: { step: ProgressStep }) {
-  const by = [step.skill, step.tool].filter(Boolean).join(" · ");
   return (
     <li className="flex gap-2.5 py-1.5">
       <span className="mt-0.5">
@@ -109,7 +130,7 @@ function StepRow({ step }: { step: ProgressStep }) {
             />
           ) : null}
         </div>
-        {by ? <p className="truncate font-mono text-[11px] text-muted-foreground">{by}</p> : null}
+        <StepBy step={step} />
         {step.note ? <p className="text-small text-text-2">{step.note}</p> : null}
         {step.error ? <p className="text-small text-status-red">{step.error}</p> : null}
       </div>

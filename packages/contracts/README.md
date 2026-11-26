@@ -197,6 +197,9 @@ All of them use the cookie session. Lists of formats, series, versions, reviews,
 | `skills.list` `GET /api/skills` | | `{items: SkillSummary[]}` |
 | `skills.get` `GET /api/skills/:name` | `?version=` (latest by default) | `SkillVersionDetail`, with files |
 | `skills.versions` `GET /api/skills/:name/versions` | | `{items: SkillVersionSummary[]}` |
+| `skills.usage` `GET /api/skills/:name/usage` | | `{items: SkillUsageItem[]}`: the items in every workspace whose reported progress used the skill, most recently used first; empty for an unused name |
+| `skills.usageAll` `GET /api/skill-usage` | | `{items: SkillUsage[]}`: every skill name used in any workspace's progress, with its registry entry or `null` |
+| `skills.workspace` `GET /api/workspaces/:workspaceId/skills` | | `WorkspaceSkills`: `{workspaceId, skills, tools, recipes}`, the workspace's skill and tool usage and the recipes its formats name |
 
 - Every item has a current version from the start: version 1 is the bare idea, created together with the item.
 - Versions never change. `content.versions.edit` copies the base forward with the changes: a new script clears the voice, render and poster; a new storyboard clears the render and poster; a new `voiceAssetId` (a ready voice take of the same item) clears the render. The new state follows from `PIPELINE_TRANSITIONS`.

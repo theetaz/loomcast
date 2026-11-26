@@ -40,6 +40,7 @@ import { createOAuthHandlers } from "./oauth";
 import { createReviewQueueHandlers } from "./review-queue";
 import { createSchedulerHandlers } from "./scheduler";
 import { createSeriesHandlers } from "./series";
+import { createSkillHandlers } from "./skills";
 import { createUploadHandlers } from "./uploads";
 import { createUserHandlers } from "./users";
 
@@ -282,6 +283,7 @@ export function createHandlers(db: MockDb) {
     ...createUserHandlers(db),
     ...createContentHandlers(db),
     ...createFormatHandlers(db),
+    ...createSkillHandlers(db),
     ...createSeriesHandlers(db),
     ...createReviewQueueHandlers(db),
     ...createUploadHandlers(db),
